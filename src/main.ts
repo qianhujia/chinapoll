@@ -15,6 +15,13 @@ function voteFillPath(percent: number): string {
   return `M0 ${level} H100 V100 H0 Z`;
 }
 
+function renderModeBadge(mode: PollIssue['mode']): string {
+  const modeStyle = mode === 'deadline'
+    ? 'bg-[#fff3e8] text-[#99551b]'
+    : 'bg-[#eaf5ee] text-[#28734a]';
+  return `<span class="shrink-0 rounded-full px-[9px] py-[3px] text-xs leading-[1.5] font-light whitespace-nowrap ${modeStyle}">${mode === 'deadline' ? t('deadline') : t('evergreen')}</span>`;
+}
+
 function renderVoteButton(
   option: VoteOption,
   count: number,
@@ -345,8 +352,8 @@ async function mountHome(page = 1) {
                 <div class="col-start-1 flex items-start justify-between gap-[18px]">
                   <div class="flex flex-wrap items-center gap-2">
                     <span class="shrink-0 font-bold tabular-nums text-muted">#${issue.id}</span>
-                    <span class="shrink-0 rounded-full bg-primary-soft px-[9px] py-[3px] text-xs leading-[1.5] whitespace-nowrap text-primary">${issue.mode === 'deadline' ? t('deadline') : t('evergreen')}</span>
-                    <h2 class="m-0 flex-[1_1_auto] text-[1.15rem] leading-[1.5] font-bold"><a class="text-inherit no-underline hover:text-primary hover:underline focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-[3px] focus-visible:outline-primary" href="/poll/${issue.id}" data-route="/poll/${issue.id}">${issue.title}</a></h2>
+                    ${renderModeBadge(issue.mode)}
+                    <h2 class="m-0 flex-[1_1_auto] text-[1.15rem] leading-[1.5]"><a class="text-inherit no-underline hover:text-primary hover:underline focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-[3px] focus-visible:outline-primary" href="/poll/${issue.id}" data-route="/poll/${issue.id}">${issue.title}</a></h2>
                   </div>
                 </div>
 
@@ -491,7 +498,7 @@ async function mountVotePage(issueId: number) {
           <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
             <span class="shrink-0 font-bold tabular-nums text-muted">#${issue.id}</span>
             <h1 class="m-0 text-2xl font-bold">${issue.title}</h1>
-            <span class="shrink-0 rounded-full bg-primary-soft px-[9px] py-[3px] text-xs leading-[1.5] whitespace-nowrap text-primary">${issue.mode === 'deadline' ? t('deadline') : t('evergreen')}</span>
+            ${renderModeBadge(issue.mode)}
           </div>
 
           ${voteCounts ? `
