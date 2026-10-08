@@ -143,7 +143,7 @@ button, textarea {
   grid-column: 1;
 }
 
-.poll-row .bar-group {
+.poll-row .bar-chart {
   grid-column: 2;
   grid-row: 1 / span 2;
 }
@@ -156,9 +156,51 @@ button, textarea {
 }
 
 .poll-header h2 {
-  margin: 8px 0 0;
+  margin: 0;
   font-size: 1.15rem;
   line-height: 1.5;
+}
+
+.poll-title-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.poll-title-line h2 {
+  flex: 1 1 auto;
+}
+
+.issue-title-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.issue-title-line h1 {
+  margin: 0;
+}
+
+.issue-number {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: inherit;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.mode-badge {
+  flex: 0 0 auto;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--primary-soft);
+  color: var(--primary);
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.5;
+  white-space: nowrap;
 }
 
 .poll-title-link {
@@ -179,7 +221,8 @@ button, textarea {
 
 .poll-meta {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-start;
+  align-items: center;
   gap: 12px;
   color: var(--muted);
   font-size: 0.85rem;
@@ -283,35 +326,104 @@ button, textarea {
   font-size: clamp(1.4rem, 2vw, 2rem);
 }
 
-.bar-group {
+.bar-chart {
   display: grid;
-  gap: 7px;
+  grid-template-columns: repeat(3, 36px);
+  justify-content: center;
+  gap: 0;
+  align-items: end;
 }
 
-.bar-row {
+.bar-column {
   display: grid;
-  grid-template-columns: 48px minmax(32px, 1fr) 32px;
-  align-items: center;
-  gap: 7px;
-  font-size: 0.75rem;
+  grid-template-rows: 54px auto;
+  justify-items: center;
+  gap: 8px;
 }
 
-.bar {
-  position: relative;
-  background: #edf2fa;
-  height: 7px;
-  border-radius: 999px;
+.bar-track {
+  display: flex;
+  align-items: flex-end;
+  width: 8px;
+  height: 54px;
   overflow: hidden;
+  border-radius: 8px 8px 3px 3px;
+  background: #edf2fa;
 }
 
-.bar i {
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
+.bar-fill {
   display: block;
-  background: linear-gradient(90deg, var(--primary), #6c8ccf);
-  border-radius: inherit;
+  width: 100%;
+  min-height: 0;
+  border-radius: 7px 7px 2px 2px;
+}
+
+.bar-column.approve .bar-fill { background: #1fa36a; }
+.bar-column.neutral .bar-fill { background: #7a8798; }
+.bar-column.oppose .bar-fill { background: #d95b5b; }
+
+.bar-caption {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.home-vote-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  min-height: 26px;
+  padding: 3px 5px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition: background-color 120ms ease, opacity 120ms ease;
+}
+
+.home-vote-icon:hover:not(:disabled) {
+  background: var(--primary-soft);
+}
+
+.home-vote-icon:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+}
+
+.home-vote-icon:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+.toast {
+  position: fixed;
+  z-index: 10;
+  top: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: min(420px, calc(100vw - 40px));
+  padding: 12px 18px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+  color: var(--text);
+}
+
+.toast[hidden] {
+  display: none;
+}
+
+.bar-caption .vote-icon {
+  width: 15px;
+  height: 15px;
 }
 
 .choice-stack {
@@ -319,7 +431,7 @@ button, textarea {
   grid-template-columns: repeat(3, minmax(0, 140px));
   justify-content: center;
   gap: 12px;
-  margin-top: 12px;
+  margin-top: 24px;
 }
 
 .choice {
@@ -376,11 +488,17 @@ button, textarea {
 .choice.oppose { background: #d95b5b; }
 .choice.neutral { background: #7a8798; }
 
-.privacy-note,
 .comment-box,
 .proposal-form {
   display: grid;
   gap: 12px;
+}
+
+.privacy-note {
+  display: block;
+  color: var(--muted);
+  font-size: 0.8rem;
+  text-align: center;
 }
 
 .comment-submit-status {
@@ -559,7 +677,7 @@ input[type="radio"] {
     row-gap: 12px;
   }
 
-  .poll-row .bar-group {
+  .poll-row .bar-chart {
     grid-column: 1;
     grid-row: auto;
   }
@@ -568,7 +686,7 @@ input[type="radio"] {
     grid-template-columns: 1fr;
   }
 
-  .bar-row {
-    grid-template-columns: 48px minmax(32px, 1fr) 32px;
+  .bar-chart {
+    width: 100%;
   }
 }

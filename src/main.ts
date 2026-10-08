@@ -67,6 +67,20 @@ function getSiteSlogan(): string {
   return import.meta.env.VITE_SLOGON || t('tagline');
 }
 
+function renderHeader(activeRoute: string): string {
+  return `
+    <header class="topbar">
+      <div class="brand-wrap">
+        <a class="brand-link" href="/" data-route="/" aria-label="${t('homeLinkLabel')}">${getSiteName()}</a>
+        <div class="tagline">${getSiteSlogan()}</div>
+      </div>
+      <nav class="nav">
+        ${getNavigationMarkup(activeRoute)}
+      </nav>
+    </header>
+  `;
+}
+
 function renderFooter(): string {
   const dataUrl = import.meta.env.VITE_DATA_GITHUB_URL;
 
@@ -203,13 +217,7 @@ async function mountHome(page = 1) {
   } catch (error) {
     app!.innerHTML = `
       <div class="page-shell">
-        <header class="topbar">
-          <div class="brand-wrap">
-            <a class="brand-link" href="/" data-route="/" aria-label="${t('homeLinkLabel')}">${getSiteName()}</a>
-            <div class="tagline">${getSiteSlogan()}</div>
-          </div>
-          <nav class="nav">${getNavigationMarkup('/')}</nav>
-        </header>
+        ${renderHeader('/')}
         <main class="container"><p class="vote-status">${t('statsLoadFailed')} ${getErrorMessage(error)}</p></main>
         ${renderFooter()}
       </div>
@@ -218,24 +226,30 @@ async function mountHome(page = 1) {
     return;
   }
 
-  const totalVotes = issueStats.reduce((sum, { stats }) => {
+  let totalVotes = issueStats.reduce((sum, { stats }) => {
     return sum + stats.counts.approve + stats.counts.oppose + stats.counts.neutral;
   }, 0);
   const totalPages = Math.ceil(issueStats.length / POLLS_PER_PAGE);
   const currentPage = Math.min(Math.max(1, page), totalPages);
   const visibleIssueStats = issueStats.slice((currentPage - 1) * POLLS_PER_PAGE, currentPage * POLLS_PER_PAGE);
+  const tokenHash = await hashToken(createToken());
+  const issueVoteStates = new Map<number, { voted: boolean; error: string }>();
+  await Promise.all(visibleIssueStats.map(async ({ issue }) => {
+    let voted = hasVotedLocally(issue.id, tokenHash);
+    let error = '';
+    try {
+      const status = await getVoteStatus(issue.id, tokenHash);
+      voted ||= status.voted;
+      if (status.voted) markVotedLocally(issue.id, tokenHash);
+    } catch (statusError) {
+      error = getErrorMessage(statusError);
+    }
+    issueVoteStates.set(issue.id, { voted, error });
+  }));
 
   app!.innerHTML = `
     <div class="page-shell">
-      <header class="topbar">
-        <div class="brand-wrap">
-          <a class="brand-link" href="/" data-route="/" aria-label="${t('homeLinkLabel')}">${getSiteName()}</a>
-          <div class="tagline">${getSiteSlogan()}</div>
-        </div>
-        <nav class="nav">
-          ${getNavigationMarkup('/')}
-        </nav>
-      </header>
+      ${renderHeader('/')}
 
       <main class="container">
         <section class="hero">
@@ -250,7 +264,7 @@ async function mountHome(page = 1) {
           </div>
           <div>
             <span class="label">${t('totalVotes')}</span>
-            <strong>${totalVotes}</strong>
+            <strong data-total-votes>${totalVotes}</strong>
           </div>
           <div>
             <span class="label">${t('modes')}</span>
@@ -261,35 +275,55 @@ async function mountHome(page = 1) {
         <section class="poll-list">
           ${visibleIssueStats.map(({ issue, stats }) => {
             const total = stats.counts.approve + stats.counts.oppose + stats.counts.neutral;
+            const voteState = issueVoteStates.get(issue.id) ?? { voted: false, error: '' };
+            const voteDisabled = voteState.voted || Boolean(voteState.error);
             return `
-              <article class="poll-row">
+              <article class="poll-row" data-poll-row="${issue.id}">
                 <div class="poll-header">
-                  <div>
-                    <span class="eyebrow">${t('issuePrefix')} #${issue.id}</span>
+                  <div class="poll-title-line">
+                    <span class="issue-number">#${issue.id}</span>
+                    <span class="mode-badge">${issue.mode === 'deadline' ? t('deadline') : t('evergreen')}</span>
                     <h2><a class="poll-title-link" href="/vote/${issue.id}" data-route="/vote/${issue.id}">${issue.title}</a></h2>
                   </div>
                 </div>
 
                 <div class="poll-meta">
-                  <span>${issue.mode === 'deadline' ? t('deadline') : t('evergreen')}</span>
-                  <span>${total} ${t('votes')}</span>
+                  <span data-home-total="${issue.id}">${total} ${t('votes')}</span>
                 </div>
 
-                <div class="bar-group">
-                  <div class="bar-row">
-                    <span>${t('approve')}</span>
-                    <div class="bar"><i style="width:${(stats.counts.approve / Math.max(1, total)) * 100}%"></i></div>
-                    <strong>${stats.counts.approve}</strong>
+                <div class="bar-chart">
+                  <div class="bar-column approve">
+                    <div class="bar-track" role="img" aria-label="${t('approve')}: ${stats.counts.approve}">
+                      <i class="bar-fill" data-home-bar="${issue.id}-approve" style="height:${(stats.counts.approve / Math.max(1, total)) * 100}%"></i>
+                    </div>
+                    <div class="bar-caption">
+                      <button type="button" class="home-vote-icon" data-home-vote data-issue-id="${issue.id}" data-option="approve" aria-label="${t('approve')}" title="${voteState.voted ? t('alreadyVoted') : voteState.error || t('approve')}" ${voteDisabled ? 'disabled' : ''}>
+                        <svg class="vote-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M12 4q.8 0 1.2.7l7.8 13.6q.8 1.4-.9 1.4H3.9q-1.7 0-.9-1.4l7.8-13.6q.4-.7 1.2-.7Z"/></svg>
+                        <span data-home-count="${issue.id}-approve">${stats.counts.approve}</span>
+                      </button>
+                    </div>
                   </div>
-                  <div class="bar-row">
-                    <span>${t('neutral')}</span>
-                    <div class="bar"><i style="width:${(stats.counts.neutral / Math.max(1, total)) * 100}%"></i></div>
-                    <strong>${stats.counts.neutral}</strong>
+                  <div class="bar-column neutral">
+                    <div class="bar-track" role="img" aria-label="${t('neutral')}: ${stats.counts.neutral}">
+                      <i class="bar-fill" data-home-bar="${issue.id}-neutral" style="height:${(stats.counts.neutral / Math.max(1, total)) * 100}%"></i>
+                    </div>
+                    <div class="bar-caption">
+                      <button type="button" class="home-vote-icon" data-home-vote data-issue-id="${issue.id}" data-option="neutral" aria-label="${t('neutral')}" title="${voteState.voted ? t('alreadyVoted') : voteState.error || t('neutral')}" ${voteDisabled ? 'disabled' : ''}>
+                        <svg class="vote-icon neutral-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/></svg>
+                        <span data-home-count="${issue.id}-neutral">${stats.counts.neutral}</span>
+                      </button>
+                    </div>
                   </div>
-                  <div class="bar-row">
-                    <span>${t('oppose')}</span>
-                    <div class="bar"><i style="width:${(stats.counts.oppose / Math.max(1, total)) * 100}%"></i></div>
-                    <strong>${stats.counts.oppose}</strong>
+                  <div class="bar-column oppose">
+                    <div class="bar-track" role="img" aria-label="${t('oppose')}: ${stats.counts.oppose}">
+                      <i class="bar-fill" data-home-bar="${issue.id}-oppose" style="height:${(stats.counts.oppose / Math.max(1, total)) * 100}%"></i>
+                    </div>
+                    <div class="bar-caption">
+                      <button type="button" class="home-vote-icon" data-home-vote data-issue-id="${issue.id}" data-option="oppose" aria-label="${t('oppose')}" title="${voteState.voted ? t('alreadyVoted') : voteState.error || t('oppose')}" ${voteDisabled ? 'disabled' : ''}>
+                        <svg class="vote-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M3.9 3h16.2q1.7 0 .9 1.4l-7.8 13.6q-1.2 1.8-2.4 0L3 4.4Q2.2 3 3.9 3Z"/></svg>
+                        <span data-home-count="${issue.id}-oppose">${stats.counts.oppose}</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
               </article>
@@ -299,6 +333,7 @@ async function mountHome(page = 1) {
         ${renderPagination(currentPage, totalPages, 'data-poll-page')}
       </main>
 
+      <div class="toast" data-home-toast role="status" aria-live="polite" hidden></div>
       ${renderFooter()}
     </div>
   `;
@@ -308,6 +343,70 @@ async function mountHome(page = 1) {
     button.addEventListener('click', () => {
       const nextPage = Number(button.getAttribute('data-poll-page'));
       if (Number.isSafeInteger(nextPage) && nextPage > 0) void mountHome(nextPage);
+    });
+  });
+  const toast = document.querySelector<HTMLElement>('[data-home-toast]');
+  let toastTimer: ReturnType<typeof setTimeout> | undefined;
+  const showToast = (message: string) => {
+    if (!toast) return;
+    if (toastTimer) clearTimeout(toastTimer);
+    toast.textContent = message;
+    toast.hidden = false;
+    toastTimer = setTimeout(() => {
+      toast.hidden = true;
+    }, 3500);
+  };
+  if (visibleIssueStats.some(({ issue }) => issueVoteStates.get(issue.id)?.voted)) {
+    showToast(t('alreadyVoted'));
+  }
+  document.querySelectorAll<HTMLButtonElement>('[data-home-vote]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const issueId = Number(button.dataset.issueId);
+      const option = button.dataset.option as VoteOption;
+      const state = issueVoteStates.get(issueId);
+      const issueStatsEntry = issueStats.find(({ issue }) => issue.id === issueId);
+      if (!state || !issueStatsEntry || state.voted || state.error) return;
+
+      const issueButtons = document.querySelectorAll<HTMLButtonElement>(`[data-home-vote][data-issue-id="${issueId}"]`);
+      issueButtons.forEach((voteButton) => { voteButton.disabled = true; });
+
+      try {
+        const result = await submitVote({ issueId, tokenHash, option });
+        if (!result.ok) throw new Error(result.message);
+
+        issueStatsEntry.stats.counts = result.counts;
+        state.voted = true;
+        markVotedLocally(issueId, tokenHash);
+        const issueTotal = result.counts.approve + result.counts.oppose + result.counts.neutral;
+        totalVotes += 1;
+        const totalVotesElement = document.querySelector('[data-total-votes]');
+        if (totalVotesElement) totalVotesElement.textContent = String(totalVotes);
+        const issueTotalElement = document.querySelector(`[data-home-total="${issueId}"]`);
+        if (issueTotalElement) issueTotalElement.textContent = `${issueTotal} ${t('votes')}`;
+        for (const voteOption of ['approve', 'neutral', 'oppose'] as const) {
+          const count = document.querySelector(`[data-home-count="${issueId}-${voteOption}"]`);
+          if (count) count.textContent = String(result.counts[voteOption]);
+          const bar = document.querySelector<HTMLElement>(`[data-home-bar="${issueId}-${voteOption}"]`);
+          if (bar) bar.style.height = `${(result.counts[voteOption] / Math.max(1, issueTotal)) * 100}%`;
+        }
+        showToast(`${t('voteRecord')}: ${t(option)} ✅`);
+      } catch (error) {
+        let alreadyVoted = false;
+        let message = `${t('submitFailed')}: ${getErrorMessage(error)}`;
+        try {
+          const currentStatus = await getVoteStatus(issueId, tokenHash);
+          if (currentStatus.voted) {
+            alreadyVoted = true;
+            state.voted = true;
+            markVotedLocally(issueId, tokenHash);
+            message = t('alreadyVoted');
+          }
+        } catch {
+          // Keep the original submission error if the follow-up status check fails.
+        }
+        showToast(message);
+        if (!alreadyVoted) issueButtons.forEach((voteButton) => { voteButton.disabled = false; });
+      }
     });
   });
 }
@@ -342,20 +441,15 @@ async function mountVotePage(issueId: number) {
 
   app!.innerHTML = `
     <div class="page-shell narrow">
-      <header class="topbar">
-        <div class="brand-wrap">
-          <a class="brand-link" href="/" data-route="/" aria-label="${t('homeLinkLabel')}">${getSiteName()}</a>
-        </div>
-        <nav class="nav">
-          ${getNavigationMarkup('/polls')}
-        </nav>
-      </header>
+      ${renderHeader('/')}
 
       <main class="container vote-page">
         <section class="card issue-intro">
-          <span class="eyebrow">${t('issuePrefix')} #${issue.id}</span>
-          <h1>${issue.title}</h1>
-          <p class="muted">${issue.title}</p>
+          <div class="issue-title-line">
+            <span class="issue-number">#${issue.id}</span>
+            <h1>${issue.title}</h1>
+            <span class="mode-badge">${issue.mode === 'deadline' ? t('deadline') : t('evergreen')}</span>
+          </div>
 
           ${stats ? `<div class="choice-stack">
             <button class="choice approve" data-option="approve" ${hasVoted || voteStatusError ? 'disabled' : ''}>
@@ -386,10 +480,7 @@ async function mountVotePage(issueId: number) {
     : statsError
       ? `${t('statsLoadFailed')} ${statsError}`
     : hasVoted ? t('alreadyVoted') : ''}</p>
-        </section>
-
-        <section class="card privacy-note">
-          <small>${t('privacyText')}</small>
+          <small class="privacy-note">${t('privacyText')}</small>
         </section>
 
         <section class="card comment-box">
@@ -496,14 +587,7 @@ async function mountVotePage(issueId: number) {
 function mountAboutPage() {
   app!.innerHTML = `
     <div class="page-shell narrow">
-      <header class="topbar">
-        <div class="brand-wrap">
-          <a class="brand-link" href="/" data-route="/" aria-label="${t('homeLinkLabel')}">${getSiteName()}</a>
-        </div>
-        <nav class="nav">
-          ${getNavigationMarkup('/about')}
-        </nav>
-      </header>
+      ${renderHeader('/about')}
       <main class="container">
         <section class="card">
           <h1>${t('aboutTitle')}</h1>
@@ -524,14 +608,7 @@ function mountAboutPage() {
 function mountProposePage() {
   app!.innerHTML = `
     <div class="page-shell narrow">
-      <header class="topbar">
-        <div class="brand-wrap">
-          <a class="brand-link" href="/" data-route="/" aria-label="${t('homeLinkLabel')}">${getSiteName()}</a>
-        </div>
-        <nav class="nav">
-          ${getNavigationMarkup('/propose')}
-        </nav>
-      </header>
+      ${renderHeader('/propose')}
       <main class="container">
         <section class="card proposal-form">
           <h1>${t('proposalTitle')}</h1>
@@ -646,14 +723,7 @@ function mountProposePage() {
 function mountClaimProposalPage() {
   app!.innerHTML = `
     <div class="page-shell narrow">
-      <header class="topbar">
-        <div class="brand-wrap">
-          <a class="brand-link" href="/" data-route="/" aria-label="${t('homeLinkLabel')}">${getSiteName()}</a>
-        </div>
-        <nav class="nav">
-          ${getNavigationMarkup('/propose')}
-        </nav>
-      </header>
+      ${renderHeader('/propose')}
       <main class="container">
         <section class="card proposal-form">
           <h1>${t('claimProposalTitle')}</h1>
