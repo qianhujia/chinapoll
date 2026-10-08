@@ -11,6 +11,7 @@ This repository follows strict English-only rules for all contributor-facing tex
 5. Do not add non-English comments, README text, or commit messages.
 6. When updating documentation, use clear, concise English that is professional and neutral.
 7. If a migration, schema, or deployment note is added, write it in English.
+8. Never include sample, demo, or seed data in migration files; migrations must contain schema changes only.
 
 ## Local workflow
 

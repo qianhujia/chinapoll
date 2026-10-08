@@ -1,6 +1,7 @@
-import { handleProposalRequest } from './api/proposal';
+import { handleProposalClaimRequest, handleProposalRequest } from './api/proposal';
 import { handleStatsRequest } from './api/stats';
-import { handleVoteRequest } from './api/vote';
+import { handleVoteRequest, handleVoteStatusRequest } from './api/vote';
+import { handleCommentsRequest } from './api/comments';
 
 export interface Env {
   DB: D1Database;
@@ -24,8 +25,20 @@ export default {
       return handleStatsRequest(request, url, env as any);
     }
 
+    if (url.pathname === '/api/comments' || url.pathname.startsWith('/api/comments/')) {
+      return handleCommentsRequest(request, url, env as any);
+    }
+
     if (url.pathname === '/api/vote') {
       return handleVoteRequest(request, env as any);
+    }
+
+    if (url.pathname === '/api/vote/status') {
+      return handleVoteStatusRequest(request, env as any);
+    }
+
+    if (url.pathname === '/api/proposal/claim') {
+      return handleProposalClaimRequest(request, env);
     }
 
     if (url.pathname === '/api/proposal') {

@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS votes (
   ip_bucket TEXT NOT NULL,
   option TEXT NOT NULL,
   ts_hour TEXT NOT NULL,
+  comment TEXT,
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -23,9 +24,14 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_votes_issue_token
 
 CREATE TABLE IF NOT EXISTS proposals (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
+  title TEXT,
+  description TEXT,
   text_zh TEXT,
   text_en TEXT,
   token_hash TEXT,
+  mode TEXT NOT NULL DEFAULT 'evergreen',
+  start_at TEXT,
+  end_at TEXT,
   status TEXT,
   clause TEXT,
   reviewed_at TEXT,
@@ -33,18 +39,23 @@ CREATE TABLE IF NOT EXISTS proposals (
   poller_id TEXT
 );
 
+CREATE TABLE IF NOT EXISTS comments (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  issue_id INTEGER NOT NULL,
+  comment TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_comments_issue_created
+  ON comments(issue_id, created_at DESC, id DESC);
+
+CREATE TABLE IF NOT EXISTS identities (
+  poller_id TEXT PRIMARY KEY,
+  email_hmac TEXT NOT NULL UNIQUE,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
   value TEXT
-);
-
-INSERT OR IGNORE INTO issues (id, title, mode, start_at, end_at, status, proposal_ref)
-VALUES (
-  12,
-  'Should the public adopt a unified yearly public-opinion snapshot mechanism?',
-  'deadline',
-  '2026-10-01T09:00:00Z',
-  '2026-10-08T09:00:00Z',
-  'open',
-  NULL
 );

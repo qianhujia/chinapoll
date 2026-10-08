@@ -11,19 +11,15 @@ export async function handleStatsRequest(request: Request, url: URL, env: any): 
 
   const counts: Record<VoteOption, number> = { approve: 0, oppose: 0, neutral: 0 };
 
-  try {
-    const result: any = await env.DB.prepare(
-      `SELECT option, COUNT(*) as count FROM votes WHERE issue_id = ? GROUP BY option`
-    ).bind(issueId).all();
+  const result: any = await env.DB.prepare(
+    `SELECT option, COUNT(*) as count FROM votes WHERE issue_id = ? GROUP BY option`
+  ).bind(issueId).all();
 
-    for (const row of result.results ?? []) {
-      const option = String(row.option) as VoteOption;
-      if (option in counts) {
-        counts[option] = Number(row.count ?? 0);
-      }
+  for (const row of result.results ?? []) {
+    const option = String(row.option) as VoteOption;
+    if (option in counts) {
+      counts[option] = Number(row.count ?? 0);
     }
-  } catch {
-    // local dev fallback; no data yet
   }
 
   return new Response(JSON.stringify({
