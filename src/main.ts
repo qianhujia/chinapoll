@@ -1,13 +1,69 @@
 import './styles.css';
-import { createIcons, Minus, ThumbsDown, ThumbsUp } from 'lucide';
 import { getLocaleText, DEFAULT_LOCALE } from './i18n';
 import { claimProposal, createToken, getComments, getStats, getVoteStatus, hasVotedLocally, hashToken, markVotedLocally, submitComment, submitProposal, submitVote, type CommentsResponse, type VoteOption } from './lib/poll';
 
 const app = document.querySelector('#app');
-const voteIcons = { Minus, ThumbsDown, ThumbsUp };
+const voteButtonStyles: Record<VoteOption, { color: string; empty: string }> = {
+  approve: { color: '#1fa36a', empty: '#e7f5ed' },
+  neutral: { color: '#7a8798', empty: '#edf0f4' },
+  oppose: { color: '#d95b5b', empty: '#faeaea' }
+};
 
-function renderVoteIcons(): void {
-  createIcons({ icons: voteIcons, root: app ?? undefined });
+function voteFillPath(percent: number): string {
+  if (percent >= 100) return 'M0 0 H100 V100 H0 Z';
+  const level = 100 - percent;
+  return `M0 ${level} H100 V100 H0 Z`;
+}
+
+function renderVoteButton(
+  option: VoteOption,
+  count: number,
+  total: number,
+  disabled: boolean,
+  title: string,
+  homeIssueId?: number
+): string {
+  const style = voteButtonStyles[option];
+  const label = t(option);
+  const percent = total > 0 ? count / total * 100 : 0;
+  const homeAttributes = homeIssueId === undefined
+    ? ''
+    : `data-home-vote data-issue-id="${homeIssueId}"`;
+
+  return `
+    <button
+      type="button"
+      class="relative flex min-w-0 flex-1 flex-wrap cursor-pointer items-center justify-center gap-x-1 gap-y-0.5 border-r border-border px-1 py-2 text-xs text-ink transition-[filter] hover:enabled:brightness-95 focus-visible:z-10 focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-primary last:border-r-0 disabled:cursor-not-allowed disabled:opacity-[0.65]"
+      style="background:${style.empty}"
+      data-option="${option}"
+      aria-label="${label}: ${count}"
+      title="${title}"
+      ${homeAttributes}
+      ${disabled ? 'disabled' : ''}
+    >
+      <svg class="pointer-events-none absolute inset-0 h-full w-full" data-vote-fill="${option}" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+        <path d="${count > 0 ? voteFillPath(percent) : ''}" fill="${style.color}"></path>
+      </svg>
+      <span class="relative z-10 whitespace-nowrap">${label}</span>
+      <span class="choice-count relative z-10 shrink-0 tabular-nums" data-vote-count="${option}">${count}</span>
+    </button>
+  `;
+}
+
+function updateVoteGroup(group: HTMLElement, counts: Record<VoteOption, number>): void {
+  const total = counts.approve + counts.neutral + counts.oppose;
+  for (const option of ['approve', 'neutral', 'oppose'] as const) {
+    const button = group.querySelector<HTMLButtonElement>(`[data-option="${option}"]`);
+    const countElement = button?.querySelector<HTMLElement>('[data-vote-count]');
+    if (!button || !countElement) continue;
+
+    const count = counts[option];
+    const percent = total > 0 ? count / total * 100 : 0;
+    const fillPath = button.querySelector<SVGPathElement>('[data-vote-fill] path');
+    if (fillPath) fillPath.setAttribute('d', count > 0 ? voteFillPath(percent) : '');
+    countElement.textContent = String(count);
+    button.setAttribute('aria-label', `${t(option)}: ${count}`);
+  }
 }
 
 const configuredPageWidth = import.meta.env.VITE_PAGE_WIDTH;
@@ -289,47 +345,22 @@ async function mountHome(page = 1) {
                 <div class="col-start-1 flex items-start justify-between gap-[18px]">
                   <div class="flex flex-wrap items-center gap-2">
                     <span class="shrink-0 font-bold tabular-nums text-muted">#${issue.id}</span>
-                    <span class="shrink-0 rounded-full bg-primary-soft px-[9px] py-[3px] text-xs leading-[1.5] font-semibold whitespace-nowrap text-primary">${issue.mode === 'deadline' ? t('deadline') : t('evergreen')}</span>
+                    <span class="shrink-0 rounded-full bg-primary-soft px-[9px] py-[3px] text-xs leading-[1.5] whitespace-nowrap text-primary">${issue.mode === 'deadline' ? t('deadline') : t('evergreen')}</span>
                     <h2 class="m-0 flex-[1_1_auto] text-[1.15rem] leading-[1.5] font-bold"><a class="text-inherit no-underline hover:text-primary hover:underline focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-[3px] focus-visible:outline-primary" href="/poll/${issue.id}" data-route="/poll/${issue.id}">${issue.title}</a></h2>
                   </div>
                 </div>
 
-                <div class="col-start-2 row-start-1 flex items-end justify-center gap-2.5 max-[700px]:col-start-1">
-                  <span class="text-xs leading-[1.2] text-muted" data-home-total="${issue.id}">${total} ${t('votes')}</span>
-                  <div class="grid grid-cols-[repeat(3,36px)] items-end justify-center">
-                    <div class="grid grid-rows-[54px_auto] justify-items-center gap-2">
-                      <div class="flex h-[54px] w-2 items-end overflow-hidden rounded-t-lg rounded-b-[3px] bg-[#edf2fa]" role="img" aria-label="${t('approve')}: ${stats.counts.approve}">
-                        <i class="block min-h-0 w-full rounded-t-[7px] rounded-b-[2px] bg-[#1fa36a]" data-home-bar="${issue.id}-approve" style="height:${(stats.counts.approve / Math.max(1, total)) * 100}%"></i>
-                      </div>
-                      <div class="inline-flex items-center justify-center text-xs tabular-nums">
-                        <button type="button" class="inline-flex min-h-[26px] cursor-pointer items-center justify-center gap-[3px] rounded-lg bg-transparent px-[5px] py-[3px] text-inherit tabular-nums transition-colors hover:enabled:bg-primary-soft focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary disabled:cursor-not-allowed disabled:opacity-[0.65]" data-home-vote data-issue-id="${issue.id}" data-option="approve" aria-label="${t('approve')}" title="${voteState.voted ? t('alreadyVoted') : voteState.error || t('approve')}" ${voteDisabled ? 'disabled' : ''}>
-                          <i class="h-[15px] w-[15px] shrink-0" data-lucide="thumbs-up" aria-hidden="true"></i>
-                          <span data-home-count="${issue.id}-approve">${stats.counts.approve}</span>
-                        </button>
-                      </div>
-                    </div>
-                    <div class="grid grid-rows-[54px_auto] justify-items-center gap-2">
-                      <div class="flex h-[54px] w-2 items-end overflow-hidden rounded-t-lg rounded-b-[3px] bg-[#edf2fa]" role="img" aria-label="${t('neutral')}: ${stats.counts.neutral}">
-                        <i class="block min-h-0 w-full rounded-t-[7px] rounded-b-[2px] bg-[#7a8798]" data-home-bar="${issue.id}-neutral" style="height:${(stats.counts.neutral / Math.max(1, total)) * 100}%"></i>
-                      </div>
-                      <div class="inline-flex items-center justify-center text-xs tabular-nums">
-                        <button type="button" class="inline-flex min-h-[26px] cursor-pointer items-center justify-center gap-[3px] rounded-lg bg-transparent px-[5px] py-[3px] text-inherit tabular-nums transition-colors hover:enabled:bg-primary-soft focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary disabled:cursor-not-allowed disabled:opacity-[0.65]" data-home-vote data-issue-id="${issue.id}" data-option="neutral" aria-label="${t('neutral')}" title="${voteState.voted ? t('alreadyVoted') : voteState.error || t('neutral')}" ${voteDisabled ? 'disabled' : ''}>
-                          <i class="h-[15px] w-[15px] shrink-0" data-lucide="minus" aria-hidden="true"></i>
-                          <span data-home-count="${issue.id}-neutral">${stats.counts.neutral}</span>
-                        </button>
-                      </div>
-                    </div>
-                    <div class="grid grid-rows-[54px_auto] justify-items-center gap-2">
-                      <div class="flex h-[54px] w-2 items-end overflow-hidden rounded-t-lg rounded-b-[3px] bg-[#edf2fa]" role="img" aria-label="${t('oppose')}: ${stats.counts.oppose}">
-                        <i class="block min-h-0 w-full rounded-t-[7px] rounded-b-[2px] bg-[#d95b5b]" data-home-bar="${issue.id}-oppose" style="height:${(stats.counts.oppose / Math.max(1, total)) * 100}%"></i>
-                      </div>
-                      <div class="inline-flex items-center justify-center text-xs tabular-nums">
-                        <button type="button" class="inline-flex min-h-[26px] cursor-pointer items-center justify-center gap-[3px] rounded-lg bg-transparent px-[5px] py-[3px] text-inherit tabular-nums transition-colors hover:enabled:bg-primary-soft focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary disabled:cursor-not-allowed disabled:opacity-[0.65]" data-home-vote data-issue-id="${issue.id}" data-option="oppose" aria-label="${t('oppose')}" title="${voteState.voted ? t('alreadyVoted') : voteState.error || t('oppose')}" ${voteDisabled ? 'disabled' : ''}>
-                          <i class="h-[15px] w-[15px] shrink-0" data-lucide="thumbs-down" aria-hidden="true"></i>
-                          <span data-home-count="${issue.id}-oppose">${stats.counts.oppose}</span>
-                        </button>
-                      </div>
-                    </div>
+                <div class="col-start-2 row-start-1 flex items-center justify-center gap-5 max-[700px]:col-start-1">
+                  <span class="shrink-0 whitespace-nowrap text-xs leading-[1.2] text-muted" data-home-total="${issue.id}">${total} ${t('votes')}</span>
+                  <div class="flex w-full max-w-[300px] overflow-hidden rounded-xl border border-border max-[700px]:col-start-1" role="group" aria-label="${t('vote')}" data-vote-group="${issue.id}">
+                    ${(['approve', 'neutral', 'oppose'] as const).map((option) => renderVoteButton(
+                      option,
+                      stats.counts[option],
+                      total,
+                      voteDisabled,
+                      voteState.voted ? t('alreadyVoted') : voteState.error || t(option),
+                      issue.id
+                    )).join('')}
                   </div>
                 </div>
               </article>
@@ -344,7 +375,6 @@ async function mountHome(page = 1) {
     </div>
   `;
 
-  renderVoteIcons();
   bindNavigation();
   document.querySelectorAll('[data-poll-page]').forEach((button) => {
     button.addEventListener('click', () => {
@@ -387,12 +417,8 @@ async function mountHome(page = 1) {
         if (totalVotesElement) totalVotesElement.textContent = String(totalVotes);
         const issueTotalElement = document.querySelector(`[data-home-total="${issueId}"]`);
         if (issueTotalElement) issueTotalElement.textContent = `${issueTotal} ${t('votes')}`;
-        for (const voteOption of ['approve', 'neutral', 'oppose'] as const) {
-          const count = document.querySelector(`[data-home-count="${issueId}-${voteOption}"]`);
-          if (count) count.textContent = String(result.counts[voteOption]);
-          const bar = document.querySelector<HTMLElement>(`[data-home-bar="${issueId}-${voteOption}"]`);
-          if (bar) bar.style.height = `${(result.counts[voteOption] / Math.max(1, issueTotal)) * 100}%`;
-        }
+        const voteGroup = document.querySelector<HTMLElement>(`[data-vote-group="${issueId}"]`);
+        if (voteGroup) updateVoteGroup(voteGroup, result.counts);
         showToast(`${t('voteRecord')}: ${t(option)} ✅`);
       } catch (error) {
         let alreadyVoted = false;
@@ -442,6 +468,19 @@ async function mountVotePage(issueId: number) {
   } catch {
     commentsContent = t('commentsLoadFailed');
   }
+  const voteCounts = stats?.counts;
+  const voteTotal = voteCounts
+    ? voteCounts.approve + voteCounts.neutral + voteCounts.oppose
+    : 0;
+  const voteButtons = voteCounts
+    ? (['approve', 'neutral', 'oppose'] as const).map((option) => renderVoteButton(
+      option,
+      voteCounts[option],
+      voteTotal,
+      hasVoted || Boolean(voteStatusError),
+      hasVoted ? t('alreadyVoted') : t(option)
+    )).join('')
+    : '';
 
   app!.innerHTML = `
     <div class="mx-auto max-w-[var(--page-width)] px-5 pt-6 pb-16">
@@ -452,32 +491,14 @@ async function mountVotePage(issueId: number) {
           <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
             <span class="shrink-0 font-bold tabular-nums text-muted">#${issue.id}</span>
             <h1 class="m-0 text-2xl font-bold">${issue.title}</h1>
-            <span class="shrink-0 rounded-full bg-primary-soft px-[9px] py-[3px] text-xs leading-[1.5] font-semibold whitespace-nowrap text-primary">${issue.mode === 'deadline' ? t('deadline') : t('evergreen')}</span>
+            <span class="shrink-0 rounded-full bg-primary-soft px-[9px] py-[3px] text-xs leading-[1.5] whitespace-nowrap text-primary">${issue.mode === 'deadline' ? t('deadline') : t('evergreen')}</span>
           </div>
 
-          ${stats ? `          <div class="choice-stack relative mt-6 grid grid-cols-[repeat(3,minmax(0,140px))] justify-center gap-3" title="${hasVoted ? t('alreadyVoted') : ''}">
-            <button class="flex cursor-pointer items-center justify-center gap-1.5 rounded-[14px] border-0 px-1 py-[9px] text-[0.9rem] font-bold text-white disabled:cursor-not-allowed disabled:opacity-[0.65] bg-[#1fa36a]" data-option="approve" ${hasVoted || voteStatusError ? 'disabled' : ''}>
-              <span class="inline-flex items-center justify-center gap-[5px]">
-                <i class="h-[18px] w-[18px] shrink-0" data-lucide="thumbs-up" aria-hidden="true"></i>
-                ${t('approve')}
-              </span>
-              <span class="choice-count tabular-nums">${stats.counts.approve}</span>
-            </button>
-            <button class="flex cursor-pointer items-center justify-center gap-1.5 rounded-[14px] border-0 px-1 py-[9px] text-[0.9rem] font-bold text-white disabled:cursor-not-allowed disabled:opacity-[0.65] bg-[#7a8798]" data-option="neutral" ${hasVoted || voteStatusError ? 'disabled' : ''}>
-              <span class="inline-flex items-center justify-center gap-[5px]">
-                <i class="h-[18px] w-[18px] shrink-0" data-lucide="minus" aria-hidden="true"></i>
-                ${t('neutral')}
-              </span>
-              <span class="choice-count tabular-nums">${stats.counts.neutral}</span>
-            </button>
-            <button class="flex cursor-pointer items-center justify-center gap-1.5 rounded-[14px] border-0 px-1 py-[9px] text-[0.9rem] font-bold text-white disabled:cursor-not-allowed disabled:opacity-[0.65] bg-[#d95b5b]" data-option="oppose" ${hasVoted || voteStatusError ? 'disabled' : ''}>
-              <span class="inline-flex items-center justify-center gap-[5px]">
-                <i class="h-[18px] w-[18px] shrink-0" data-lucide="thumbs-down" aria-hidden="true"></i>
-                ${t('oppose')}
-              </span>
-              <span class="choice-count tabular-nums">${stats.counts.oppose}</span>
-            </button>
-          </div>` : ''}
+          ${voteCounts ? `
+            <div class="mx-auto mt-6 flex w-full max-w-[300px] overflow-hidden rounded-xl border border-border" role="group" aria-label="${t('vote')}" data-vote-group="${issue.id}" title="${hasVoted ? t('alreadyVoted') : ''}">
+              ${voteButtons}
+            </div>
+          ` : ''}
 
           <p class="vote-status m-0 text-center text-muted" role="status">${voteStatusError
     ? `${t('voteStatusFailed')} ${voteStatusError}`
@@ -507,7 +528,6 @@ async function mountVotePage(issueId: number) {
     </div>
   `;
 
-  renderVoteIcons();
   const commentToggle = document.querySelector('[data-toggle-comment]') as HTMLButtonElement | null;
   const commentForm = document.querySelector('#comment-form') as HTMLDivElement | null;
   const commentButton = document.querySelector('[data-submit-comment]') as HTMLButtonElement | null;
@@ -584,16 +604,14 @@ async function mountVotePage(issueId: number) {
       const message = `${t('voteRecord')}: ${statusText} ✅`;
       if (result.ok) {
         stats = { issueId: issue.id, counts: result.counts, voted: true };
-        for (const option of ['approve', 'neutral', 'oppose'] as const) {
-          const count = document.querySelector(`[data-option="${option}"] .choice-count`);
-          if (count) count.textContent = String(result.counts[option]);
-        }
+        const voteGroup = document.querySelector<HTMLElement>(`[data-vote-group="${issue.id}"]`);
+        if (voteGroup) updateVoteGroup(voteGroup, result.counts);
         hasVoted = true;
         markVotedLocally(issue.id, hash);
-        document.querySelectorAll<HTMLButtonElement>('[data-option]').forEach((voteButton) => {
+        document.querySelectorAll<HTMLButtonElement>('[data-vote-group] [data-option]').forEach((voteButton) => {
           voteButton.disabled = true;
         });
-        const choices = document.querySelector('.choice-stack');
+        const choices = document.querySelector<HTMLElement>(`[data-vote-group="${issue.id}"]`);
         if (choices) choices.setAttribute('title', t('alreadyVoted'));
         voteStatus = { issueId: issue.id, voted: true, option };
       }
