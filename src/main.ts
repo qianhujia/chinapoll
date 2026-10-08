@@ -16,10 +16,7 @@ function voteFillPath(percent: number): string {
 }
 
 function renderModeBadge(mode: PollIssue['mode']): string {
-  const modeStyle = mode === 'deadline'
-    ? 'bg-[#fff3e8] text-[#99551b]'
-    : 'bg-[#eaf5ee] text-[#28734a]';
-  return `<span class="shrink-0 rounded-full px-[9px] py-[3px] text-xs leading-[1.5] font-light whitespace-nowrap ${modeStyle}">${mode === 'deadline' ? t('deadline') : t('evergreen')}</span>`;
+  return `<span class="shrink-0 rounded-full bg-[#f1f3f5] px-[9px] py-[3px] text-xs leading-[1.5] font-light whitespace-nowrap text-muted">${mode === 'deadline' ? t('deadline') : t('evergreen')}</span>`;
 }
 
 function renderVoteButton(
