@@ -9,6 +9,7 @@ export interface Env {
   SERVER_SECRET?: string;
   READ_ONLY_MODE?: string;
   TURNSTILE_SKIP?: string;
+  VOTE_RATE_LIMIT_PER_IP_BUCKET_PER_HOUR?: string;
 }
 
 export default {

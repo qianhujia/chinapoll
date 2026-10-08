@@ -1,4 +1,5 @@
 const MAX_PAGE_SIZE = 100;
+const MIN_COMMENT_LENGTH = 5;
 const MAX_COMMENT_LENGTH = 140;
 
 export async function handleCommentsRequest(request: Request, url: URL, env: any): Promise<Response> {
@@ -64,8 +65,11 @@ async function handleCommentSubmission(request: Request, env: any): Promise<Resp
 
   const issueId = Number(body.issueId);
   const comment = typeof body.comment === 'string' ? body.comment.trim() : '';
-  if (!Number.isSafeInteger(issueId) || issueId < 1 || !comment || comment.length > MAX_COMMENT_LENGTH) {
-    return Response.json({ message: 'invalid issueId or comment' }, { status: 400 });
+  if (!Number.isSafeInteger(issueId) || issueId < 1) {
+    return Response.json({ message: 'invalid issueId' }, { status: 400 });
+  }
+  if (comment.length < MIN_COMMENT_LENGTH || comment.length > MAX_COMMENT_LENGTH) {
+    return Response.json({ message: 'comment must be between 5 and 140 characters' }, { status: 400 });
   }
 
   const result = await env.DB.prepare(

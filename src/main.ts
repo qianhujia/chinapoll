@@ -1,8 +1,15 @@
 import './styles.css';
+import { createIcons, Minus, ThumbsDown, ThumbsUp } from 'lucide';
 import { getLocaleText, DEFAULT_LOCALE } from './i18n';
 import { claimProposal, createToken, getComments, getStats, getVoteStatus, hasVotedLocally, hashToken, markVotedLocally, submitComment, submitProposal, submitVote, type CommentsResponse, type VoteOption } from './lib/poll';
 
 const app = document.querySelector('#app');
+const voteIcons = { Minus, ThumbsDown, ThumbsUp };
+
+function renderVoteIcons(): void {
+  createIcons({ icons: voteIcons, root: app ?? undefined });
+}
+
 const configuredPageWidth = import.meta.env.VITE_PAGE_WIDTH;
 if (configuredPageWidth && /^\d{3,4}px$/.test(configuredPageWidth)) {
   document.documentElement.style.setProperty('--page-width', configuredPageWidth);
@@ -69,12 +76,12 @@ function getSiteSlogan(): string {
 
 function renderHeader(activeRoute: string): string {
   return `
-    <header class="topbar">
-      <div class="brand-wrap">
-        <a class="brand-link" href="/" data-route="/" aria-label="${t('homeLinkLabel')}">${getSiteName()}</a>
-        <div class="tagline">${getSiteSlogan()}</div>
+    <header class="flex items-center justify-between py-4 pb-5 max-[700px]:flex-col max-[700px]:items-start">
+      <div class="flex flex-col gap-1">
+        <a class="text-3xl font-extrabold leading-none text-primary hover:underline" href="/" data-route="/" aria-label="${t('homeLinkLabel')}">${getSiteName()}</a>
+        <div class="text-sm text-muted">${getSiteSlogan()}</div>
       </div>
-      <nav class="nav">
+      <nav class="flex flex-wrap items-center gap-[18px]">
         ${getNavigationMarkup(activeRoute)}
       </nav>
     </header>
@@ -85,10 +92,10 @@ function renderFooter(): string {
   const dataUrl = import.meta.env.VITE_DATA_GITHUB_URL;
 
   return `
-    <footer class="footer">
-      <span>Powered by <a class="footer-brand" href="https://github.com/qianhujia/chinapoll" target="_blank" rel="noopener noreferrer">${getSiteName()}</a></span>
-      <a class="footer-link" href="/propose/claim" data-route="/propose/claim">${t('claimProposalLink')}</a>
-      ${dataUrl ? `<a class="footer-link" href="${dataUrl}" target="_blank" rel="noopener noreferrer">${t('dataLink')}</a>` : ''}
+    <footer class="mt-9 flex flex-wrap items-center justify-center gap-3 text-center text-[0.9rem] text-muted">
+      <span>Powered by <a class="font-bold text-primary hover:underline" href="https://github.com/qianhujia/chinapoll" target="_blank" rel="noopener noreferrer">${getSiteName()}</a></span>
+      <a class="text-primary hover:underline" href="/submit/claim" data-route="/submit/claim">${t('claimProposalLink')}</a>
+      ${dataUrl ? `<a class="text-primary hover:underline" href="${dataUrl}" target="_blank" rel="noopener noreferrer">${t('dataLink')}</a>` : ''}
     </footer>
   `;
 }
@@ -127,10 +134,10 @@ function renderPagination(page: number, totalPages: number, attribute: string): 
   if (totalPages <= 1) return '';
 
   return `
-    <nav class="pagination" aria-label="${t('pagination')}">
-      <button class="nav-button" ${attribute}="${page - 1}" ${page === 1 ? 'disabled' : ''}>${t('previousPage')}</button>
+    <nav class="mt-5 flex items-center justify-center gap-4" aria-label="${t('pagination')}">
+      <button class="cursor-pointer rounded-full px-4 py-2.5 text-ink hover:bg-primary-soft disabled:cursor-not-allowed disabled:opacity-50" ${attribute}="${page - 1}" ${page === 1 ? 'disabled' : ''}>${t('previousPage')}</button>
       <span>${t('pageOf')} ${page} / ${totalPages}</span>
-      <button class="nav-button" ${attribute}="${page + 1}" ${page === totalPages ? 'disabled' : ''}>${t('nextPage')}</button>
+      <button class="cursor-pointer rounded-full px-4 py-2.5 text-ink hover:bg-primary-soft disabled:cursor-not-allowed disabled:opacity-50" ${attribute}="${page + 1}" ${page === totalPages ? 'disabled' : ''}>${t('nextPage')}</button>
     </nav>
   `;
 }
@@ -148,13 +155,13 @@ function escapeHtml(value: string): string {
 function renderCommentsContent(response: CommentsResponse): string {
   const totalPages = Math.ceil(response.total / response.pageSize);
   const comments = response.comments.length
-    ? `<ul class="comment-list">${response.comments.map(({ id, comment, createdAt }) => `
-        <li class="public-comment">
-          <p>${escapeHtml(comment)}</p>
-          <time datetime="${escapeHtml(createdAt)}">${escapeHtml(createdAt)}</time>
+    ? `<ul class="m-0 grid list-none gap-3.5 p-0">${response.comments.map(({ id, comment, createdAt }) => `
+        <li class="border-b border-border py-3.5">
+          <p class="mb-2 whitespace-pre-wrap [overflow-wrap:anywhere]">${escapeHtml(comment)}</p>
+          <time class="text-xs text-muted" datetime="${escapeHtml(createdAt)}">${escapeHtml(createdAt)}</time>
         </li>
       `).join('')}</ul>`
-    : `<p class="muted">${t('noComments')}</p>`;
+    : `<p class="text-muted">${t('noComments')}</p>`;
 
   return `${comments}${renderPagination(response.page, totalPages, 'data-comments-page')}`;
 }
@@ -188,7 +195,7 @@ function getCurrentRoute(): string {
   if (hash.startsWith('#')) {
     const id = hash.slice(1).trim();
     if (id && /^[0-9]+$/.test(id)) {
-      return `/vote/${id}`;
+      return `/poll/${id}`;
     }
   }
 
@@ -199,11 +206,11 @@ function getNavigationMarkup(activeRoute: string): string {
   const links = [
     { route: '/', label: t('home') },
     { route: '/about', label: t('about') },
-    { route: '/propose', label: t('propose') }
+    { route: '/submit', label: t('propose') }
   ];
 
   return links.map(({ route, label }) => `
-    <a class="nav-link ${activeRoute === route ? 'active' : ''}" href="${route}" data-route="${route}">${label}</a>
+    <a class="py-1 text-muted no-underline hover:text-primary ${activeRoute === route ? 'font-bold text-primary' : ''}" href="${route}" data-route="${route}">${label}</a>
   `).join('');
 }
 
@@ -216,9 +223,9 @@ async function mountHome(page = 1) {
     })));
   } catch (error) {
     app!.innerHTML = `
-      <div class="page-shell">
+      <div class="mx-auto max-w-[var(--page-width)] px-5 pt-6 pb-16">
         ${renderHeader('/')}
-        <main class="container"><p class="vote-status">${t('statsLoadFailed')} ${getErrorMessage(error)}</p></main>
+        <main class="grid gap-5"><p class="m-0 text-center text-muted">${t('statsLoadFailed')} ${getErrorMessage(error)}</p></main>
         ${renderFooter()}
       </div>
     `;
@@ -248,81 +255,80 @@ async function mountHome(page = 1) {
   }));
 
   app!.innerHTML = `
-    <div class="page-shell">
+    <div class="mx-auto max-w-[var(--page-width)] px-5 pt-6 pb-16">
       ${renderHeader('/')}
 
-      <main class="container">
-        <section class="hero">
-          <h1>${t('heroTitle')}</h1>
-          <p>${t('heroBody')}</p>
+      <main class="grid gap-5">
+        <section class="pt-7 pb-2">
+          <h1 class="mb-2.5 text-[clamp(2rem,4vw,3rem)] leading-[1.1] font-bold">${t('heroTitle')}</h1>
+          <p class="m-0 text-[1.05rem] text-muted">${t('heroBody')}</p>
         </section>
 
-        <section class="card stats-grid">
+        <section class="grid grid-cols-3 gap-3 rounded-[22px] border border-border bg-panel p-6 shadow-card max-[700px]:grid-cols-1">
           <div>
-            <span class="label">${t('openPolls')}</span>
+            <span class="mb-1 block text-xs tracking-[0.08em] text-muted uppercase">${t('openPolls')}</span>
             <strong>${sampleIssues.length}</strong>
           </div>
           <div>
-            <span class="label">${t('totalVotes')}</span>
+            <span class="mb-1 block text-xs tracking-[0.08em] text-muted uppercase">${t('totalVotes')}</span>
             <strong data-total-votes>${totalVotes}</strong>
           </div>
           <div>
-            <span class="label">${t('modes')}</span>
+            <span class="mb-1 block text-xs tracking-[0.08em] text-muted uppercase">${t('modes')}</span>
             <strong>${t('deadline')} + ${t('evergreen')}</strong>
           </div>
         </section>
 
-        <section class="poll-list">
+        <section class="border-t border-border">
           ${visibleIssueStats.map(({ issue, stats }) => {
             const total = stats.counts.approve + stats.counts.oppose + stats.counts.neutral;
             const voteState = issueVoteStates.get(issue.id) ?? { voted: false, error: '' };
             const voteDisabled = voteState.voted || Boolean(voteState.error);
             return `
-              <article class="poll-row" data-poll-row="${issue.id}">
-                <div class="poll-header">
-                  <div class="poll-title-line">
-                    <span class="issue-number">#${issue.id}</span>
-                    <span class="mode-badge">${issue.mode === 'deadline' ? t('deadline') : t('evergreen')}</span>
-                    <h2><a class="poll-title-link" href="/vote/${issue.id}" data-route="/vote/${issue.id}">${issue.title}</a></h2>
+              <article class="grid grid-cols-[minmax(0,1fr)_minmax(190px,240px)] items-center gap-x-8 border-b border-border py-[22px] max-[700px]:grid-cols-1 max-[700px]:gap-y-3" data-poll-row="${issue.id}">
+                <div class="col-start-1 flex items-start justify-between gap-[18px]">
+                  <div class="flex flex-wrap items-center gap-2">
+                    <span class="shrink-0 font-bold tabular-nums text-muted">#${issue.id}</span>
+                    <span class="shrink-0 rounded-full bg-primary-soft px-[9px] py-[3px] text-xs leading-[1.5] font-semibold whitespace-nowrap text-primary">${issue.mode === 'deadline' ? t('deadline') : t('evergreen')}</span>
+                    <h2 class="m-0 flex-[1_1_auto] text-[1.15rem] leading-[1.5] font-bold"><a class="text-inherit no-underline hover:text-primary hover:underline focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-[3px] focus-visible:outline-primary" href="/poll/${issue.id}" data-route="/poll/${issue.id}">${issue.title}</a></h2>
                   </div>
                 </div>
 
-                <div class="poll-meta">
-                  <span data-home-total="${issue.id}">${total} ${t('votes')}</span>
-                </div>
-
-                <div class="bar-chart">
-                  <div class="bar-column approve">
-                    <div class="bar-track" role="img" aria-label="${t('approve')}: ${stats.counts.approve}">
-                      <i class="bar-fill" data-home-bar="${issue.id}-approve" style="height:${(stats.counts.approve / Math.max(1, total)) * 100}%"></i>
+                <div class="col-start-2 row-start-1 flex items-end justify-center gap-2.5 max-[700px]:col-start-1">
+                  <span class="text-xs leading-[1.2] text-muted" data-home-total="${issue.id}">${total} ${t('votes')}</span>
+                  <div class="grid grid-cols-[repeat(3,36px)] items-end justify-center">
+                    <div class="grid grid-rows-[54px_auto] justify-items-center gap-2">
+                      <div class="flex h-[54px] w-2 items-end overflow-hidden rounded-t-lg rounded-b-[3px] bg-[#edf2fa]" role="img" aria-label="${t('approve')}: ${stats.counts.approve}">
+                        <i class="block min-h-0 w-full rounded-t-[7px] rounded-b-[2px] bg-[#1fa36a]" data-home-bar="${issue.id}-approve" style="height:${(stats.counts.approve / Math.max(1, total)) * 100}%"></i>
+                      </div>
+                      <div class="inline-flex items-center justify-center text-xs tabular-nums">
+                        <button type="button" class="inline-flex min-h-[26px] cursor-pointer items-center justify-center gap-[3px] rounded-lg bg-transparent px-[5px] py-[3px] text-inherit tabular-nums transition-colors hover:enabled:bg-primary-soft focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary disabled:cursor-not-allowed disabled:opacity-[0.65]" data-home-vote data-issue-id="${issue.id}" data-option="approve" aria-label="${t('approve')}" title="${voteState.voted ? t('alreadyVoted') : voteState.error || t('approve')}" ${voteDisabled ? 'disabled' : ''}>
+                          <i class="h-[15px] w-[15px] shrink-0" data-lucide="thumbs-up" aria-hidden="true"></i>
+                          <span data-home-count="${issue.id}-approve">${stats.counts.approve}</span>
+                        </button>
+                      </div>
                     </div>
-                    <div class="bar-caption">
-                      <button type="button" class="home-vote-icon" data-home-vote data-issue-id="${issue.id}" data-option="approve" aria-label="${t('approve')}" title="${voteState.voted ? t('alreadyVoted') : voteState.error || t('approve')}" ${voteDisabled ? 'disabled' : ''}>
-                        <svg class="vote-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M12 4q.8 0 1.2.7l7.8 13.6q.8 1.4-.9 1.4H3.9q-1.7 0-.9-1.4l7.8-13.6q.4-.7 1.2-.7Z"/></svg>
-                        <span data-home-count="${issue.id}-approve">${stats.counts.approve}</span>
-                      </button>
+                    <div class="grid grid-rows-[54px_auto] justify-items-center gap-2">
+                      <div class="flex h-[54px] w-2 items-end overflow-hidden rounded-t-lg rounded-b-[3px] bg-[#edf2fa]" role="img" aria-label="${t('neutral')}: ${stats.counts.neutral}">
+                        <i class="block min-h-0 w-full rounded-t-[7px] rounded-b-[2px] bg-[#7a8798]" data-home-bar="${issue.id}-neutral" style="height:${(stats.counts.neutral / Math.max(1, total)) * 100}%"></i>
+                      </div>
+                      <div class="inline-flex items-center justify-center text-xs tabular-nums">
+                        <button type="button" class="inline-flex min-h-[26px] cursor-pointer items-center justify-center gap-[3px] rounded-lg bg-transparent px-[5px] py-[3px] text-inherit tabular-nums transition-colors hover:enabled:bg-primary-soft focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary disabled:cursor-not-allowed disabled:opacity-[0.65]" data-home-vote data-issue-id="${issue.id}" data-option="neutral" aria-label="${t('neutral')}" title="${voteState.voted ? t('alreadyVoted') : voteState.error || t('neutral')}" ${voteDisabled ? 'disabled' : ''}>
+                          <i class="h-[15px] w-[15px] shrink-0" data-lucide="minus" aria-hidden="true"></i>
+                          <span data-home-count="${issue.id}-neutral">${stats.counts.neutral}</span>
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                  <div class="bar-column neutral">
-                    <div class="bar-track" role="img" aria-label="${t('neutral')}: ${stats.counts.neutral}">
-                      <i class="bar-fill" data-home-bar="${issue.id}-neutral" style="height:${(stats.counts.neutral / Math.max(1, total)) * 100}%"></i>
-                    </div>
-                    <div class="bar-caption">
-                      <button type="button" class="home-vote-icon" data-home-vote data-issue-id="${issue.id}" data-option="neutral" aria-label="${t('neutral')}" title="${voteState.voted ? t('alreadyVoted') : voteState.error || t('neutral')}" ${voteDisabled ? 'disabled' : ''}>
-                        <svg class="vote-icon neutral-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/></svg>
-                        <span data-home-count="${issue.id}-neutral">${stats.counts.neutral}</span>
-                      </button>
-                    </div>
-                  </div>
-                  <div class="bar-column oppose">
-                    <div class="bar-track" role="img" aria-label="${t('oppose')}: ${stats.counts.oppose}">
-                      <i class="bar-fill" data-home-bar="${issue.id}-oppose" style="height:${(stats.counts.oppose / Math.max(1, total)) * 100}%"></i>
-                    </div>
-                    <div class="bar-caption">
-                      <button type="button" class="home-vote-icon" data-home-vote data-issue-id="${issue.id}" data-option="oppose" aria-label="${t('oppose')}" title="${voteState.voted ? t('alreadyVoted') : voteState.error || t('oppose')}" ${voteDisabled ? 'disabled' : ''}>
-                        <svg class="vote-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M3.9 3h16.2q1.7 0 .9 1.4l-7.8 13.6q-1.2 1.8-2.4 0L3 4.4Q2.2 3 3.9 3Z"/></svg>
-                        <span data-home-count="${issue.id}-oppose">${stats.counts.oppose}</span>
-                      </button>
+                    <div class="grid grid-rows-[54px_auto] justify-items-center gap-2">
+                      <div class="flex h-[54px] w-2 items-end overflow-hidden rounded-t-lg rounded-b-[3px] bg-[#edf2fa]" role="img" aria-label="${t('oppose')}: ${stats.counts.oppose}">
+                        <i class="block min-h-0 w-full rounded-t-[7px] rounded-b-[2px] bg-[#d95b5b]" data-home-bar="${issue.id}-oppose" style="height:${(stats.counts.oppose / Math.max(1, total)) * 100}%"></i>
+                      </div>
+                      <div class="inline-flex items-center justify-center text-xs tabular-nums">
+                        <button type="button" class="inline-flex min-h-[26px] cursor-pointer items-center justify-center gap-[3px] rounded-lg bg-transparent px-[5px] py-[3px] text-inherit tabular-nums transition-colors hover:enabled:bg-primary-soft focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary disabled:cursor-not-allowed disabled:opacity-[0.65]" data-home-vote data-issue-id="${issue.id}" data-option="oppose" aria-label="${t('oppose')}" title="${voteState.voted ? t('alreadyVoted') : voteState.error || t('oppose')}" ${voteDisabled ? 'disabled' : ''}>
+                          <i class="h-[15px] w-[15px] shrink-0" data-lucide="thumbs-down" aria-hidden="true"></i>
+                          <span data-home-count="${issue.id}-oppose">${stats.counts.oppose}</span>
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -333,11 +339,12 @@ async function mountHome(page = 1) {
         ${renderPagination(currentPage, totalPages, 'data-poll-page')}
       </main>
 
-      <div class="toast" data-home-toast role="status" aria-live="polite" hidden></div>
+      <div class="fixed top-5 left-1/2 z-10 max-w-[min(420px,calc(100vw-40px))] -translate-x-1/2 rounded-xl border border-border bg-panel px-[18px] py-3 text-ink shadow-card" data-home-toast role="status" aria-live="polite" hidden></div>
       ${renderFooter()}
     </div>
   `;
 
+  renderVoteIcons();
   bindNavigation();
   document.querySelectorAll('[data-poll-page]').forEach((button) => {
     button.addEventListener('click', () => {
@@ -356,9 +363,6 @@ async function mountHome(page = 1) {
       toast.hidden = true;
     }, 3500);
   };
-  if (visibleIssueStats.some(({ issue }) => issueVoteStates.get(issue.id)?.voted)) {
-    showToast(t('alreadyVoted'));
-  }
   document.querySelectorAll<HTMLButtonElement>('[data-home-vote]').forEach((button) => {
     button.addEventListener('click', async () => {
       const issueId = Number(button.dataset.issueId);
@@ -440,74 +444,86 @@ async function mountVotePage(issueId: number) {
   }
 
   app!.innerHTML = `
-    <div class="page-shell narrow">
+    <div class="mx-auto max-w-[var(--page-width)] px-5 pt-6 pb-16">
       ${renderHeader('/')}
 
-      <main class="container vote-page">
-        <section class="card issue-intro">
-          <div class="issue-title-line">
-            <span class="issue-number">#${issue.id}</span>
-            <h1>${issue.title}</h1>
-            <span class="mode-badge">${issue.mode === 'deadline' ? t('deadline') : t('evergreen')}</span>
+      <main class="grid gap-5">
+        <section class="rounded-[22px] border border-border bg-panel p-6 shadow-card">
+          <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
+            <span class="shrink-0 font-bold tabular-nums text-muted">#${issue.id}</span>
+            <h1 class="m-0 text-2xl font-bold">${issue.title}</h1>
+            <span class="shrink-0 rounded-full bg-primary-soft px-[9px] py-[3px] text-xs leading-[1.5] font-semibold whitespace-nowrap text-primary">${issue.mode === 'deadline' ? t('deadline') : t('evergreen')}</span>
           </div>
 
-          ${stats ? `<div class="choice-stack">
-            <button class="choice approve" data-option="approve" ${hasVoted || voteStatusError ? 'disabled' : ''}>
-              <span class="choice-label">
-                <svg class="vote-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M12 4q.8 0 1.2.7l7.8 13.6q.8 1.4-.9 1.4H3.9q-1.7 0-.9-1.4l7.8-13.6q.4-.7 1.2-.7Z"/></svg>
+          ${stats ? `          <div class="choice-stack relative mt-6 grid grid-cols-[repeat(3,minmax(0,140px))] justify-center gap-3" title="${hasVoted ? t('alreadyVoted') : ''}">
+            <button class="flex cursor-pointer items-center justify-center gap-1.5 rounded-[14px] border-0 px-1 py-[9px] text-[0.9rem] font-bold text-white disabled:cursor-not-allowed disabled:opacity-[0.65] bg-[#1fa36a]" data-option="approve" ${hasVoted || voteStatusError ? 'disabled' : ''}>
+              <span class="inline-flex items-center justify-center gap-[5px]">
+                <i class="h-[18px] w-[18px] shrink-0" data-lucide="thumbs-up" aria-hidden="true"></i>
                 ${t('approve')}
               </span>
-              <span class="choice-count">${stats.counts.approve}</span>
+              <span class="choice-count tabular-nums">${stats.counts.approve}</span>
             </button>
-            <button class="choice neutral" data-option="neutral" ${hasVoted || voteStatusError ? 'disabled' : ''}>
-              <span class="choice-label">
-                <svg class="vote-icon neutral-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/></svg>
+            <button class="flex cursor-pointer items-center justify-center gap-1.5 rounded-[14px] border-0 px-1 py-[9px] text-[0.9rem] font-bold text-white disabled:cursor-not-allowed disabled:opacity-[0.65] bg-[#7a8798]" data-option="neutral" ${hasVoted || voteStatusError ? 'disabled' : ''}>
+              <span class="inline-flex items-center justify-center gap-[5px]">
+                <i class="h-[18px] w-[18px] shrink-0" data-lucide="minus" aria-hidden="true"></i>
                 ${t('neutral')}
               </span>
-              <span class="choice-count">${stats.counts.neutral}</span>
+              <span class="choice-count tabular-nums">${stats.counts.neutral}</span>
             </button>
-            <button class="choice oppose" data-option="oppose" ${hasVoted || voteStatusError ? 'disabled' : ''}>
-              <span class="choice-label">
-                <svg class="vote-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M3.9 3h16.2q1.7 0 .9 1.4l-7.8 13.6q-1.2 1.8-2.4 0L3 4.4Q2.2 3 3.9 3Z"/></svg>
+            <button class="flex cursor-pointer items-center justify-center gap-1.5 rounded-[14px] border-0 px-1 py-[9px] text-[0.9rem] font-bold text-white disabled:cursor-not-allowed disabled:opacity-[0.65] bg-[#d95b5b]" data-option="oppose" ${hasVoted || voteStatusError ? 'disabled' : ''}>
+              <span class="inline-flex items-center justify-center gap-[5px]">
+                <i class="h-[18px] w-[18px] shrink-0" data-lucide="thumbs-down" aria-hidden="true"></i>
                 ${t('oppose')}
               </span>
-              <span class="choice-count">${stats.counts.oppose}</span>
+              <span class="choice-count tabular-nums">${stats.counts.oppose}</span>
             </button>
           </div>` : ''}
 
-          <p class="vote-status" role="status">${voteStatusError
+          <p class="vote-status m-0 text-center text-muted" role="status">${voteStatusError
     ? `${t('voteStatusFailed')} ${voteStatusError}`
     : statsError
       ? `${t('statsLoadFailed')} ${statsError}`
-    : hasVoted ? t('alreadyVoted') : ''}</p>
-          <small class="privacy-note">${t('privacyText')}</small>
+    : ''}</p>
+          <small class="mt-3.5 block text-center text-xs text-muted">${t('privacyText')}</small>
         </section>
 
-        <section class="card comment-box">
-          <label for="comment">${t('anonymousComment')}</label>
-          <textarea id="comment" maxlength="140" rows="4" placeholder="${t('commentPlaceholder')}"></textarea>
-          <button class="primary" type="button" data-submit-comment>${t('submitComment')}</button>
-          <p class="comment-submit-status" role="status" aria-live="polite"></p>
+        <section class="grid gap-3 rounded-[22px] border border-border bg-panel p-6 shadow-card">
+          <button class="mx-auto cursor-pointer rounded-full border border-primary bg-primary px-4 py-2.5 text-white" type="button" aria-expanded="false" aria-controls="comment-form" data-toggle-comment>${t('commentToggle')}</button>
+          <div class="grid gap-3" id="comment-form" hidden>
+            <label for="comment">${t('anonymousComment')}</label>
+            <textarea class="w-full resize-y rounded-[14px] border border-border bg-[#f9fbff] px-3.5 py-3" id="comment" minlength="5" maxlength="140" rows="4" placeholder="${t('commentPlaceholder')}"></textarea>
+            <button class="mx-auto cursor-pointer rounded-full border border-primary bg-primary px-4 py-2.5 text-white" type="button" data-submit-comment>${t('submitComment')}</button>
+            <p class="comment-submit-status m-0 min-h-5 text-[0.9rem] text-muted" role="status" aria-live="polite"></p>
+          </div>
         </section>
 
-        <section class="card comments-section">
-          <h2>${t('commentsTitle')}</h2>
+        <section class="rounded-[22px] border border-border bg-panel p-6 shadow-card">
+          <h2 class="mb-3.5 text-xl font-bold">${t('commentsTitle')}</h2>
           <div id="comments-content">${commentsContent}</div>
         </section>
 
-        <div class="token-meta">token_hash: ${hash.slice(0, 12)}</div>
       </main>
       ${renderFooter()}
     </div>
   `;
 
+  renderVoteIcons();
+  const commentToggle = document.querySelector('[data-toggle-comment]') as HTMLButtonElement | null;
+  const commentForm = document.querySelector('#comment-form') as HTMLDivElement | null;
   const commentButton = document.querySelector('[data-submit-comment]') as HTMLButtonElement | null;
   const commentInput = document.querySelector('#comment') as HTMLTextAreaElement | null;
   const commentStatus = document.querySelector('.comment-submit-status');
+  commentToggle?.addEventListener('click', () => {
+    if (!commentToggle || !commentForm) return;
+    const expanded = commentToggle.getAttribute('aria-expanded') === 'true';
+    commentToggle.setAttribute('aria-expanded', String(!expanded));
+    commentForm.hidden = expanded;
+    if (!expanded) commentInput?.focus();
+  });
   commentButton?.addEventListener('click', async () => {
     const comment = commentInput?.value.trim() ?? '';
-    if (!comment) {
-      if (commentStatus) commentStatus.textContent = t('emptyComment');
+    if (comment.length < 5 || comment.length > 140) {
+      if (commentStatus) commentStatus.textContent = t('invalidCommentLength');
       return;
     }
 
@@ -552,6 +568,11 @@ async function mountVotePage(issueId: number) {
           document.querySelectorAll<HTMLButtonElement>('[data-option]').forEach((voteButton) => {
             voteButton.disabled = true;
           });
+          const choices = document.querySelector('.choice-stack');
+          if (choices) choices.setAttribute('title', t('alreadyVoted'));
+          const status = document.querySelector('.vote-status');
+          if (status) status.textContent = '';
+        } else {
           const status = document.querySelector('.vote-status');
           if (status) status.textContent = statusMessage;
         }
@@ -572,9 +593,9 @@ async function mountVotePage(issueId: number) {
         document.querySelectorAll<HTMLButtonElement>('[data-option]').forEach((voteButton) => {
           voteButton.disabled = true;
         });
+        const choices = document.querySelector('.choice-stack');
+        if (choices) choices.setAttribute('title', t('alreadyVoted'));
         voteStatus = { issueId: issue.id, voted: true, option };
-        const statusMessage = document.querySelector('.vote-status');
-        if (statusMessage) statusMessage.textContent = t('alreadyVoted');
       }
       alert(message);
     });
@@ -586,13 +607,13 @@ async function mountVotePage(issueId: number) {
 
 function mountAboutPage() {
   app!.innerHTML = `
-    <div class="page-shell narrow">
+    <div class="mx-auto max-w-[var(--page-width)] px-5 pt-6 pb-16">
       ${renderHeader('/about')}
-      <main class="container">
-        <section class="card">
-          <h1>${t('aboutTitle')}</h1>
-          <p>${t('aboutBody')}</p>
-          <ul>
+      <main class="grid gap-5">
+        <section class="rounded-[22px] border border-border bg-panel p-6 shadow-card">
+          <h1 class="mb-3 text-2xl font-bold">${t('aboutTitle')}</h1>
+          <p class="text-muted">${t('aboutBody')}</p>
+          <ul class="list-disc space-y-2 pl-6">
             <li>${t('aboutPointOne')}</li>
             <li>${t('aboutPointTwo')}</li>
             <li>${t('aboutPointThree')}</li>
@@ -607,56 +628,56 @@ function mountAboutPage() {
 
 function mountProposePage() {
   app!.innerHTML = `
-    <div class="page-shell narrow">
-      ${renderHeader('/propose')}
-      <main class="container">
-        <section class="card proposal-form">
-          <h1>${t('proposalTitle')}</h1>
-          <p>${t('proposalBody')}</p>
-          <ol>
+    <div class="mx-auto max-w-[var(--page-width)] px-5 pt-6 pb-16">
+      ${renderHeader('/submit')}
+      <main class="grid gap-5">
+        <section class="grid gap-3 rounded-[22px] border border-border bg-panel p-6 shadow-card">
+          <h1 class="m-0 text-2xl font-bold">${t('proposalTitle')}</h1>
+          <p class="m-0 text-muted">${t('proposalBody')}</p>
+          <ol class="list-decimal space-y-1 pl-6">
             <li>${t('proposalRuleOne')}</li>
             <li>${t('proposalRuleTwo')}</li>
             <li>${t('proposalRuleThree')}</li>
             <li>${t('proposalRuleFour')}</li>
             <li>${t('proposalRuleFive')}</li>
           </ol>
-          <form data-proposal-form>
-            <label for="proposal-title">${t('proposalTitleLabel')}
-              <input id="proposal-title" name="title" type="text" maxlength="200" required>
+          <form class="grid gap-3" data-proposal-form>
+            <label class="grid gap-2" for="proposal-title">${t('proposalTitleLabel')}
+              <input class="w-full rounded-[14px] border border-border bg-[#f9fbff] px-3.5 py-3" id="proposal-title" name="title" type="text" maxlength="200" required>
             </label>
-            <details class="proposal-description">
-              <summary>${t('proposalDescriptionToggle')}</summary>
-              <label for="proposal-description">${t('proposalDescriptionLabel')}
-                <textarea id="proposal-description" name="description" maxlength="2000"></textarea>
+            <details class="grid gap-2.5">
+              <summary class="cursor-pointer text-primary">${t('proposalDescriptionToggle')}</summary>
+              <label class="grid gap-2" for="proposal-description">${t('proposalDescriptionLabel')}
+                <textarea class="min-h-[140px] w-full resize-y rounded-[14px] border border-border bg-[#f9fbff] px-3.5 py-3" id="proposal-description" name="description" maxlength="2000"></textarea>
               </label>
             </details>
-            <label for="proposal-email">${t('proposalEmailLabel')}
-              <input id="proposal-email" name="email" type="email" autocomplete="email">
+            <label class="grid gap-2" for="proposal-email">${t('proposalEmailLabel')}
+              <input class="w-full rounded-[14px] border border-border bg-[#f9fbff] px-3.5 py-3" id="proposal-email" name="email" type="email" autocomplete="email">
             </label>
-            <small>${t('proposalEmailNote')}</small>
-            <fieldset class="proposal-mode">
-              <legend>${t('proposalModeLabel')}</legend>
-              <div class="proposal-mode-options">
-                <label class="proposal-mode-option">
-                  <input type="radio" name="mode" value="evergreen" checked>
+            <small class="-mt-1.5 text-xs leading-[1.45] text-muted">${t('proposalEmailNote')}</small>
+            <fieldset class="m-0 grid gap-2 border-0 p-0">
+              <legend class="mb-2 font-semibold">${t('proposalModeLabel')}</legend>
+              <div class="grid grid-cols-2 gap-2.5">
+                <label class="flex cursor-pointer items-center gap-2.5 rounded-[14px] border border-border bg-[#f9fbff] px-3.5 py-3 has-[:checked]:border-primary has-[:checked]:bg-primary-soft">
+                  <input class="accent-primary" type="radio" name="mode" value="evergreen" checked>
                   <span>${t('evergreen')}</span>
                 </label>
-                <label class="proposal-mode-option">
-                  <input type="radio" name="mode" value="deadline">
+                <label class="flex cursor-pointer items-center gap-2.5 rounded-[14px] border border-border bg-[#f9fbff] px-3.5 py-3 has-[:checked]:border-primary has-[:checked]:bg-primary-soft">
+                  <input class="accent-primary" type="radio" name="mode" value="deadline">
                   <span>${t('deadline')}</span>
                 </label>
               </div>
             </fieldset>
-            <div class="proposal-schedule" data-proposal-schedule hidden>
-              <label for="proposal-start">${t('proposalStartLabel')}
-                <input id="proposal-start" name="startAt" type="datetime-local">
+            <div class="grid gap-3" data-proposal-schedule hidden>
+              <label class="grid gap-2" for="proposal-start">${t('proposalStartLabel')}
+                <input class="w-full rounded-[14px] border border-border bg-[#f9fbff] px-3.5 py-3" id="proposal-start" name="startAt" type="datetime-local">
               </label>
-              <label for="proposal-end">${t('proposalEndLabel')}
-                <input id="proposal-end" name="endAt" type="datetime-local">
+              <label class="grid gap-2" for="proposal-end">${t('proposalEndLabel')}
+                <input class="w-full rounded-[14px] border border-border bg-[#f9fbff] px-3.5 py-3" id="proposal-end" name="endAt" type="datetime-local">
               </label>
             </div>
-            <button class="primary" type="submit">${t('submitProposal')}</button>
-            <p class="proposal-status" data-proposal-status role="status" aria-live="polite"></p>
+            <button class="mx-auto mt-2 cursor-pointer rounded-full border border-primary bg-primary px-4 py-2.5 text-white" type="submit">${t('submitProposal')}</button>
+            <p class="m-0 min-h-5 text-muted" data-proposal-status role="status" aria-live="polite"></p>
           </form>
         </section>
       </main>
@@ -722,21 +743,21 @@ function mountProposePage() {
 
 function mountClaimProposalPage() {
   app!.innerHTML = `
-    <div class="page-shell narrow">
-      ${renderHeader('/propose')}
-      <main class="container">
-        <section class="card proposal-form">
-          <h1>${t('claimProposalTitle')}</h1>
-          <p>${t('claimProposalDescription')}</p>
-          <form data-claim-form>
-            <label for="claim-proposal-id">${t('claimProposalIdLabel')}
-              <input id="claim-proposal-id" name="proposalId" type="text" inputmode="numeric" placeholder="47" required>
+    <div class="mx-auto max-w-[var(--page-width)] px-5 pt-6 pb-16">
+      ${renderHeader('/submit')}
+      <main class="grid gap-5">
+        <section class="grid gap-3 rounded-[22px] border border-border bg-panel p-6 shadow-card">
+          <h1 class="m-0 text-2xl font-bold">${t('claimProposalTitle')}</h1>
+          <p class="m-0 text-muted">${t('claimProposalDescription')}</p>
+          <form class="grid gap-3" data-claim-form>
+            <label class="grid gap-2" for="claim-proposal-id">${t('claimProposalIdLabel')}
+              <input class="w-full rounded-[14px] border border-border bg-[#f9fbff] px-3.5 py-3" id="claim-proposal-id" name="proposalId" type="text" inputmode="numeric" placeholder="47" required>
             </label>
-            <label for="claim-email">${t('claimEmailLabel')}
-              <input id="claim-email" name="email" type="email" autocomplete="email" required>
+            <label class="grid gap-2" for="claim-email">${t('claimEmailLabel')}
+              <input class="w-full rounded-[14px] border border-border bg-[#f9fbff] px-3.5 py-3" id="claim-email" name="email" type="email" autocomplete="email" required>
             </label>
-            <button class="primary" type="submit">${t('claimProposal')}</button>
-            <p class="proposal-status" data-claim-status role="status" aria-live="polite"></p>
+            <button class="mx-auto mt-2 cursor-pointer rounded-full border border-primary bg-primary px-4 py-2.5 text-white" type="submit">${t('claimProposal')}</button>
+            <p class="m-0 min-h-5 text-muted" data-claim-status role="status" aria-live="polite"></p>
           </form>
         </section>
       </main>
@@ -789,12 +810,19 @@ async function render() {
     return;
   }
 
-  if (route === '/propose') {
+  if (route === '/propose' || route === '/propose/claim') {
+    const canonicalRoute = route.replace(/^\/propose/, '/submit');
+    window.history.replaceState({}, '', canonicalRoute);
+    await render();
+    return;
+  }
+
+  if (route === '/submit') {
     mountProposePage();
     return;
   }
 
-  if (route === '/propose/claim') {
+  if (route === '/submit/claim') {
     mountClaimProposalPage();
     return;
   }
@@ -805,6 +833,13 @@ async function render() {
   }
 
   if (route.startsWith('/vote/')) {
+    const legacyRoute = route.replace(/^\/vote\//, '/poll/');
+    window.history.replaceState({}, '', legacyRoute);
+    await render();
+    return;
+  }
+
+  if (route.startsWith('/poll/')) {
     const issueId = Number(route.split('/').pop() ?? '11');
     await mountVotePage(Number.isFinite(issueId) ? issueId : 11);
     return;

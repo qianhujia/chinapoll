@@ -9,9 +9,7 @@ export function resolveLocale(value?: string | null): Locale {
 }
 
 export const DEFAULT_LOCALE = resolveLocale(
-  (import.meta.env.VITE_DEFAULT_LOCALE as string | undefined) ??
-  (import.meta.env.APP_DEFAULT_LANGUAGE as string | undefined) ??
-  'en'
+  (import.meta.env.VITE_DEFAULT_LOCALE as string | undefined) ?? 'en'
 );
 
 export const translations: Record<Locale, Record<string, string>> = {
@@ -43,6 +41,7 @@ export const translations: Record<Locale, Record<string, string>> = {
     submitComment: 'Submit',
     commentSubmitted: 'Your anonymous comment was posted.',
     emptyComment: 'Enter a comment before submitting.',
+    invalidCommentLength: 'Comments must be 5 to 140 characters long.',
     commentSubmitFailed: 'Could not post comment:',
     openSource: 'Open source code',
     noLogin: 'no login required',
@@ -69,7 +68,7 @@ export const translations: Record<Locale, Record<string, string>> = {
     proposalStartLabel: 'Start time',
     proposalEndLabel: 'End time',
     proposalEmailLabel: 'Email (optional)',
-    proposalEmailNote: 'Your email lets you verify your submitter identity later with the proposal ID. We store only a keyed HMAC, never your raw email. Leave it blank to submit anonymously; anonymous proposals cannot be verified later.',
+    proposalEmailNote: 'Use your email and proposal ID to verify the submitter later. Only a keyed HMAC is stored, never the email itself. Leaving it blank submits anonymously and cannot be verified later.',
     proposalSubmitted: 'Proposal submitted',
     proposalSubmitFailed: 'Could not submit proposal:',
     anonymousSubmitter: '(anonymous)',
@@ -83,7 +82,8 @@ export const translations: Record<Locale, Record<string, string>> = {
     claimFailed: 'Could not verify this proposal and email:',
     issuePrefix: 'Issue',
     dataLink: 'Data',
-    anonymousComment: 'Anonymous comment (optional, 140 characters max)',
+    anonymousComment: 'Anonymous comment (5–140 characters)',
+    commentToggle: 'Comment',
     commentPlaceholder: 'Keep it public and avoid identifying details.',
     privacyText: 'Voting does not store personal information, including your email, name, real IP address, or browser details. We store only a random token hash and a coarse network bucket. The system and data are open source.',
     voteRecord: 'Vote recorded',
@@ -121,6 +121,7 @@ export const translations: Record<Locale, Record<string, string>> = {
     submitComment: '提交',
     commentSubmitted: '匿名评论已提交。',
     emptyComment: '请先填写评论。',
+    invalidCommentLength: '评论须为 5–140 字。',
     commentSubmitFailed: '评论提交失败：',
     openSource: '代码开源',
     noLogin: '无需登录',
@@ -133,7 +134,7 @@ export const translations: Record<Locale, Record<string, string>> = {
     aboutPointOne: '一机一票：客户端随机 token + 服务端唯一约束。',
     aboutPointTwo: '零登录：无姓名、邮箱、完整 IP 存储。',
     aboutPointThree: '数据公开：CSV、快照与哈希链可复核。',
-    proposalTitle: '提案页',
+    proposalTitle: '提交新提案',
     proposalBody: '提交一个公开议题，新议题至少满足以下审核条款：',
     proposalRuleOne: '一句话能表述清楚。',
     proposalRuleTwo: '能投出“是/否/中立”结果。',
@@ -147,7 +148,7 @@ export const translations: Record<Locale, Record<string, string>> = {
     proposalStartLabel: '开始时间',
     proposalEndLabel: '结束时间',
     proposalEmailLabel: '邮箱（可选）',
-    proposalEmailNote: '填写邮箱后，可使用提案编号和该邮箱核验提交者身份。系统只保存带密钥的 HMAC，不保存原始邮箱。留空则匿名提交，之后无法核验提交者身份。',
+    proposalEmailNote: '填写邮箱后，可凭提案编号核验提交者身份。仅保存带密钥的 HMAC，不保存邮箱原文；留空则匿名提交，之后无法核验。',
     proposalSubmitted: '提案已提交',
     proposalSubmitFailed: '提案提交失败：',
     anonymousSubmitter: '（匿名）',
@@ -161,7 +162,8 @@ export const translations: Record<Locale, Record<string, string>> = {
     claimFailed: '无法核验该提案与邮箱：',
     issuePrefix: '议题',
     dataLink: '数据',
-    anonymousComment: '匿名评论（可选，140 字内）',
+    anonymousComment: '匿名评论（5–140 字）',
+    commentToggle: '评论',
     commentPlaceholder: '内容公开，请勿包含可识别信息。',
     privacyText: '投票过程不保存用户信息，包括但不限于邮箱、姓名、真实 IP 地址和浏览器信息。我们只保存随机令牌哈希和模糊网段，系统和数据均开源。',
     voteRecord: '已投票',

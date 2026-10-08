@@ -6,6 +6,7 @@ compatibility_date = "2026-10-08"
 TURNSTILE_SECRET_KEY = "dev-skip"
 READ_ONLY_MODE = "false"
 TURNSTILE_SKIP = "true"
+VOTE_RATE_LIMIT_PER_IP_BUCKET_PER_HOUR = "5"
 
 [[d1_databases]]
 binding = "DB"

@@ -2,7 +2,7 @@ import { sha256 } from '../services/hashchain';
 
 export type VoteOption = 'approve' | 'oppose' | 'neutral';
 
-const RATE_LIMIT_PER_IP_BUCKET_PER_HOUR = 5;
+const DEFAULT_VOTE_RATE_LIMIT_PER_IP_BUCKET_PER_HOUR = 5;
 const VOTE_SALT = 'chinapoll-local-dev-salt';
 
 export async function handleVoteStatusRequest(request: Request, env: any): Promise<Response> {
@@ -37,6 +37,13 @@ export async function handleVoteStatusRequest(request: Request, env: any): Promi
 }
 
 export async function handleVoteRequest(request: Request, env: any): Promise<Response> {
+  const voteRateLimit = Number(
+    env.VOTE_RATE_LIMIT_PER_IP_BUCKET_PER_HOUR ?? DEFAULT_VOTE_RATE_LIMIT_PER_IP_BUCKET_PER_HOUR
+  );
+  if (!Number.isSafeInteger(voteRateLimit) || voteRateLimit < 1) {
+    return Response.json({ message: 'invalid VOTE_RATE_LIMIT_PER_IP_BUCKET_PER_HOUR configuration' }, { status: 500 });
+  }
+
   if (String(env.READ_ONLY_MODE ?? '').toLowerCase() === 'true') {
     return new Response(JSON.stringify({ ok: false, message: 'readonly mode enabled' }), {
       status: 503,
@@ -100,7 +107,7 @@ export async function handleVoteRequest(request: Request, env: any): Promise<Res
     `SELECT COUNT(*) as count FROM votes WHERE ip_bucket = ? AND ts_hour = ?`
   ).bind(ipBucket, tsHour).first();
 
-  if ((Number(rateLimitResult?.count ?? 0)) >= RATE_LIMIT_PER_IP_BUCKET_PER_HOUR) {
+  if ((Number(rateLimitResult?.count ?? 0)) >= voteRateLimit) {
     return new Response(JSON.stringify({ ok: false, message: 'rate limit reached' }), {
       status: 429,
       headers: { 'content-type': 'application/json' }

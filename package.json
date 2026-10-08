@@ -5,17 +5,21 @@
   "type": "module",
   "scripts": {
     "db:migrate": "npx wrangler d1 migrations apply chinapoll-local --local --persist-to .wrangler",
-    "dev": "npm run db:migrate && (vite --host 0.0.0.0 --port 5173 & npx wrangler dev --local --persist-to .wrangler --port 8787 & wait)",
-    "dev:web": "vite --host 0.0.0.0 --port 5173",
-    "dev:worker": "npm run db:migrate && npx wrangler dev --local --persist-to .wrangler --port 8787",
-    "build": "tsc -b && vite build",
+    "dev": "npm run db:migrate && npm run build && (vite preview --host 0.0.0.0 --port 5173 & npx wrangler dev dist/worker/index.js --no-bundle --local --persist-to .wrangler --port 8787 --live-reload=false & wait)",
+    "dev:web": "npm run build && vite preview --host 0.0.0.0 --port 5173",
+    "dev:worker": "npm run db:migrate && npm run build:worker && npx wrangler dev dist/worker/index.js --no-bundle --local --persist-to .wrangler --port 8787 --live-reload=false",
+    "build": "tsc -b && vite build && npm run build:worker",
+    "build:worker": "npx wrangler deploy --dry-run --outdir dist/worker",
     "preview": "vite preview --host 0.0.0.0 --port 4173",
     "lint": "tsc --noEmit",
-    "worker:dev": "npm run db:migrate && npx wrangler dev --local --persist-to .wrangler --port 8787"
+    "worker:dev": "npm run dev:worker"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.5.0",
+    "@tailwindcss/vite": "^4.3.3",
     "@types/node": "^26.6.4",
+    "lucide": "^1.53.0",
+    "tailwindcss": "^4.3.3",
     "typescript": "^5.5.4",
     "vite": "^5.4.10",
     "wrangler": "^3.107.3"

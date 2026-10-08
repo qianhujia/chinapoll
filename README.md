@@ -6,25 +6,23 @@ A local-first privacy-focused polling app designed around the Cloudflare + D1 ar
 
 ```bash
 npm install
-npm run db:migrate
+cp .env.example .env
 npm run dev
 ```
 
 This starts:
 
-- Vite front-end at http://127.0.0.1:5173
+- Built front-end preview at http://127.0.0.1:5173
 - Local Worker at http://127.0.0.1:8787
 - Local D1 database persisted under .wrangler
 
-Turnstile is bypassed in local development via `TURNSTILE_SKIP=true` in the local Worker config.
+The local start command builds the frontend and Worker before starting them without hot reload. To apply code or style changes, stop the running processes and start `npm run dev` again.
 
-The front-end locale is fixed by the `VITE_DEFAULT_LOCALE` environment variable (supported values: `en` and `zh-CN`; defaults to `en`). There is no language switch in the UI. `VITE_SITENAME` and `VITE_SLOGON` configure the displayed site name and slogan, and `VITE_DATA_GITHUB_URL` configures the data link shown in the footer. `VITE_POLLS_PER_PAGE` and `VITE_COMMENTS_PER_PAGE` configure the homepage and comment page sizes (defaults: 15 and 30; maximum 100). `VITE_PAGE_WIDTH` sets the shared page maximum width in pixels (default: `960px`).
+Configuration is organized by runtime: `.env` contains front-end build settings, `wrangler.toml` contains Worker variables and bindings, and `.dev.vars` contains local Worker secrets. Turnstile is bypassed locally by default with `TURNSTILE_SKIP=true`.
 
-Email-linked proposal identities require `SERVER_SECRET` as a 64-character random hexadecimal secret. Configure it with `wrangler secret put SERVER_SECRET` in Cloudflare, or store it in the ignored local `.dev.vars` file for local development. Never put this secret in frontend `.env` files or commit it.
+Front-end settings use the `VITE_` prefix and are compiled into the browser bundle. The locale is fixed by `VITE_DEFAULT_LOCALE` (supported values: `en` and `zh-CN`; defaults to `en`); there is no language switch in the UI. `VITE_SITENAME` and `VITE_SLOGON` configure the displayed site name and slogan, and `VITE_DATA_GITHUB_URL` configures the data link shown in the footer. `VITE_POLLS_PER_PAGE` and `VITE_COMMENTS_PER_PAGE` configure the homepage and comment page sizes (defaults: 15 and 30; maximum 100). `VITE_PAGE_WIDTH` sets the shared page maximum width in pixels (default: `960px`).
 
-```bash
-cp .env.example .env
-```
+Keep secrets out of `.env` and `wrangler.toml`: use the ignored `.dev.vars` file for local Worker secrets and `wrangler secret put <NAME>` for production secrets. In particular, email-linked proposal identities require `SERVER_SECRET` as a 64-character random hexadecimal secret, and production Turnstile verification requires `TURNSTILE_SECRET_KEY`. Worker variables such as `READ_ONLY_MODE`, `TURNSTILE_SKIP`, and `VOTE_RATE_LIMIT_PER_IP_BUCKET_PER_HOUR` are configured in `wrangler.toml`; use production-safe values when deploying.
 
 To seed local demo data, run the local worker database initialization script and then verify the app in the browser.
 
@@ -39,6 +37,8 @@ npm run db:migrate
 This keeps schema changes reproducible across local development. Future schema updates should be added as new migration files in the same folder.
 
 ## Build check
+
+The Vite production build compiles Tailwind utilities and Lucide icons into the deployed CSS and JavaScript bundles; neither library is needed at runtime.
 
 ```bash
 npm run build
