@@ -1,0 +1,23 @@
+{
+  "name": "chinapoll",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "db:migrate": "npx wrangler d1 migrations apply chinapoll-local --local --persist-to .wrangler",
+    "dev": "npm run db:migrate && (vite --host 0.0.0.0 --port 5173 & npx wrangler dev --local --persist-to .wrangler --port 8787 & wait)",
+    "dev:web": "vite --host 0.0.0.0 --port 5173",
+    "dev:worker": "npm run db:migrate && npx wrangler dev --local --persist-to .wrangler --port 8787",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview --host 0.0.0.0 --port 4173",
+    "lint": "tsc --noEmit",
+    "worker:dev": "npm run db:migrate && npx wrangler dev --local --persist-to .wrangler --port 8787"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.5.0",
+    "@types/node": "^26.6.4",
+    "typescript": "^5.5.4",
+    "vite": "^5.4.10",
+    "wrangler": "^3.107.3"
+  }
+}

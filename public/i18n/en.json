@@ -1,0 +1,12 @@
+{
+  "brand": "ChinaPoll",
+  "tagline": "Let public opinion be visible",
+  "homeTitle": "Continuous polls · Fully anonymous · Openly auditable",
+  "homeSubtitle": "No login required to vote yes/no/neutral on open issues.",
+  "aboutTitle": "About ChinaPoll",
+  "proposalTitle": "Proposal",
+  "voteLabelApprove": "Approve",
+  "voteLabelOppose": "Oppose",
+  "voteLabelNeutral": "Neutral",
+  "privacyNote": "We store only: salted token hash + anonymized network bucket · no names or emails · open source"
+}

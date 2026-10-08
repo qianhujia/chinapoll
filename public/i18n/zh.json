@@ -1,0 +1,12 @@
+{
+  "brand": "ChinaPoll",
+  "tagline": "让民意被看见",
+  "homeTitle": "持续投票 · 完全匿名 · 开源可审计",
+  "homeSubtitle": "用户无需登录，即可对公开议题投出赞同 / 反对 / 中立票。",
+  "aboutTitle": "关于 ChinaPoll",
+  "proposalTitle": "提案页",
+  "voteLabelApprove": "赞同",
+  "voteLabelOppose": "反对",
+  "voteLabelNeutral": "中立",
+  "privacyNote": "我们只存：随机令牌哈希 + 模糊网段 · 不收姓名邮箱 · 代码开源"
+}

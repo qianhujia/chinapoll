@@ -1,0 +1,15 @@
+name = "chinapoll-worker"
+main = "worker/index.ts"
+compatibility_date = "2026-10-08"
+
+[vars]
+TURNSTILE_SECRET_KEY = "dev-skip"
+SERVER_SECRET = "dev-server-secret"
+READ_ONLY_MODE = "false"
+TURNSTILE_SKIP = "true"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "chinapoll-local"
+database_id = "local"
+migrations_dir = "./migrations"
