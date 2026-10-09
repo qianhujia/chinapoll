@@ -3,6 +3,7 @@ import { handleStatsRequest } from './api/stats';
 import { handleVoteRequest, handleVoteStatusRequest } from './api/vote';
 import { handleCommentsRequest } from './api/comments';
 import { handleIssuesRequest } from './api/issues';
+import { handlePublicSettingsRequest } from './api/settings';
 
 export interface Env {
   DB: D1Database;
@@ -21,6 +22,10 @@ export default {
       return new Response(JSON.stringify({ ok: true, status: 'healthy' }), {
         headers: { 'content-type': 'application/json' }
       });
+    }
+
+    if (url.pathname === '/api/settings/public') {
+      return handlePublicSettingsRequest(request, env);
     }
 
     if (url.pathname.startsWith('/api/stats/')) {

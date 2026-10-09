@@ -1,4 +1,4 @@
-import { getIssueModeCode, IssueMode, ProposalStatus, toUnixSeconds } from '../enums';
+import { getIssueModeCode, IssueMode, IssueStatus, toUnixSeconds } from '../enums';
 
 interface ProposalEnv {
   DB: D1Database;
@@ -59,7 +59,7 @@ export async function handleProposalRequest(request: Request, env: ProposalEnv):
   }
 
   const result = await env.DB.prepare(
-    `INSERT INTO proposals (title, description, mode, start_at, end_at, status, poller_id)
+    `INSERT INTO issues (title, description, mode, start_at, end_at, status, poller_id)
      VALUES (?, ?, ?, ?, ?, ?, ?)`
   ).bind(
     title,
@@ -67,15 +67,15 @@ export async function handleProposalRequest(request: Request, env: ProposalEnv):
     mode,
     mode === IssueMode.Deadline ? toUnixSeconds(startAt) : null,
     mode === IssueMode.Deadline ? toUnixSeconds(endAt) : null,
-    ProposalStatus.Pending,
+    IssueStatus.Pending,
     pollerId
   ).run();
 
-  const proposalId = `PROP-${result.meta.last_row_id}`;
+  const issueId = Number(result.meta.last_row_id);
   return Response.json({
     ok: true,
     message: 'proposal submitted for review',
-    proposalId,
+    issueId,
     submitter: pollerId ?? '(anonymous)'
   }, { status: 201 });
 }
@@ -90,11 +90,14 @@ export async function handleProposalClaimRequest(request: Request, env: Proposal
     return Response.json({ ok: false, message: 'invalid JSON' }, { status: 400 });
   }
 
-  const proposalId = typeof body.proposalId === 'string' ? body.proposalId.trim() : '';
+  const issueIdText = String(body.issueId ?? '').trim();
   const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
-  const proposalMatch = /^(?:PROP-)?(\d+)$/i.exec(proposalId);
-  if (!proposalMatch || !EMAIL_PATTERN.test(email)) {
-    return Response.json({ ok: false, message: 'invalid proposal ID or email' }, { status: 400 });
+  if (!/^[1-9]\d*$/.test(issueIdText) || !EMAIL_PATTERN.test(email)) {
+    return Response.json({ ok: false, message: 'invalid issue ID or email' }, { status: 400 });
+  }
+  const issueId = Number(issueIdText);
+  if (!Number.isSafeInteger(issueId)) {
+    return Response.json({ ok: false, message: 'invalid issue ID or email' }, { status: 400 });
   }
 
   const emailHmac = await createEmailHmac(email, env.SERVER_SECRET);
@@ -103,19 +106,19 @@ export async function handleProposalClaimRequest(request: Request, env: Proposal
   }
 
   const result = await env.DB.prepare(
-    `SELECT p.id, p.poller_id
-     FROM proposals p
-     JOIN identities i ON i.poller_id = p.poller_id
-     WHERE p.id = ? AND i.email_hmac = ?`
-  ).bind(Number(proposalMatch[1]), emailHmac).first<{ id: number; poller_id: string }>();
+    `SELECT issue.id, issue.poller_id
+     FROM issues AS issue
+     JOIN identities AS identity ON identity.poller_id = issue.poller_id
+     WHERE issue.id = ? AND identity.email_hmac = ?`
+  ).bind(issueId, emailHmac).first<{ id: number; poller_id: string }>();
 
   if (!result) {
-    return Response.json({ ok: false, message: 'proposal and email do not match' }, { status: 404 });
+    return Response.json({ ok: false, message: 'issue and email do not match' }, { status: 404 });
   }
 
   return Response.json({
     ok: true,
-    proposalId: `PROP-${result.id}`,
+    issueId: result.id,
     submitter: result.poller_id
   });
 }

@@ -1,5 +1,6 @@
 import { DEFAULT_LOCALE, getLocaleText } from './i18n';
 import { getComments, type CommentsResponse, type IssueSummary, type VoteOption } from './lib/poll';
+import { getPublicSettings } from './config';
 
 const voteButtonStyles: Record<VoteOption, { color: string; empty: string }> = {
   approve: { color: '#1fa36a', empty: '#e7f5ed' },
@@ -7,12 +8,12 @@ const voteButtonStyles: Record<VoteOption, { color: string; empty: string }> = {
   oppose: { color: '#d95b5b', empty: '#faeaea' }
 };
 
-export const POLLS_PER_PAGE = configuredPageSize(import.meta.env.VITE_POLLS_PER_PAGE, 15);
-export const COMMENTS_PER_PAGE = configuredPageSize(import.meta.env.VITE_COMMENTS_PER_PAGE, 30);
+export function getPollsPerPage(): number {
+  return getPublicSettings().polls_per_page;
+}
 
-function configuredPageSize(value: string | undefined, fallback: number): number {
-  const parsed = Number(value);
-  return Number.isSafeInteger(parsed) && parsed > 0 ? Math.min(parsed, 100) : fallback;
+export function getCommentsPerPage(): number {
+  return getPublicSettings().comments_per_page;
 }
 
 export function t(key: string): string {
@@ -24,19 +25,19 @@ export function getErrorMessage(error: unknown): string {
 }
 
 export function getSiteName(): string {
-  return import.meta.env.VITE_SITENAME || t('appName');
+  return getPublicSettings().site_name || t('appName');
 }
 
 function getSiteSlogan(): string {
-  return import.meta.env.VITE_SLOGON || t('tagline');
+  return getPublicSettings().site_slogan || t('tagline');
 }
 
 export function renderHeader(activeRoute: string): string {
   return `
     <header class="flex items-center justify-between py-4 pb-5 max-[700px]:flex-col max-[700px]:items-start">
       <div class="flex flex-col gap-1">
-        <a class="text-3xl font-extrabold leading-none text-primary hover:underline" href="/" data-route="/" aria-label="${t('homeLinkLabel')}">${getSiteName()}</a>
-        <div class="text-sm text-muted">${getSiteSlogan()}</div>
+        <a class="text-3xl font-extrabold leading-none text-primary hover:underline" href="/" data-route="/" aria-label="${escapeHtml(t('homeLinkLabel'))}">${escapeHtml(getSiteName())}</a>
+        <div class="text-sm text-muted">${escapeHtml(getSiteSlogan())}</div>
       </div>
       <nav class="flex flex-wrap items-center gap-[18px]">
         ${getNavigationMarkup(activeRoute)}
@@ -46,13 +47,13 @@ export function renderHeader(activeRoute: string): string {
 }
 
 export function renderFooter(): string {
-  const dataUrl = import.meta.env.VITE_DATA_GITHUB_URL;
+  const dataUrl = getPublicSettings().data_repository_url;
 
   return `
     <footer class="mt-9 flex flex-wrap items-center justify-center gap-3 text-center text-[0.9rem] text-muted">
       <span>Powered by <a class="font-bold text-primary hover:underline" href="https://github.com/qianhujia/chinapoll" target="_blank" rel="noopener noreferrer">${getSiteName()}</a></span>
       <a class="text-primary hover:underline" href="/submit/claim" data-route="/submit/claim">${t('claimProposalLink')}</a>
-      ${dataUrl ? `<a class="text-primary hover:underline" href="${dataUrl}" target="_blank" rel="noopener noreferrer">${t('dataLink')}</a>` : ''}
+      ${dataUrl ? `<a class="text-primary hover:underline" href="${escapeHtml(dataUrl)}" target="_blank" rel="noopener noreferrer">${t('dataLink')}</a>` : ''}
     </footer>
   `;
 }
@@ -102,7 +103,7 @@ export async function updateComments(issueId: number, page: number, bindNavigati
   if (!content) return;
 
   try {
-    const response = await getComments(issueId, page, COMMENTS_PER_PAGE);
+    const response = await getComments(issueId, page, getCommentsPerPage());
     content.innerHTML = renderCommentsContent(issueId, response);
     bindNavigation();
   } catch {

@@ -11,7 +11,7 @@ import {
   submitVote
 } from '../lib/poll';
 import {
-  COMMENTS_PER_PAGE,
+  getCommentsPerPage,
   escapeHtml,
   getErrorMessage,
   getQueryPage,
@@ -26,6 +26,7 @@ import {
 } from '../ui';
 
 export async function mountVotePage(issueId: number, app: HTMLElement, bindNavigation: () => void): Promise<void> {
+  const commentsPerPage = getCommentsPerPage();
   let issue;
   try {
     issue = await getIssue(issueId);
@@ -62,7 +63,7 @@ export async function mountVotePage(issueId: number, app: HTMLElement, bindNavig
   }
   let commentsContent: string;
   try {
-    commentsContent = renderCommentsContent(issue.id, await getComments(issue.id, getQueryPage('commentsPage'), COMMENTS_PER_PAGE));
+    commentsContent = renderCommentsContent(issue.id, await getComments(issue.id, getQueryPage('commentsPage'), commentsPerPage));
   } catch {
     commentsContent = t('commentsLoadFailed');
   }

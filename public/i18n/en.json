@@ -60,7 +60,7 @@
   "claimProposalTitle": "Verify proposal submitter",
   "claimProposalDescription": "Enter the proposal ID and the email address used when submitting it to verify the submitter identity.",
   "claimProposalLink": "Verify a proposal submitter",
-  "claimProposalIdLabel": "Proposal ID",
+  "claimIssueIdLabel": "Issue ID",
   "claimEmailLabel": "Email",
   "claimProposal": "Verify",
   "claimConfirmed": "Confirmed submitter",

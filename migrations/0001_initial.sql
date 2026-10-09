@@ -1,11 +1,13 @@
 CREATE TABLE IF NOT EXISTS issues (
-  id INTEGER PRIMARY KEY,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   title TEXT,
   description TEXT,
   mode INTEGER NOT NULL,
   start_at INTEGER,
   end_at INTEGER,
   status INTEGER NOT NULL,
+  reviewed_at INTEGER,
+  poller_id TEXT,
   created_at INTEGER NOT NULL DEFAULT (unixepoch()),
   updated_at INTEGER NOT NULL DEFAULT (unixepoch())
 );
@@ -22,21 +24,6 @@ CREATE TABLE IF NOT EXISTS votes (
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_votes_issue_voter_token
   ON votes(issue_id, voter_token_hash);
-
-CREATE TABLE IF NOT EXISTS proposals (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  title TEXT,
-  description TEXT,
-  mode INTEGER NOT NULL DEFAULT 2,
-  start_at INTEGER,
-  end_at INTEGER,
-  status INTEGER NOT NULL DEFAULT 1,
-  reviewed_at INTEGER,
-  published_issue_id INTEGER,
-  poller_id TEXT,
-  created_at INTEGER NOT NULL DEFAULT (unixepoch()),
-  updated_at INTEGER NOT NULL DEFAULT (unixepoch())
-);
 
 CREATE TABLE IF NOT EXISTS comments (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

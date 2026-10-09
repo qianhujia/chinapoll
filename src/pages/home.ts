@@ -11,7 +11,7 @@ import {
 import {
   escapeHtml,
   getErrorMessage,
-  POLLS_PER_PAGE,
+  getPollsPerPage,
   renderFooter,
   renderHeader,
   renderModeBadge,
@@ -22,11 +22,12 @@ import {
 } from '../ui';
 
 export async function mountHome(app: HTMLElement, page: number, bindNavigation: () => void): Promise<void> {
+  const pollsPerPage = getPollsPerPage();
   let issueStats: Awaited<ReturnType<typeof getIssues>>['issues'];
   let totalIssues: number;
   let totalVotes: number;
   try {
-    const response = await getIssues(page, POLLS_PER_PAGE);
+    const response = await getIssues(page, pollsPerPage);
     issueStats = response.issues;
     totalIssues = response.total;
     totalVotes = response.totalVotes;
@@ -42,7 +43,7 @@ export async function mountHome(app: HTMLElement, page: number, bindNavigation: 
     return;
   }
 
-  const totalPages = Math.max(1, Math.ceil(totalIssues / POLLS_PER_PAGE));
+  const totalPages = Math.max(1, Math.ceil(totalIssues / pollsPerPage));
   const currentPage = Math.min(Math.max(1, page), totalPages);
   const tokenHash = await hashToken(createToken());
   const issueVoteStates = new Map<number, { voted: boolean; error: string }>();

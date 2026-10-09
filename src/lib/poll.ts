@@ -132,17 +132,17 @@ export async function submitProposal(payload: {
   startAt?: string;
   endAt?: string;
   email?: string;
-}): Promise<{ ok: boolean; message: string; proposalId: string; submitter?: string }> {
+}): Promise<{ ok: boolean; message: string; issueId: number; submitter?: string }> {
   return fetchJson('/api/proposal', {
     method: 'POST',
     body: JSON.stringify(payload)
   });
 }
 
-export async function claimProposal(proposalId: string, email: string): Promise<{ ok: boolean; proposalId: string; submitter: string }> {
+export async function claimProposal(issueId: string, email: string): Promise<{ ok: boolean; issueId: number; submitter: string }> {
   return fetchJson('/api/proposal/claim', {
     method: 'POST',
-    body: JSON.stringify({ proposalId, email })
+    body: JSON.stringify({ issueId, email })
   });
 }
 

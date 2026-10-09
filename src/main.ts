@@ -1,16 +1,12 @@
 import './styles.css';
-import { DEFAULT_LOCALE, loadTranslations } from './i18n';
+import { DEFAULT_LOCALE, loadTranslations, setDefaultLocale } from './i18n';
 import { mountAboutPage, mountClaimProposalPage, mountProposePage } from './pages/content';
 import { mountHome } from './pages/home';
 import { mountVotePage } from './pages/poll';
+import { getPublicSettings, loadPublicSettings } from './config';
 import { getErrorMessage, getQueryPage, getSiteName } from './ui';
 
 const app = document.querySelector<HTMLElement>('#app');
-
-const configuredPageWidth = import.meta.env.VITE_PAGE_WIDTH;
-if (configuredPageWidth && /^\d{3,4}px$/.test(configuredPageWidth)) {
-  document.documentElement.style.setProperty('--page-width', configuredPageWidth);
-}
 
 function getCurrentRoute(): string {
   const hash = window.location.hash || '';
@@ -90,11 +86,14 @@ async function start(): Promise<void> {
   if (!app) throw new Error('App root element not found');
 
   try {
+    const settings = await loadPublicSettings();
+    setDefaultLocale(settings.default_locale);
+    document.documentElement.style.setProperty('--page-width', `${getPublicSettings().page_max_width_px}px`);
     await loadTranslations(DEFAULT_LOCALE);
     await render();
   } catch (error) {
     app.setAttribute('role', 'alert');
-    app.textContent = `Could not load translations: ${getErrorMessage(error)}`;
+    app.textContent = `Could not load application settings or translations: ${getErrorMessage(error)}`;
   }
 }
 

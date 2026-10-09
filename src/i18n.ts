@@ -8,9 +8,11 @@ export function resolveLocale(value?: string | null): Locale {
   return 'en';
 }
 
-export const DEFAULT_LOCALE = resolveLocale(
-  (import.meta.env.VITE_DEFAULT_LOCALE as string | undefined) ?? 'en'
-);
+export let DEFAULT_LOCALE: Locale = 'en';
+
+export function setDefaultLocale(value: Locale): void {
+  DEFAULT_LOCALE = value;
+}
 
 const translations: Partial<Record<Locale, Record<string, string>>> = {};
 

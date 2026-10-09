@@ -123,7 +123,7 @@ export function mountProposePage(app: HTMLElement, bindNavigation: () => void): 
       });
       if (proposalStatus) {
         const submitter = result.submitter ?? t('anonymousSubmitter');
-        proposalStatus.textContent = `${t('proposalSubmitted')}: ${result.proposalId} · ${submitter}`;
+        proposalStatus.textContent = `${t('proposalSubmitted')}: ${result.issueId} · ${submitter}`;
       }
       proposalForm.reset();
       updateProposalSchedule(false);
@@ -146,8 +146,8 @@ export function mountClaimProposalPage(app: HTMLElement, bindNavigation: () => v
           <h1 class="m-0 text-2xl font-bold">${t('claimProposalTitle')}</h1>
           <p class="m-0 text-muted">${t('claimProposalDescription')}</p>
           <form class="grid gap-3" data-claim-form>
-            <label class="grid gap-2" for="claim-proposal-id">${t('claimProposalIdLabel')}
-              <input class="w-full rounded-[14px] border border-border bg-[#f9fbff] px-3.5 py-3" id="claim-proposal-id" name="proposalId" type="text" inputmode="numeric" placeholder="47" required>
+            <label class="grid gap-2" for="claim-issue-id">${t('claimIssueIdLabel')}
+              <input class="w-full rounded-[14px] border border-border bg-[#f9fbff] px-3.5 py-3" id="claim-issue-id" name="issueId" type="text" inputmode="numeric" placeholder="47" required>
             </label>
             <label class="grid gap-2" for="claim-email">${t('claimEmailLabel')}
               <input class="w-full rounded-[14px] border border-border bg-[#f9fbff] px-3.5 py-3" id="claim-email" name="email" type="email" autocomplete="email" required>
@@ -166,15 +166,15 @@ export function mountClaimProposalPage(app: HTMLElement, bindNavigation: () => v
   claimForm?.addEventListener('submit', async (event) => {
     event.preventDefault();
     const formData = new FormData(claimForm);
-    const proposalId = String(formData.get('proposalId') ?? '').trim();
+    const issueId = String(formData.get('issueId') ?? '').trim();
     const email = String(formData.get('email') ?? '').trim();
     const submitButton = claimForm.querySelector<HTMLButtonElement>('button[type="submit"]')!;
     submitButton.disabled = true;
     if (claimStatus) claimStatus.textContent = '';
 
     try {
-      const result = await claimProposal(proposalId, email);
-      if (claimStatus) claimStatus.textContent = `${t('claimConfirmed')}: ${result.proposalId} · ${result.submitter}`;
+      const result = await claimProposal(issueId, email);
+      if (claimStatus) claimStatus.textContent = `${t('claimConfirmed')}: ${result.issueId} · ${result.submitter}`;
     } catch (error) {
       if (claimStatus) claimStatus.textContent = `${t('claimFailed')} ${getErrorMessage(error)}`;
     } finally {

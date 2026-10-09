@@ -6,12 +6,8 @@ export enum IssueMode {
 export enum IssueStatus {
   Open = 1,
   Closed = 2,
-  Archived = 3
-}
-
-export enum ProposalStatus {
-  Pending = 1,
-  Approved = 2
+  Archived = 3,
+  Pending = 4
 }
 
 export enum VoteOption {

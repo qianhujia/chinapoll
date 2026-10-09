@@ -60,7 +60,7 @@
   "claimProposalTitle": "核验提案提交者",
   "claimProposalDescription": "填写提案编号和提交时使用的邮箱，以核验提案提交者身份。",
   "claimProposalLink": "验核",
-  "claimProposalIdLabel": "提案编号",
+  "claimIssueIdLabel": "议题编号",
   "claimEmailLabel": "邮箱",
   "claimProposal": "核验",
   "claimConfirmed": "已确认提交者",
