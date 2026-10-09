@@ -4,9 +4,14 @@ export interface IssueSummary {
   id: number;
   title: string;
   mode: 'deadline' | 'evergreen';
-  start_at: string;
+  start_at: string | null;
   end_at?: string | null;
   status: 'open' | 'closed' | 'archived';
+}
+
+export interface IssueWithStats {
+  issue: IssueSummary;
+  stats: { issueId: number; counts: Record<VoteOption, number>; voted: boolean };
 }
 
 export interface VoteResponse {
@@ -62,6 +67,22 @@ export async function fetchJson<T>(input: string, init?: RequestInit): Promise<T
 
 export async function getStats(issueId: number): Promise<{ issueId: number; counts: Record<VoteOption, number>; voted: boolean }> {
   return fetchJson(`/api/stats/${issueId}`);
+}
+
+export async function getIssues(page: number, pageSize: number): Promise<{
+  issues: IssueWithStats[];
+  page: number;
+  pageSize: number;
+  total: number;
+  totalVotes: number;
+}> {
+  const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
+  return fetchJson(`/api/issues?${params}`);
+}
+
+export async function getIssue(issueId: number): Promise<IssueSummary> {
+  const response = await fetchJson<{ issue: IssueSummary }>(`/api/issues/${issueId}`);
+  return response.issue;
 }
 
 export async function getComments(issueId: number, page: number, pageSize: number): Promise<CommentsResponse> {

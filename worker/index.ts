@@ -2,6 +2,7 @@ import { handleProposalClaimRequest, handleProposalRequest } from './api/proposa
 import { handleStatsRequest } from './api/stats';
 import { handleVoteRequest, handleVoteStatusRequest } from './api/vote';
 import { handleCommentsRequest } from './api/comments';
+import { handleIssuesRequest } from './api/issues';
 
 export interface Env {
   DB: D1Database;
@@ -24,6 +25,10 @@ export default {
 
     if (url.pathname.startsWith('/api/stats/')) {
       return handleStatsRequest(request, url, env as any);
+    }
+
+    if (url.pathname === '/api/issues' || url.pathname.startsWith('/api/issues/')) {
+      return handleIssuesRequest(request, url, env);
     }
 
     if (url.pathname === '/api/comments' || url.pathname.startsWith('/api/comments/')) {

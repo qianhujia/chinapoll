@@ -12,169 +12,31 @@ export const DEFAULT_LOCALE = resolveLocale(
   (import.meta.env.VITE_DEFAULT_LOCALE as string | undefined) ?? 'en'
 );
 
-export const translations: Record<Locale, Record<string, string>> = {
-  en: {
-    appName: 'ChinaPoll',
-    tagline: 'Public opinion made visible',
-    home: 'Home',
-    allPolls: 'All Polls',
-    about: 'About',
-    propose: 'Submit',
-    submitProposal: 'Submit',
-    openPolls: 'Open polls',
-    totalVotes: 'Total votes',
-    modes: 'Modes',
-    vote: 'Vote',
-    approve: 'Approve',
-    oppose: 'Oppose',
-    neutral: 'Neutral',
-    deadline: 'Time-limited',
-    evergreen: 'Permanent',
-    votes: 'votes',
-    previousPage: 'Previous',
-    nextPage: 'Next',
-    pageOf: 'Page',
-    pagination: 'Pagination',
-    commentsTitle: 'Comments',
-    noComments: 'No comments yet.',
-    commentsLoadFailed: 'Could not load comments.',
-    submitComment: 'Submit',
-    commentSubmitted: 'Your anonymous comment was posted.',
-    emptyComment: 'Enter a comment before submitting.',
-    invalidCommentLength: 'Comments must be 5 to 140 characters long.',
-    commentSubmitFailed: 'Could not post comment:',
-    openSource: 'Open source code',
-    noLogin: 'no login required',
-    oneToken: 'one token per device',
-    publicResults: 'public results',
-    heroTitle: 'Continuous voting · anonymous · open and auditable',
-    heroBody: 'Users can vote on public issues without logging in and review the results in an open format.',
-    aboutTitle: 'About ChinaPoll',
-    aboutBody: 'ChinaPoll combines continuous voting, anonymous participation, and public auditability into a practical public-opinion platform.',
-    aboutPointOne: 'One device, one vote via a random client token and server-side uniqueness checks.',
-    aboutPointTwo: 'No login or personal data collection.',
-    aboutPointThree: 'Public snapshots and hashable records for verification.',
-    proposalTitle: 'Submit a proposal',
-    proposalBody: 'To add a new public issue, it should meet these minimum checks:',
-    proposalRuleOne: 'It can be stated in one sentence.',
-    proposalRuleTwo: 'It can produce a clear yes/no/neutral outcome.',
-    proposalRuleThree: 'It avoids personal attacks.',
-    proposalRuleFour: 'It is not a duplicate of an existing issue.',
-    proposalRuleFive: 'It is relevant to public policy or civic discussion.',
-    proposalTitleLabel: 'Title',
-    proposalDescriptionToggle: 'Add an optional description',
-    proposalDescriptionLabel: 'Description (optional)',
-    proposalModeLabel: 'Voting duration',
-    proposalStartLabel: 'Start time',
-    proposalEndLabel: 'End time',
-    proposalEmailLabel: 'Email (optional)',
-    proposalEmailNote: 'Use your email and proposal ID to verify the submitter later. Only a keyed HMAC is stored, never the email itself. Leaving it blank submits anonymously and cannot be verified later.',
-    proposalSubmitted: 'Proposal submitted',
-    proposalSubmitFailed: 'Could not submit proposal:',
-    anonymousSubmitter: '(anonymous)',
-    claimProposalTitle: 'Verify proposal submitter',
-    claimProposalDescription: 'Enter the proposal ID and the email address used when submitting it to verify the submitter identity.',
-    claimProposalLink: 'Verify a proposal submitter',
-    claimProposalIdLabel: 'Proposal ID',
-    claimEmailLabel: 'Email',
-    claimProposal: 'Verify',
-    claimConfirmed: 'Confirmed submitter',
-    claimFailed: 'Could not verify this proposal and email:',
-    issuePrefix: 'Issue',
-    dataLink: 'Data',
-    anonymousComment: 'Anonymous comment (5–140 characters)',
-    commentToggle: 'Comment',
-    commentPlaceholder: 'Keep it public and avoid identifying details.',
-    privacyText: 'Voting does not store personal information, including your email, name, real IP address, or browser details. We store only a random token hash and a coarse network bucket. The system and data are open source.',
-    voteRecord: 'Vote recorded',
-    alreadyVoted: 'You have already voted on this issue.',
-    voteStatusFailed: 'Could not check whether you have voted:',
-    statsLoadFailed: 'Could not load vote totals:',
-    submitFailed: 'Submit failed',
-    homeLinkLabel: 'Go to the home page'
-  },
-  'zh-CN': {
-    appName: 'ChinaPoll',
-    tagline: '让民意被看见',
-    home: '首页',
-    allPolls: '全部议题',
-    about: '关于',
-    propose: '提交',
-    submitProposal: '提交',
-    openPolls: '开放议题',
-    totalVotes: '总票数',
-    modes: '模式',
-    vote: '投票',
-    approve: '支持',
-    oppose: '反对',
-    neutral: '中立',
-    deadline: '限时',
-    evergreen: '永久',
-    votes: '票',
-    previousPage: '上一页',
-    nextPage: '下一页',
-    pageOf: '页',
-    pagination: '分页',
-    commentsTitle: '评论',
-    noComments: '暂无评论。',
-    commentsLoadFailed: '评论加载失败。',
-    submitComment: '提交',
-    commentSubmitted: '匿名评论已提交。',
-    emptyComment: '请先填写评论。',
-    invalidCommentLength: '评论须为 5–140 字。',
-    commentSubmitFailed: '评论提交失败：',
-    openSource: '代码开源',
-    noLogin: '无需登录',
-    oneToken: '一机一票',
-    publicResults: '公开结果',
-    heroTitle: '持续投票 · 完全匿名 · 开源可审计',
-    heroBody: '用户无需登录，即可对公开议题投出赞同 / 反对 / 中立票，并查看公开结果。',
-    aboutTitle: '关于 ChinaPoll',
-    aboutBody: '平台旨在把持续投票、完全匿名和公开审计结合起来，以一种更稳健的方式呈现公共议题民意。',
-    aboutPointOne: '一机一票：客户端随机 token + 服务端唯一约束。',
-    aboutPointTwo: '零登录：无姓名、邮箱、完整 IP 存储。',
-    aboutPointThree: '数据公开：CSV、快照与哈希链可复核。',
-    proposalTitle: '提交新提案',
-    proposalBody: '提交一个公开议题，新议题至少满足以下审核条款：',
-    proposalRuleOne: '一句话能表述清楚。',
-    proposalRuleTwo: '能投出“是/否/中立”结果。',
-    proposalRuleThree: '不含人身攻击。',
-    proposalRuleFour: '不与已有议题重复。',
-    proposalRuleFive: '范围限于公共议题。',
-    proposalTitleLabel: '标题',
-    proposalDescriptionToggle: '填写说明（可选）',
-    proposalDescriptionLabel: '说明（可选）',
-    proposalModeLabel: '投票期限',
-    proposalStartLabel: '开始时间',
-    proposalEndLabel: '结束时间',
-    proposalEmailLabel: '邮箱（可选）',
-    proposalEmailNote: '填写邮箱后，可凭提案编号核验提交者身份。仅保存带密钥的 HMAC，不保存邮箱原文；留空则匿名提交，之后无法核验。',
-    proposalSubmitted: '提案已提交',
-    proposalSubmitFailed: '提案提交失败：',
-    anonymousSubmitter: '（匿名）',
-    claimProposalTitle: '核验提案提交者',
-    claimProposalDescription: '填写提案编号和提交时使用的邮箱，以核验提案提交者身份。',
-    claimProposalLink: '验核',
-    claimProposalIdLabel: '提案编号',
-    claimEmailLabel: '邮箱',
-    claimProposal: '核验',
-    claimConfirmed: '已确认提交者',
-    claimFailed: '无法核验该提案与邮箱：',
-    issuePrefix: '议题',
-    dataLink: '数据',
-    anonymousComment: '匿名评论（5–140 字）',
-    commentToggle: '评论',
-    commentPlaceholder: '内容公开，请勿包含可识别信息。',
-    privacyText: '投票过程不保存用户信息，包括但不限于邮箱、姓名、真实 IP 地址和浏览器信息。我们只保存随机令牌哈希和模糊网段，系统和数据均开源。',
-    voteRecord: '已投票',
-    alreadyVoted: '你已经投过该议题。',
-    voteStatusFailed: '无法检查该议题的投票状态：',
-    statsLoadFailed: '无法加载投票统计：',
-    submitFailed: '提交失败',
-    homeLinkLabel: '返回首页'
+const translations: Partial<Record<Locale, Record<string, string>>> = {};
+
+export async function loadTranslations(locale: Locale): Promise<void> {
+  const path = locale === 'zh-CN' ? '/i18n/zh.json' : '/i18n/en.json';
+  const response = await fetch(path);
+  if (!response.ok) {
+    throw new Error(`Could not load translations (${response.status})`);
   }
-};
+
+  const data: unknown = await response.json();
+  if (typeof data !== 'object' || data === null || Array.isArray(data)
+    || !Object.values(data).every((value) => typeof value === 'string')) {
+    throw new Error(`Invalid translations in ${path}`);
+  }
+
+  const dictionary: Record<string, string> = {};
+  for (const [key, value] of Object.entries(data)) {
+    if (typeof value !== 'string') {
+      throw new Error(`Invalid translation value for "${key}" in ${path}`);
+    }
+    dictionary[key] = value;
+  }
+  translations[locale] = dictionary;
+}
 
 export function getLocaleText(locale: Locale, key: string): string {
-  return translations[locale]?.[key] ?? translations.en[key] ?? key;
+  return translations[locale]?.[key] ?? key;
 }
