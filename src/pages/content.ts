@@ -46,11 +46,11 @@ export function mountProposePage(app: HTMLElement, bindNavigation: () => void): 
               <label class="grid gap-2" for="proposal-description">${t('proposalDescriptionLabel')}
                 <textarea class="min-h-[140px] w-full resize-y rounded-[14px] border border-border bg-[#f9fbff] px-3.5 py-3" id="proposal-description" name="description" maxlength="2000"></textarea>
               </label>
+              <label class="grid gap-2" for="proposal-email">${t('proposalEmailLabel')}
+                <input class="w-full rounded-[14px] border border-border bg-[#f9fbff] px-3.5 py-3" id="proposal-email" name="email" type="email" autocomplete="email">
+              </label>
+              <small class="-mt-1.5 text-xs leading-[1.45] text-muted">${t('proposalEmailNote')}</small>
             </details>
-            <label class="grid gap-2" for="proposal-email">${t('proposalEmailLabel')}
-              <input class="w-full rounded-[14px] border border-border bg-[#f9fbff] px-3.5 py-3" id="proposal-email" name="email" type="email" autocomplete="email">
-            </label>
-            <small class="-mt-1.5 text-xs leading-[1.45] text-muted">${t('proposalEmailNote')}</small>
             <fieldset class="m-0 grid gap-2 border-0 p-0">
               <legend class="mb-2 font-semibold">${t('proposalModeLabel')}</legend>
               <div class="grid grid-cols-2 gap-2.5">

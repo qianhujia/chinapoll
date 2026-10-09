@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "db:migrate": "npx wrangler d1 migrations apply chinapoll-local --local --persist-to .wrangler && npm run admin -- initialize-settings",
-    "admin": "node --experimental-strip-types --experimental-transform-types admin/cli.ts",
+    "admin:build": "tsc --project tsconfig.json",
+    "admin": "node dist/admin/cli.js", 
     "dev": "npm run db:migrate && npm run build && (vite preview --host 0.0.0.0 --port 5173 & npx wrangler dev dist/worker/index.js --no-bundle --local --persist-to .wrangler --port 8787 --live-reload=false & wait)",
     "dev:web": "npm run build && vite preview --host 0.0.0.0 --port 5173",
     "dev:worker": "npm run db:migrate && npm run build:worker && npx wrangler dev dist/worker/index.js --no-bundle --local --persist-to .wrangler --port 8787 --live-reload=false",
@@ -16,13 +17,13 @@
     "worker:dev": "npm run dev:worker"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.5.0",
+    "@cloudflare/workers-types": "^5.20261009.1",
     "@tailwindcss/vite": "^4.3.3",
     "@types/node": "^26.6.4",
     "lucide": "^1.53.0",
     "tailwindcss": "^4.3.3",
     "typescript": "^5.5.4",
     "vite": "^5.4.10",
-    "wrangler": "^3.107.3"
+    "wrangler": "^4.149.0"
   }
 }

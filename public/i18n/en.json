@@ -47,7 +47,7 @@
   "proposalRuleFour": "It is not a duplicate of an existing issue.",
   "proposalRuleFive": "It is relevant to public policy or civic discussion.",
   "proposalTitleLabel": "Title",
-  "proposalDescriptionToggle": "Add an optional description",
+  "proposalDescriptionToggle": "Description & Email (Optional)",
   "proposalDescriptionLabel": "Description (optional)",
   "proposalModeLabel": "Voting duration",
   "proposalStartLabel": "Start time",

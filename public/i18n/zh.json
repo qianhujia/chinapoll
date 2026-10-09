@@ -47,7 +47,7 @@
   "proposalRuleFour": "不与已有议题重复。",
   "proposalRuleFive": "范围限于公共议题。",
   "proposalTitleLabel": "标题",
-  "proposalDescriptionToggle": "填写说明（可选）",
+  "proposalDescriptionToggle": "说明 & 邮箱（可选）",
   "proposalDescriptionLabel": "说明（可选）",
   "proposalModeLabel": "投票期限",
   "proposalStartLabel": "开始时间",
