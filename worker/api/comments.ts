@@ -41,10 +41,10 @@ export async function handleCommentsRequest(request: Request, url: URL, env: any
     page,
     pageSize,
     total: Number(countResult?.total ?? 0),
-    comments: (commentResult.results ?? []).map((row: { id: number; comment: string; created_at: string }) => ({
+    comments: (commentResult.results ?? []).map((row: { id: number; comment: string; created_at: number }) => ({
       id: row.id,
       comment: row.comment,
-      createdAt: row.created_at
+      createdAt: new Date(row.created_at * 1000).toISOString()
     }))
   }, {
     headers: { 'cache-control': 'no-store' }

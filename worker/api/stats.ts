@@ -1,4 +1,6 @@
-export type VoteOption = 'approve' | 'oppose' | 'neutral';
+import { getVoteOptionLabel, VoteOption as VoteOptionCode, type VoteOptionLabel } from '../enums';
+
+export type VoteOption = VoteOptionLabel;
 
 export interface StatsResponse {
   issueId: number;
@@ -11,15 +13,12 @@ export async function handleStatsRequest(request: Request, url: URL, env: any): 
 
   const counts: Record<VoteOption, number> = { approve: 0, oppose: 0, neutral: 0 };
 
-  const result: any = await env.DB.prepare(
+  const result: { results?: Array<{ option: VoteOptionCode; count: number }> } = await env.DB.prepare(
     `SELECT option, COUNT(*) as count FROM votes WHERE issue_id = ? GROUP BY option`
   ).bind(issueId).all();
 
   for (const row of result.results ?? []) {
-    const option = String(row.option) as VoteOption;
-    if (option in counts) {
-      counts[option] = Number(row.count ?? 0);
-    }
+    counts[getVoteOptionLabel(row.option)] = Number(row.count ?? 0);
   }
 
   return new Response(JSON.stringify({

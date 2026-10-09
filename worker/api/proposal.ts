@@ -1,3 +1,5 @@
+import { getIssueModeCode, IssueMode, ProposalStatus, toUnixSeconds } from '../enums';
+
 interface ProposalEnv {
   DB: D1Database;
   SERVER_SECRET?: string;
@@ -19,7 +21,7 @@ export async function handleProposalRequest(request: Request, env: ProposalEnv):
 
   const title = typeof body.title === 'string' ? body.title.trim() : '';
   const description = typeof body.description === 'string' ? body.description.trim() : '';
-  const mode = body.mode === 'deadline' || body.mode === 'evergreen' ? body.mode : null;
+  const mode = getIssueModeCode(body.mode);
   const startAt = typeof body.startAt === 'string' ? body.startAt : '';
   const endAt = typeof body.endAt === 'string' ? body.endAt : '';
   const startTimestamp = Date.parse(startAt);
@@ -32,7 +34,7 @@ export async function handleProposalRequest(request: Request, env: ProposalEnv):
   }
   const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
   if (!title || title.length > MAX_TITLE_LENGTH || description.length > MAX_DESCRIPTION_LENGTH || !mode
-    || (mode === 'deadline' && (!Number.isFinite(startTimestamp) || !Number.isFinite(endTimestamp)
+    || (mode === IssueMode.Deadline && (!Number.isFinite(startTimestamp) || !Number.isFinite(endTimestamp)
       || startTimestamp <= Date.now() || endTimestamp <= startTimestamp))
     || (email && (email.length > 254 || !EMAIL_PATTERN.test(email)))) {
     return Response.json({ ok: false, message: 'invalid proposal title, schedule, or email' }, { status: 400 });
@@ -57,15 +59,15 @@ export async function handleProposalRequest(request: Request, env: ProposalEnv):
   }
 
   const result = await env.DB.prepare(
-    `INSERT INTO proposals (title, description, text_zh, mode, start_at, end_at, status, poller_id)
-     VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)`
+    `INSERT INTO proposals (title, description, mode, start_at, end_at, status, poller_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
   ).bind(
     title,
     description || null,
-    title,
     mode,
-    mode === 'deadline' ? new Date(startTimestamp).toISOString() : null,
-    mode === 'deadline' ? new Date(endTimestamp).toISOString() : null,
+    mode === IssueMode.Deadline ? toUnixSeconds(startAt) : null,
+    mode === IssueMode.Deadline ? toUnixSeconds(endAt) : null,
+    ProposalStatus.Pending,
     pollerId
   ).run();
 

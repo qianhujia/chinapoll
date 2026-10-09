@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "db:migrate": "npx wrangler d1 migrations apply chinapoll-local --local --persist-to .wrangler",
+    "admin": "node --experimental-strip-types --experimental-transform-types admin/cli.ts",
     "dev": "npm run db:migrate && npm run build && (vite preview --host 0.0.0.0 --port 5173 & npx wrangler dev dist/worker/index.js --no-bundle --local --persist-to .wrangler --port 8787 --live-reload=false & wait)",
     "dev:web": "npm run build && vite preview --host 0.0.0.0 --port 5173",
     "dev:worker": "npm run db:migrate && npm run build:worker && npx wrangler dev dist/worker/index.js --no-bundle --local --persist-to .wrangler --port 8787 --live-reload=false",

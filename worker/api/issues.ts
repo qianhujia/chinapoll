@@ -1,3 +1,12 @@
+import {
+  getIssueModeLabel,
+  getIssueStatusLabel,
+  IssueMode,
+  IssueStatus,
+  VoteOption,
+  toIsoDate
+} from '../enums';
+
 const MAX_PAGE_SIZE = 100;
 
 interface IssuesEnv {
@@ -7,10 +16,11 @@ interface IssuesEnv {
 interface IssueRow {
   id: number;
   title: string;
-  mode: 'deadline' | 'evergreen';
-  start_at: string | null;
-  end_at: string | null;
-  status: 'open' | 'closed' | 'archived';
+  description: string | null;
+  mode: IssueMode;
+  start_at: number | null;
+  end_at: number | null;
+  status: IssueStatus;
   approve: number;
   neutral: number;
   oppose: number;
@@ -36,44 +46,49 @@ export async function handleIssuesRequest(request: Request, url: URL, env: Issue
   const countResult = await env.DB.prepare(
     `SELECT COUNT(*) AS total
      FROM issues
-     WHERE status = 'open' AND title IS NOT NULL AND TRIM(title) != ''
-       AND mode IN ('deadline', 'evergreen')`
-  ).first<{ total: number }>();
+     WHERE status = ? AND title IS NOT NULL AND TRIM(title) != ''
+       AND mode IN (?, ?)`
+  ).bind(IssueStatus.Open, IssueMode.Deadline, IssueMode.Evergreen).first<{ total: number }>();
 
   const voteTotalResult = await env.DB.prepare(
     `SELECT COUNT(*) AS total
      FROM votes v
      JOIN issues i ON i.id = v.issue_id
-     WHERE i.status = 'open' AND i.title IS NOT NULL AND TRIM(i.title) != ''
-       AND i.mode IN ('deadline', 'evergreen')`
-  ).first<{ total: number }>();
+     WHERE i.status = ? AND i.title IS NOT NULL AND TRIM(i.title) != ''
+       AND i.mode IN (?, ?)`
+  ).bind(IssueStatus.Open, IssueMode.Deadline, IssueMode.Evergreen).first<{ total: number }>();
 
   const total = Number(countResult?.total ?? 0);
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const currentPage = Math.min(page, totalPages);
   const offset = (currentPage - 1) * pageSize;
   const result = await env.DB.prepare(
-    `SELECT i.id, i.title, i.mode, i.start_at, i.end_at, i.status,
-       COALESCE(SUM(CASE WHEN v.option = 'approve' THEN 1 ELSE 0 END), 0) AS approve,
-       COALESCE(SUM(CASE WHEN v.option = 'neutral' THEN 1 ELSE 0 END), 0) AS neutral,
-       COALESCE(SUM(CASE WHEN v.option = 'oppose' THEN 1 ELSE 0 END), 0) AS oppose
+    `SELECT i.id, i.title, i.description, i.mode, i.start_at, i.end_at, i.status,
+       COALESCE(SUM(CASE WHEN v.option = ? THEN 1 ELSE 0 END), 0) AS approve,
+       COALESCE(SUM(CASE WHEN v.option = ? THEN 1 ELSE 0 END), 0) AS neutral,
+       COALESCE(SUM(CASE WHEN v.option = ? THEN 1 ELSE 0 END), 0) AS oppose
      FROM issues i
      LEFT JOIN votes v ON v.issue_id = i.id
-     WHERE i.status = 'open' AND i.title IS NOT NULL AND TRIM(i.title) != ''
-       AND i.mode IN ('deadline', 'evergreen')
+     WHERE i.status = ? AND i.title IS NOT NULL AND TRIM(i.title) != ''
+       AND i.mode IN (?, ?)
      GROUP BY i.id
-     ORDER BY i.id
+     ORDER BY i.created_at DESC, i.id DESC
      LIMIT ? OFFSET ?`
-  ).bind(pageSize, offset).all<IssueRow>();
+  ).bind(
+    VoteOption.Approve, VoteOption.Neutral, VoteOption.Oppose,
+    IssueStatus.Open, IssueMode.Deadline, IssueMode.Evergreen,
+    pageSize, offset
+  ).all<IssueRow>();
 
   const issues = (result.results ?? []).map((row) => ({
     issue: {
       id: row.id,
       title: row.title,
-      mode: row.mode,
-      start_at: row.start_at,
-      end_at: row.end_at,
-      status: row.status
+      description: row.description,
+      mode: getIssueModeLabel(row.mode),
+      start_at: toIsoDate(row.start_at),
+      end_at: toIsoDate(row.end_at),
+      status: getIssueStatusLabel(row.status)
     },
     stats: {
       issueId: row.id,
@@ -108,25 +123,36 @@ async function getIssue(issueIdText: string, env: IssuesEnv): Promise<Response> 
   }
 
   const issue = await env.DB.prepare(
-    `SELECT id, title, mode, start_at, end_at, status
+    `SELECT id, title, description, mode, start_at, end_at, status
      FROM issues
      WHERE id = ? AND title IS NOT NULL AND TRIM(title) != ''
-       AND mode IN ('deadline', 'evergreen')
-       AND status IN ('open', 'closed', 'archived')`
-  ).bind(issueId).first<{
+       AND mode IN (?, ?)
+       AND status IN (?, ?, ?)`
+  ).bind(
+    issueId,
+    IssueMode.Deadline, IssueMode.Evergreen,
+    IssueStatus.Open, IssueStatus.Closed, IssueStatus.Archived
+  ).first<{
     id: number;
     title: string;
-    mode: 'deadline' | 'evergreen';
-    start_at: string | null;
-    end_at: string | null;
-    status: 'open' | 'closed' | 'archived';
+    description: string | null;
+    mode: IssueMode;
+    start_at: number | null;
+    end_at: number | null;
+    status: IssueStatus;
   }>();
 
   if (!issue) {
     return Response.json({ message: 'issue not found' }, { status: 404 });
   }
 
-  return Response.json({ issue }, {
+  return Response.json({ issue: {
+    ...issue,
+    mode: getIssueModeLabel(issue.mode),
+    start_at: toIsoDate(issue.start_at),
+    end_at: toIsoDate(issue.end_at),
+    status: getIssueStatusLabel(issue.status)
+  } }, {
     headers: { 'cache-control': 'no-store' }
   });
 }

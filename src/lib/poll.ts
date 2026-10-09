@@ -3,6 +3,7 @@ export type VoteOption = 'approve' | 'oppose' | 'neutral';
 export interface IssueSummary {
   id: number;
   title: string;
+  description: string | null;
   mode: 'deadline' | 'evergreen';
   start_at: string | null;
   end_at?: string | null;

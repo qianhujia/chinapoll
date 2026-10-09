@@ -1,6 +1,12 @@
 import { sha256 } from '../services/hashchain';
+import {
+  getVoteOptionCode,
+  getVoteOptionLabel,
+  VoteOption as VoteOptionCode,
+  type VoteOptionLabel
+} from '../enums';
 
-export type VoteOption = 'approve' | 'oppose' | 'neutral';
+export type VoteOption = VoteOptionLabel;
 
 const DEFAULT_VOTE_RATE_LIMIT_PER_IP_BUCKET_PER_HOUR = 5;
 const VOTE_SALT = 'chinapoll-local-dev-salt';
@@ -23,14 +29,14 @@ export async function handleVoteStatusRequest(request: Request, env: any): Promi
     return Response.json({ message: 'bad request' }, { status: 400 });
   }
 
-  const vote: { option: VoteOption } | null = await env.DB.prepare(
-    'SELECT option FROM votes WHERE issue_id = ? AND token_hash = ? LIMIT 1'
+  const vote: { option: VoteOptionCode } | null = await env.DB.prepare(
+    'SELECT option FROM votes WHERE issue_id = ? AND voter_token_hash = ? LIMIT 1'
   ).bind(issueId, tokenHash).first();
 
   return Response.json({
     issueId,
     voted: Boolean(vote),
-    option: vote?.option ?? null
+    option: vote ? getVoteOptionLabel(vote.option) : null
   }, {
     headers: { 'cache-control': 'no-store' }
   });
@@ -69,11 +75,11 @@ export async function handleVoteRequest(request: Request, env: any): Promise<Res
   }
 
   const issueId = Number(body.issueId ?? 0);
-  const option = body.option as VoteOption;
+  const option = getVoteOptionCode(body.option);
   const tokenHash = String(body.tokenHash ?? '');
   const turnstileResponse = String(body.turnstileToken ?? '');
 
-  if (!issueId || !['approve', 'oppose', 'neutral'].includes(option) || !tokenHash) {
+  if (!Number.isSafeInteger(issueId) || issueId < 1 || option === null || !tokenHash) {
     return new Response(JSON.stringify({ ok: false, message: 'bad request' }), {
       status: 400,
       headers: { 'content-type': 'application/json' }
@@ -89,11 +95,11 @@ export async function handleVoteRequest(request: Request, env: any): Promise<Res
   }
 
   const remoteIp = request.headers.get('cf-connecting-ip') ?? '127.0.0.1';
-  const ipBucket = await sha256(`${VOTE_SALT}:${remoteIp.split('.').slice(0, 3).join('.')}`);
-  const tsHour = new Date().toISOString().slice(0, 13);
+  const ipPrefixHash = await sha256(`${VOTE_SALT}:${remoteIp.split('.').slice(0, 3).join('.')}`);
+  const tsHour = Math.floor(Date.now() / 3_600_000) * 3_600;
 
   const existingVote: any = await env.DB.prepare(
-    'SELECT id FROM votes WHERE issue_id = ? AND token_hash = ? LIMIT 1'
+    'SELECT id FROM votes WHERE issue_id = ? AND voter_token_hash = ? LIMIT 1'
   ).bind(issueId, tokenHash).first();
 
   if (existingVote) {
@@ -104,8 +110,8 @@ export async function handleVoteRequest(request: Request, env: any): Promise<Res
   }
 
   const rateLimitResult: any = await env.DB.prepare(
-    `SELECT COUNT(*) as count FROM votes WHERE ip_bucket = ? AND ts_hour = ?`
-  ).bind(ipBucket, tsHour).first();
+    `SELECT COUNT(*) as count FROM votes WHERE ip_prefix_hash = ? AND ts_hour = ?`
+  ).bind(ipPrefixHash, tsHour).first();
 
   if ((Number(rateLimitResult?.count ?? 0)) >= voteRateLimit) {
     return new Response(JSON.stringify({ ok: false, message: 'rate limit reached' }), {
@@ -115,10 +121,10 @@ export async function handleVoteRequest(request: Request, env: any): Promise<Res
   }
 
   const insertResult = await env.DB.prepare(
-    `INSERT INTO votes (issue_id, token_hash, ip_bucket, option, ts_hour)
+    `INSERT INTO votes (issue_id, voter_token_hash, ip_prefix_hash, option, ts_hour)
      VALUES (?, ?, ?, ?, ?)
-     ON CONFLICT(issue_id, token_hash) DO NOTHING`
-  ).bind(issueId, tokenHash, ipBucket, option, tsHour).run();
+     ON CONFLICT(issue_id, voter_token_hash) DO NOTHING`
+  ).bind(issueId, tokenHash, ipPrefixHash, option, tsHour).run();
 
   if (!insertResult.meta.changes) {
     return new Response(JSON.stringify({ ok: false, message: 'duplicate vote' }), {
@@ -133,8 +139,8 @@ export async function handleVoteRequest(request: Request, env: any): Promise<Res
 
   const counts: Record<VoteOption, number> = { approve: 0, oppose: 0, neutral: 0 };
   for (const row of countsResult.results ?? []) {
-    const key = String(row.option) as VoteOption;
-    if (key in counts) counts[key] = Number(row.count ?? 0);
+    const key = getVoteOptionLabel(Number(row.option));
+    counts[key] = Number(row.count ?? 0);
   }
 
   return new Response(JSON.stringify({

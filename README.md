@@ -36,6 +36,16 @@ npm run db:migrate
 
 This keeps schema changes reproducible across local development. Future schema updates should be added as new migration files in the same folder.
 
+## Local proposal approval
+
+Approve a pending proposal and create an open issue with its title, description, mode, and schedule copied from the proposal:
+
+```bash
+npm run admin -- approve-proposal <proposal-id>
+```
+
+This command operates on the local D1 database under `.wrangler`.
+
 ## Build check
 
 The Vite production build compiles Tailwind utilities and Lucide icons into the deployed CSS and JavaScript bundles; neither library is needed at runtime.

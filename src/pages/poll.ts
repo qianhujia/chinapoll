@@ -92,6 +92,8 @@ export async function mountVotePage(issueId: number, app: HTMLElement, bindNavig
             ${renderModeBadge(issue.mode)}
           </div>
 
+          ${issue.description ? `<p class="mt-3 mb-0 whitespace-pre-wrap text-muted">${escapeHtml(issue.description)}</p>` : ''}
+
           ${voteCounts ? `
             <div class="mx-auto mt-6 flex w-full max-w-[300px] overflow-hidden rounded-xl border border-border" role="group" aria-label="${t('vote')}" data-vote-group="${issue.id}" title="${hasVoted ? t('alreadyVoted') : ''}">
               ${voteButtons}

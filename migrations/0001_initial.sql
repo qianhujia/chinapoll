@@ -1,49 +1,48 @@
 CREATE TABLE IF NOT EXISTS issues (
   id INTEGER PRIMARY KEY,
   title TEXT,
-  mode TEXT,
-  start_at TEXT,
-  end_at TEXT,
-  status TEXT,
-  proposal_ref TEXT
+  description TEXT,
+  mode INTEGER NOT NULL,
+  start_at INTEGER,
+  end_at INTEGER,
+  status INTEGER NOT NULL,
+  created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  updated_at INTEGER NOT NULL DEFAULT (unixepoch())
 );
 
 CREATE TABLE IF NOT EXISTS votes (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   issue_id INTEGER NOT NULL,
-  token_hash TEXT NOT NULL,
-  ip_bucket TEXT NOT NULL,
-  option TEXT NOT NULL,
-  ts_hour TEXT NOT NULL,
-  comment TEXT,
-  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  voter_token_hash TEXT NOT NULL,
+  ip_prefix_hash TEXT NOT NULL,
+  option INTEGER NOT NULL,
+  ts_hour INTEGER NOT NULL,
+  created_at INTEGER NOT NULL DEFAULT (unixepoch())
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_votes_issue_token
-  ON votes(issue_id, token_hash);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_votes_issue_voter_token
+  ON votes(issue_id, voter_token_hash);
 
 CREATE TABLE IF NOT EXISTS proposals (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   title TEXT,
   description TEXT,
-  text_zh TEXT,
-  text_en TEXT,
-  token_hash TEXT,
-  mode TEXT NOT NULL DEFAULT 'evergreen',
-  start_at TEXT,
-  end_at TEXT,
-  status TEXT,
-  clause TEXT,
-  reviewed_at TEXT,
-  published_issue INTEGER,
-  poller_id TEXT
+  mode INTEGER NOT NULL DEFAULT 2,
+  start_at INTEGER,
+  end_at INTEGER,
+  status INTEGER NOT NULL DEFAULT 1,
+  reviewed_at INTEGER,
+  published_issue_id INTEGER,
+  poller_id TEXT,
+  created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  updated_at INTEGER NOT NULL DEFAULT (unixepoch())
 );
 
 CREATE TABLE IF NOT EXISTS comments (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   issue_id INTEGER NOT NULL,
   comment TEXT NOT NULL,
-  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  created_at INTEGER NOT NULL DEFAULT (unixepoch())
 );
 
 CREATE INDEX IF NOT EXISTS idx_comments_issue_created
@@ -52,10 +51,12 @@ CREATE INDEX IF NOT EXISTS idx_comments_issue_created
 CREATE TABLE IF NOT EXISTS identities (
   poller_id TEXT PRIMARY KEY,
   email_hmac TEXT NOT NULL UNIQUE,
-  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  created_at INTEGER NOT NULL DEFAULT (unixepoch())
 );
 
 CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
-  value TEXT
+  value TEXT,
+  created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  updated_at INTEGER NOT NULL DEFAULT (unixepoch())
 );
