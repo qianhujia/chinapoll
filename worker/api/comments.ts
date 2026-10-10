@@ -40,11 +40,11 @@ export async function handleCommentsRequest(request: Request, url: URL, env: any
     return Response.json({ message: 'method not allowed' }, { status: 405 });
   }
 
-  const issueId = Number(url.pathname.split('/').pop() ?? '0');
+  const pollId = Number(url.pathname.split('/').pop() ?? '0');
   const page = Number(url.searchParams.get('page') ?? '1');
   const pageSize = Number(url.searchParams.get('pageSize') ?? '30');
 
-  if (!Number.isSafeInteger(issueId) || issueId < 1
+  if (!Number.isSafeInteger(pollId) || pollId < 1
     || !Number.isSafeInteger(page) || page < 1
     || !Number.isSafeInteger(pageSize) || pageSize < 1 || pageSize > MAX_PAGE_SIZE) {
     return Response.json({ message: 'invalid pagination parameters' }, { status: 400 });
@@ -56,17 +56,17 @@ export async function handleCommentsRequest(request: Request, url: URL, env: any
   }
 
   const countResult = await env.DB.prepare(
-    `SELECT COUNT(*) AS total FROM comments WHERE issue_id = ?`
-  ).bind(issueId).first();
+    `SELECT COUNT(*) AS total FROM comments WHERE poll_id = ?`
+  ).bind(pollId).first();
 
   const commentResult = await env.DB.prepare(
     `SELECT id, comment, created_at FROM comments
-     WHERE issue_id = ?
+     WHERE poll_id = ?
      ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?`
-  ).bind(issueId, pageSize, offset).all();
+  ).bind(pollId, pageSize, offset).all();
 
   return Response.json({
-    issueId,
+    pollId,
     page,
     pageSize,
     total: Number(countResult?.total ?? 0),
@@ -88,14 +88,14 @@ async function handleCommentSubmission(request: Request, env: any): Promise<Resp
     return Response.json({ message: 'invalid JSON' }, { status: 400 });
   }
 
-  if (typeof body !== 'object' || body === null || !('issueId' in body) || !('comment' in body)) {
-    return Response.json({ message: 'issueId and comment are required' }, { status: 400 });
+  if (typeof body !== 'object' || body === null || !('pollId' in body) || !('comment' in body)) {
+    return Response.json({ message: 'pollId and comment are required' }, { status: 400 });
   }
 
-  const issueId = Number(body.issueId);
+  const pollId = Number(body.pollId);
   const comment = typeof body.comment === 'string' ? body.comment.trim() : '';
-  if (!Number.isSafeInteger(issueId) || issueId < 1) {
-    return Response.json({ message: 'invalid issueId' }, { status: 400 });
+  if (!Number.isSafeInteger(pollId) || pollId < 1) {
+    return Response.json({ message: 'invalid pollId' }, { status: 400 });
   }
   if (comment.length < MIN_COMMENT_LENGTH || comment.length > MAX_COMMENT_LENGTH) {
     return Response.json({ message: 'comment must be between 5 and 140 characters' }, { status: 400 });
@@ -117,8 +117,8 @@ async function handleCommentSubmission(request: Request, env: any): Promise<Resp
   }
 
   const result = await env.DB.prepare(
-    'INSERT INTO comments (issue_id, comment, ip_prefix, ts_bucket) VALUES (?, ?, ?, ?)'
-  ).bind(issueId, comment, ipPrefix, bucketStart).run();
+    'INSERT INTO comments (poll_id, comment, ip_prefix, ts_bucket) VALUES (?, ?, ?, ?)'
+  ).bind(pollId, comment, ipPrefix, bucketStart).run();
 
   return Response.json({ ok: true, id: result.meta.last_row_id }, { status: 201 });
 }

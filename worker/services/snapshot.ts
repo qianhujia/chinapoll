@@ -1,7 +1,7 @@
 export type VoteOption = 'approve' | 'oppose' | 'neutral';
 
 export interface SnapshotRecord {
-  issueId: number;
+  pollId: number;
   tsHour: string;
   approve: number;
   oppose: number;
@@ -10,15 +10,15 @@ export interface SnapshotRecord {
 }
 
 export interface SnapshotInput {
-  issueId: number;
+  pollId: number;
   tsHour: string;
   counts: Record<VoteOption, number>;
   prevHash: string | null;
 }
 
-export function makeSnapshot({ issueId, tsHour, counts, prevHash }: SnapshotInput): SnapshotRecord {
+export function makeSnapshot({ pollId, tsHour, counts, prevHash }: SnapshotInput): SnapshotRecord {
   const payload = JSON.stringify({
-    issueId,
+    pollId,
     tsHour,
     approve: counts.approve ?? 0,
     oppose: counts.oppose ?? 0,
@@ -27,7 +27,7 @@ export function makeSnapshot({ issueId, tsHour, counts, prevHash }: SnapshotInpu
   });
 
   return {
-    issueId,
+    pollId,
     tsHour,
     approve: counts.approve ?? 0,
     oppose: counts.oppose ?? 0,

@@ -73,8 +73,8 @@ async function render() {
   }
 
   if (route.startsWith('/poll/')) {
-    const issueId = Number(route.split('/').pop() ?? '11');
-    await mountVotePage(Number.isSafeInteger(issueId) && issueId > 0 ? issueId : 0, app!, bindNavigation);
+    const pollId = Number(route.split('/').pop() ?? '11');
+    await mountVotePage(Number.isSafeInteger(pollId) && pollId > 0 ? pollId : 0, app!, bindNavigation);
     return;
   }
 

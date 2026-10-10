@@ -26,7 +26,7 @@ export const DEFAULT_PUBLIC_SETTINGS = {
   comment_rate_limit: '3/h',
   proposal_rate_limit: '1/d',
   hero_title: 'Continuous polls · Fully anonymous · Openly auditable',
-  hero_subtitle: 'No login required to vote yes/no/neutral on open issues.',
+  hero_subtitle: 'No login required to vote yes/no/neutral on open polls.',
   hero_background_color: '',
   read_only_mode: false,
   turnstile_secret_key: '',

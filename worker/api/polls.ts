@@ -1,39 +1,39 @@
 import {
-  getIssueModeLabel,
-  getIssueStatusLabel,
-  IssueMode,
-  IssueStatus,
+  getPollModeLabel,
+  getPollStatusLabel,
+  PollMode,
+  PollStatus,
   VoteOption,
   toIsoDate
 } from '../enums.js';
 
 const MAX_PAGE_SIZE = 100;
 
-interface IssuesEnv {
+interface PollsEnv {
   DB: D1Database;
 }
 
-interface IssueRow {
+interface PollRow {
   id: number;
   title: string;
   description: string | null;
-  mode: IssueMode;
+  mode: PollMode;
   start_at: number | null;
   end_at: number | null;
-  status: IssueStatus;
+  status: PollStatus;
   approve: number;
   neutral: number;
   oppose: number;
 }
 
-export async function handleIssuesRequest(request: Request, url: URL, env: IssuesEnv): Promise<Response> {
+export async function handlePollsRequest(request: Request, url: URL, env: PollsEnv): Promise<Response> {
   if (request.method !== 'GET') {
     return Response.json({ message: 'method not allowed' }, { status: 405 });
   }
 
-  const issueIdText = url.pathname.slice('/api/issues/'.length);
-  if (issueIdText) {
-    return getIssue(issueIdText, env);
+  const pollIdText = url.pathname.slice('/api/polls/'.length);
+  if (pollIdText) {
+    return getPoll(pollIdText, env);
   }
 
   const page = Number(url.searchParams.get('page') ?? '1');
@@ -45,18 +45,18 @@ export async function handleIssuesRequest(request: Request, url: URL, env: Issue
 
   const countResult = await env.DB.prepare(
     `SELECT COUNT(*) AS total
-     FROM issues
+     FROM polls
      WHERE status = ? AND title IS NOT NULL AND TRIM(title) != ''
        AND mode IN (?, ?)`
-  ).bind(IssueStatus.Open, IssueMode.Deadline, IssueMode.Evergreen).first<{ total: number }>();
+  ).bind(PollStatus.Open, PollMode.Deadline, PollMode.Evergreen).first<{ total: number }>();
 
   const voteTotalResult = await env.DB.prepare(
     `SELECT COUNT(*) AS total
      FROM votes v
-     JOIN issues i ON i.id = v.issue_id
+     JOIN polls i ON i.id = v.poll_id
      WHERE i.status = ? AND i.title IS NOT NULL AND TRIM(i.title) != ''
        AND i.mode IN (?, ?)`
-  ).bind(IssueStatus.Open, IssueMode.Deadline, IssueMode.Evergreen).first<{ total: number }>();
+  ).bind(PollStatus.Open, PollMode.Deadline, PollMode.Evergreen).first<{ total: number }>();
 
   const total = Number(countResult?.total ?? 0);
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -67,8 +67,8 @@ export async function handleIssuesRequest(request: Request, url: URL, env: Issue
        COALESCE(SUM(CASE WHEN v.option = ? THEN 1 ELSE 0 END), 0) AS approve,
        COALESCE(SUM(CASE WHEN v.option = ? THEN 1 ELSE 0 END), 0) AS neutral,
        COALESCE(SUM(CASE WHEN v.option = ? THEN 1 ELSE 0 END), 0) AS oppose
-     FROM issues i
-     LEFT JOIN votes v ON v.issue_id = i.id
+     FROM polls i
+     LEFT JOIN votes v ON v.poll_id = i.id
      WHERE i.status = ? AND i.title IS NOT NULL AND TRIM(i.title) != ''
        AND i.mode IN (?, ?)
      GROUP BY i.id
@@ -76,22 +76,22 @@ export async function handleIssuesRequest(request: Request, url: URL, env: Issue
      LIMIT ? OFFSET ?`
   ).bind(
     VoteOption.Approve, VoteOption.Neutral, VoteOption.Oppose,
-    IssueStatus.Open, IssueMode.Deadline, IssueMode.Evergreen,
+    PollStatus.Open, PollMode.Deadline, PollMode.Evergreen,
     pageSize, offset
-  ).all<IssueRow>();
+  ).all<PollRow>();
 
-  const issues = (result.results ?? []).map((row) => ({
-    issue: {
+  const polls = (result.results ?? []).map((row) => ({
+    poll: {
       id: row.id,
       title: row.title,
       description: row.description,
-      mode: getIssueModeLabel(row.mode),
+      mode: getPollModeLabel(row.mode),
       start_at: toIsoDate(row.start_at),
       end_at: toIsoDate(row.end_at),
-      status: getIssueStatusLabel(row.status)
+      status: getPollStatusLabel(row.status)
     },
     stats: {
-      issueId: row.id,
+      pollId: row.id,
       counts: {
         approve: Number(row.approve),
         neutral: Number(row.neutral),
@@ -102,7 +102,7 @@ export async function handleIssuesRequest(request: Request, url: URL, env: Issue
   }));
 
   return Response.json({
-    issues,
+    polls,
     page: currentPage,
     pageSize,
     total,
@@ -112,46 +112,46 @@ export async function handleIssuesRequest(request: Request, url: URL, env: Issue
   });
 }
 
-async function getIssue(issueIdText: string, env: IssuesEnv): Promise<Response> {
-  if (!/^[1-9]\d*$/.test(issueIdText)) {
-    return Response.json({ message: 'invalid issue ID' }, { status: 400 });
+async function getPoll(pollIdText: string, env: PollsEnv): Promise<Response> {
+  if (!/^[1-9]\d*$/.test(pollIdText)) {
+    return Response.json({ message: 'invalid poll ID' }, { status: 400 });
   }
 
-  const issueId = Number(issueIdText);
-  if (!Number.isSafeInteger(issueId)) {
-    return Response.json({ message: 'invalid issue ID' }, { status: 400 });
+  const pollId = Number(pollIdText);
+  if (!Number.isSafeInteger(pollId)) {
+    return Response.json({ message: 'invalid poll ID' }, { status: 400 });
   }
 
-  const issue = await env.DB.prepare(
+  const poll = await env.DB.prepare(
     `SELECT id, title, description, mode, start_at, end_at, status
-     FROM issues
+     FROM polls
      WHERE id = ? AND title IS NOT NULL AND TRIM(title) != ''
        AND mode IN (?, ?)
        AND status IN (?, ?, ?)`
   ).bind(
-    issueId,
-    IssueMode.Deadline, IssueMode.Evergreen,
-    IssueStatus.Open, IssueStatus.Closed, IssueStatus.Archived
+    pollId,
+    PollMode.Deadline, PollMode.Evergreen,
+    PollStatus.Open, PollStatus.Closed, PollStatus.Archived
   ).first<{
     id: number;
     title: string;
     description: string | null;
-    mode: IssueMode;
+    mode: PollMode;
     start_at: number | null;
     end_at: number | null;
-    status: IssueStatus;
+    status: PollStatus;
   }>();
 
-  if (!issue) {
-    return Response.json({ message: 'issue not found' }, { status: 404 });
+  if (!poll) {
+    return Response.json({ message: 'poll not found' }, { status: 404 });
   }
 
-  return Response.json({ issue: {
-    ...issue,
-    mode: getIssueModeLabel(issue.mode),
-    start_at: toIsoDate(issue.start_at),
-    end_at: toIsoDate(issue.end_at),
-    status: getIssueStatusLabel(issue.status)
+  return Response.json({ poll: {
+    ...poll,
+    mode: getPollModeLabel(poll.mode),
+    start_at: toIsoDate(poll.start_at),
+    end_at: toIsoDate(poll.end_at),
+    status: getPollStatusLabel(poll.status)
   } }, {
     headers: { 'cache-control': 'no-store' }
   });

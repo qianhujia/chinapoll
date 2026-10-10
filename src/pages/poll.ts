@@ -1,7 +1,7 @@
 import {
   createToken,
   getComments,
-  getIssue,
+  getPoll,
   getStats,
   getVoteStatus,
   hasVotedLocally,
@@ -25,11 +25,11 @@ import {
   updateVoteGroup
 } from '../ui';
 
-export async function mountVotePage(issueId: number, app: HTMLElement, bindNavigation: () => void): Promise<void> {
+export async function mountVotePage(pollId: number, app: HTMLElement, bindNavigation: () => void): Promise<void> {
   const commentsPerPage = getCommentsPerPage();
-  let issue;
+  let poll;
   try {
-    issue = await getIssue(issueId);
+    poll = await getPoll(pollId);
   } catch (error) {
     const message = getErrorMessage(error);
     app.innerHTML = `
@@ -45,25 +45,25 @@ export async function mountVotePage(issueId: number, app: HTMLElement, bindNavig
 
   const token = createToken();
   const hash = await hashToken(token);
-  let hasVoted = hasVotedLocally(issue.id, hash);
+  let hasVoted = hasVotedLocally(poll.id, hash);
   let voteStatusError = '';
   let stats: Awaited<ReturnType<typeof getStats>> | null = null;
   let statsError = '';
   try {
-    stats = await getStats(issue.id);
+    stats = await getStats(poll.id);
   } catch (error) {
     statsError = getErrorMessage(error);
   }
   try {
-    const voteStatus = await getVoteStatus(issue.id, hash);
+    const voteStatus = await getVoteStatus(poll.id, hash);
     hasVoted ||= voteStatus.voted;
-    if (voteStatus.voted) markVotedLocally(issue.id, hash);
+    if (voteStatus.voted) markVotedLocally(poll.id, hash);
   } catch (error) {
     voteStatusError = getErrorMessage(error);
   }
   let commentsContent: string;
   try {
-    commentsContent = renderCommentsContent(issue.id, await getComments(issue.id, getQueryPage('commentsPage'), commentsPerPage));
+    commentsContent = renderCommentsContent(poll.id, await getComments(poll.id, getQueryPage('commentsPage'), commentsPerPage));
   } catch {
     commentsContent = t('commentsLoadFailed');
   }
@@ -88,15 +88,15 @@ export async function mountVotePage(issueId: number, app: HTMLElement, bindNavig
       <main class="grid gap-5">
         <section class="rounded-[22px] border border-border bg-panel p-6 shadow-card">
           <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
-            <span class="shrink-0 font-bold tabular-nums text-muted">#${issue.id}</span>
-            <h1 class="m-0 text-2xl font-bold">${escapeHtml(issue.title)}</h1>
-            ${renderModeBadge(issue.mode)}
+            <span class="shrink-0 font-bold tabular-nums text-muted">#${poll.id}</span>
+            <h1 class="m-0 text-2xl font-bold">${escapeHtml(poll.title)}</h1>
+            ${renderModeBadge(poll.mode)}
           </div>
 
-          ${issue.description ? `<p class="mt-3 mb-0 whitespace-pre-wrap text-muted">${escapeHtml(issue.description)}</p>` : ''}
+          ${poll.description ? `<p class="mt-3 mb-0 whitespace-pre-wrap text-muted">${escapeHtml(poll.description)}</p>` : ''}
 
           ${voteCounts ? `
-            <div class="mx-auto mt-6 flex w-full max-w-[300px] overflow-hidden rounded-xl border border-border" role="group" aria-label="${t('vote')}" data-vote-group="${issue.id}" title="${hasVoted ? t('alreadyVoted') : ''}">
+            <div class="mx-auto mt-6 flex w-full max-w-[300px] overflow-hidden rounded-xl border border-border" role="group" aria-label="${t('vote')}" data-vote-group="${poll.id}" title="${hasVoted ? t('alreadyVoted') : ''}">
               ${voteButtons}
             </div>
           ` : ''}
@@ -163,11 +163,11 @@ export async function mountVotePage(issueId: number, app: HTMLElement, bindNavig
     commentButton.disabled = true;
     if (commentStatus) commentStatus.textContent = '';
     try {
-      await submitComment(issue.id, comment);
+      await submitComment(poll.id, comment);
       if (commentInput) commentInput.value = '';
       if (commentStatus) commentStatus.textContent = t('commentSubmitted');
-      window.history.replaceState({}, '', `/poll/${issue.id}?commentsPage=1`);
-      await updateComments(issue.id, 1, bindNavigation);
+      window.history.replaceState({}, '', `/poll/${poll.id}?commentsPage=1`);
+      await updateComments(poll.id, 1, bindNavigation);
     } catch (error) {
       if (commentStatus) commentStatus.textContent = `${t('commentSubmitFailed')} ${getErrorMessage(error)}`;
     } finally {
@@ -182,17 +182,17 @@ export async function mountVotePage(issueId: number, app: HTMLElement, bindNavig
       let result;
       try {
         result = await submitVote({
-          issueId: issue.id,
+          pollId: poll.id,
           tokenHash: hash,
           option
         });
       } catch (error) {
         let statusMessage = `${t('submitFailed')}: ${getErrorMessage(error)}`;
         try {
-          const currentVoteStatus = await getVoteStatus(issue.id, hash);
+          const currentVoteStatus = await getVoteStatus(poll.id, hash);
           if (currentVoteStatus.voted) {
             hasVoted = true;
-            markVotedLocally(issue.id, hash);
+            markVotedLocally(poll.id, hash);
             statusMessage = t('alreadyVoted');
           }
         } catch {
@@ -217,14 +217,14 @@ export async function mountVotePage(issueId: number, app: HTMLElement, bindNavig
       const statusText = option === 'approve' ? t('approve') : option === 'oppose' ? t('oppose') : t('neutral');
       const message = `${t('voteRecord')}: ${statusText} ✅`;
       if (result.ok) {
-        const voteGroup = document.querySelector<HTMLElement>(`[data-vote-group="${issue.id}"]`);
+        const voteGroup = document.querySelector<HTMLElement>(`[data-vote-group="${poll.id}"]`);
         if (voteGroup) updateVoteGroup(voteGroup, result.counts);
         hasVoted = true;
-        markVotedLocally(issue.id, hash);
+        markVotedLocally(poll.id, hash);
         document.querySelectorAll<HTMLButtonElement>('[data-vote-group] [data-option]').forEach((voteButton) => {
           voteButton.disabled = true;
         });
-        const choices = document.querySelector<HTMLElement>(`[data-vote-group="${issue.id}"]`);
+        const choices = document.querySelector<HTMLElement>(`[data-vote-group="${poll.id}"]`);
         if (choices) choices.setAttribute('title', t('alreadyVoted'));
       }
       showToast(message);

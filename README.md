@@ -31,7 +31,7 @@ npm run admin -- readonly on|off
 
 Keep secrets out of `.env` and `wrangler.toml`: use the ignored `.dev.vars` file for local Worker secrets and `wrangler secret put <NAME>` for production secrets. In particular, email-linked proposal identities require `SERVER_SECRET` as a 64-character random hexadecimal secret. The Turnstile secret key lives in the `settings` table (64-character hex when set); the Worker only verifies tokens when `turnstile_enable` is `true` and a secret key is present.
 
-The homepage lists open polls stored in the local D1 `issues` table. An empty database shows no polls; the repository does not bundle poll seed or demo records.
+The homepage lists open polls stored in the local D1 `polls` table. An empty database shows no polls; the repository does not bundle poll seed or demo records.
 
 ## Local D1 + migrations
 
@@ -45,10 +45,10 @@ This keeps schema changes reproducible across local development. Future schema u
 
 ## Local proposal approval
 
-Approve a pending submission and publish its issue. The issue keeps the same ID from submission through approval:
+Approve a pending submission and publish its poll. The poll keeps the same ID from submission through approval:
 
 ```bash
-npm run admin -- approve-proposal <issue-id>
+npm run admin -- approve-proposal <poll-id>
 ```
 
 This command operates on the local D1 database under `.wrangler`.

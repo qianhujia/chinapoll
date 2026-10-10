@@ -51,18 +51,18 @@ export async function handleVoteStatusRequest(request: Request, env: any): Promi
     return Response.json({ message: 'invalid JSON' }, { status: 400 });
   }
 
-  const issueId = Number(body.issueId ?? 0);
+  const pollId = Number(body.pollId ?? 0);
   const tokenHash = typeof body.tokenHash === 'string' ? body.tokenHash : '';
-  if (!Number.isSafeInteger(issueId) || issueId < 1 || !/^[0-9a-f]{64}$/i.test(tokenHash)) {
+  if (!Number.isSafeInteger(pollId) || pollId < 1 || !/^[0-9a-f]{64}$/i.test(tokenHash)) {
     return Response.json({ message: 'bad request' }, { status: 400 });
   }
 
   const vote: { option: VoteOptionCode } | null = await env.DB.prepare(
-    'SELECT option FROM votes WHERE issue_id = ? AND voter_token_hash = ? LIMIT 1'
-  ).bind(issueId, tokenHash).first();
+    'SELECT option FROM votes WHERE poll_id = ? AND voter_token_hash = ? LIMIT 1'
+  ).bind(pollId, tokenHash).first();
 
   return Response.json({
-    issueId,
+    pollId,
     voted: Boolean(vote),
     option: vote ? getVoteOptionLabel(vote.option) : null
   }, {
@@ -99,12 +99,12 @@ export async function handleVoteRequest(request: Request, env: any): Promise<Res
     });
   }
 
-  const issueId = Number(body.issueId ?? 0);
+  const pollId = Number(body.pollId ?? 0);
   const option = getVoteOptionCode(body.option);
   const tokenHash = String(body.tokenHash ?? '');
   const turnstileResponse = String(body.turnstileToken ?? '');
 
-  if (!Number.isSafeInteger(issueId) || issueId < 1 || option === null || !tokenHash) {
+  if (!Number.isSafeInteger(pollId) || pollId < 1 || option === null || !tokenHash) {
     return new Response(JSON.stringify({ ok: false, message: 'bad request' }), {
       status: 400,
       headers: { 'content-type': 'application/json' }
@@ -124,8 +124,8 @@ export async function handleVoteRequest(request: Request, env: any): Promise<Res
   const tsBucket = bucketStart;
 
   const existingVote: any = await env.DB.prepare(
-    'SELECT id FROM votes WHERE issue_id = ? AND voter_token_hash = ? LIMIT 1'
-  ).bind(issueId, tokenHash).first();
+    'SELECT id FROM votes WHERE poll_id = ? AND voter_token_hash = ? LIMIT 1'
+  ).bind(pollId, tokenHash).first();
 
   if (existingVote) {
     return new Response(JSON.stringify({ ok: false, message: 'duplicate vote' }), {
@@ -146,10 +146,10 @@ export async function handleVoteRequest(request: Request, env: any): Promise<Res
   }
 
   const insertResult = await env.DB.prepare(
-    `INSERT INTO votes (issue_id, voter_token_hash, ip_prefix_hash, option, ts_bucket)
+    `INSERT INTO votes (poll_id, voter_token_hash, ip_prefix_hash, option, ts_bucket)
      VALUES (?, ?, ?, ?, ?)
-     ON CONFLICT(issue_id, voter_token_hash) DO NOTHING`
-  ).bind(issueId, tokenHash, ipPrefixHash, option, tsBucket).run();
+     ON CONFLICT(poll_id, voter_token_hash) DO NOTHING`
+  ).bind(pollId, tokenHash, ipPrefixHash, option, tsBucket).run();
 
   if (!insertResult.meta.changes) {
     return new Response(JSON.stringify({ ok: false, message: 'duplicate vote' }), {
@@ -159,8 +159,8 @@ export async function handleVoteRequest(request: Request, env: any): Promise<Res
   }
 
   const countsResult: any = await env.DB.prepare(
-    `SELECT option, COUNT(*) as count FROM votes WHERE issue_id = ? GROUP BY option`
-  ).bind(issueId).all();
+    `SELECT option, COUNT(*) as count FROM votes WHERE poll_id = ? GROUP BY option`
+  ).bind(pollId).all();
 
   const counts: Record<VoteOption, number> = { approve: 0, oppose: 0, neutral: 0 };
   for (const row of countsResult.results ?? []) {

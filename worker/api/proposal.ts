@@ -1,4 +1,4 @@
-import { getIssueModeCode, IssueMode, IssueStatus, toUnixSeconds } from '../enums';
+import { getPollModeCode, PollMode, PollStatus, toUnixSeconds } from '../enums';
 import { RATE_LIMIT_PATTERN } from './settings';
 
 interface ProposalEnv {
@@ -49,7 +49,7 @@ export async function handleProposalRequest(request: Request, env: ProposalEnv):
 
   const title = typeof body.title === 'string' ? body.title.trim() : '';
   const description = typeof body.description === 'string' ? body.description.trim() : '';
-  const mode = getIssueModeCode(body.mode);
+  const mode = getPollModeCode(body.mode);
   const startAt = typeof body.startAt === 'string' ? body.startAt : '';
   const endAt = typeof body.endAt === 'string' ? body.endAt : '';
   const startTimestamp = Date.parse(startAt);
@@ -62,7 +62,7 @@ export async function handleProposalRequest(request: Request, env: ProposalEnv):
   }
   const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
   if (!title || title.length > MAX_TITLE_LENGTH || description.length > MAX_DESCRIPTION_LENGTH || !mode
-    || (mode === IssueMode.Deadline && (!Number.isFinite(startTimestamp) || !Number.isFinite(endTimestamp)
+    || (mode === PollMode.Deadline && (!Number.isFinite(startTimestamp) || !Number.isFinite(endTimestamp)
       || startTimestamp <= Date.now() || endTimestamp <= startTimestamp))
     || (email && (email.length > 254 || !EMAIL_PATTERN.test(email)))) {
     return Response.json({ ok: false, message: 'invalid proposal title, schedule, or email' }, { status: 400 });
@@ -76,7 +76,7 @@ export async function handleProposalRequest(request: Request, env: ProposalEnv):
   const ipPrefix = remoteIp.split('.').slice(0, 3).join('.');
 
   const rateLimitResult: any = await env.DB.prepare(
-    `SELECT COUNT(*) as count FROM issues WHERE ip_prefix = ? AND ts_bucket = ?`
+    `SELECT COUNT(*) as count FROM polls WHERE ip_prefix = ? AND ts_bucket = ?`
   ).bind(ipPrefix, bucketStart).first();
 
   if ((Number(rateLimitResult?.count ?? 0)) >= proposalRateLimit) {
@@ -102,25 +102,25 @@ export async function handleProposalRequest(request: Request, env: ProposalEnv):
   }
 
   const result = await env.DB.prepare(
-    `INSERT INTO issues (title, description, mode, start_at, end_at, status, poller_id, ip_prefix, ts_bucket)
+    `INSERT INTO polls (title, description, mode, start_at, end_at, status, poller_id, ip_prefix, ts_bucket)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).bind(
     title,
     description || null,
     mode,
-    mode === IssueMode.Deadline ? toUnixSeconds(startAt) : null,
-    mode === IssueMode.Deadline ? toUnixSeconds(endAt) : null,
-    IssueStatus.Pending,
+    mode === PollMode.Deadline ? toUnixSeconds(startAt) : null,
+    mode === PollMode.Deadline ? toUnixSeconds(endAt) : null,
+    PollStatus.Pending,
     pollerId,
     ipPrefix,
     bucketStart
   ).run();
 
-  const issueId = Number(result.meta.last_row_id);
+  const pollId = Number(result.meta.last_row_id);
   return Response.json({
     ok: true,
     message: 'proposal submitted for review',
-    issueId,
+    pollId,
     submitter: pollerId ?? '(anonymous)'
   }, { status: 201 });
 }
@@ -135,14 +135,14 @@ export async function handleProposalClaimRequest(request: Request, env: Proposal
     return Response.json({ ok: false, message: 'invalid JSON' }, { status: 400 });
   }
 
-  const issueIdText = String(body.issueId ?? '').trim();
+  const pollIdText = String(body.pollId ?? '').trim();
   const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
-  if (!/^[1-9]\d*$/.test(issueIdText) || !EMAIL_PATTERN.test(email)) {
-    return Response.json({ ok: false, message: 'invalid issue ID or email' }, { status: 400 });
+  if (!/^[1-9]\d*$/.test(pollIdText) || !EMAIL_PATTERN.test(email)) {
+    return Response.json({ ok: false, message: 'invalid poll ID or email' }, { status: 400 });
   }
-  const issueId = Number(issueIdText);
-  if (!Number.isSafeInteger(issueId)) {
-    return Response.json({ ok: false, message: 'invalid issue ID or email' }, { status: 400 });
+  const pollId = Number(pollIdText);
+  if (!Number.isSafeInteger(pollId)) {
+    return Response.json({ ok: false, message: 'invalid poll ID or email' }, { status: 400 });
   }
 
   const emailHmac = await createEmailHmac(email, env.SERVER_SECRET);
@@ -151,19 +151,19 @@ export async function handleProposalClaimRequest(request: Request, env: Proposal
   }
 
   const result = await env.DB.prepare(
-    `SELECT issue.id, issue.poller_id
-     FROM issues AS issue
-     JOIN identities AS identity ON identity.poller_id = issue.poller_id
-     WHERE issue.id = ? AND identity.email_hmac = ?`
-  ).bind(issueId, emailHmac).first<{ id: number; poller_id: string }>();
+    `SELECT poll.id, poll.poller_id
+     FROM polls AS poll
+     JOIN identities AS identity ON identity.poller_id = poll.poller_id
+     WHERE poll.id = ? AND identity.email_hmac = ?`
+  ).bind(pollId, emailHmac).first<{ id: number; poller_id: string }>();
 
   if (!result) {
-    return Response.json({ ok: false, message: 'issue and email do not match' }, { status: 404 });
+    return Response.json({ ok: false, message: 'poll and email do not match' }, { status: 404 });
   }
 
   return Response.json({
     ok: true,
-    issueId: result.id,
+    pollId: result.id,
     submitter: result.poller_id
   });
 }

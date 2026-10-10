@@ -1,5 +1,5 @@
 import { DEFAULT_LOCALE, getLocaleText } from './i18n';
-import { getComments, type CommentsResponse, type IssueSummary, type VoteOption } from './lib/poll';
+import { getComments, type CommentsResponse, type PollSummary, type VoteOption } from './lib/poll';
 import { getPublicSettings } from './config';
 
 const voteButtonStyles: Record<VoteOption, { color: string; empty: string }> = {
@@ -43,12 +43,13 @@ function getSiteSlogan(): string {
   return getPublicSettings().site_slogan || t('tagline');
 }
 
+export { getSiteSlogan };
+
 export function renderHeader(activeRoute: string): string {
   return `
     <header class="flex items-center justify-between py-4 pb-5 max-[700px]:flex-col max-[700px]:items-start">
       <div class="flex flex-col gap-1">
         <a class="text-3xl font-extrabold leading-none text-primary hover:underline" href="/" data-route="/" aria-label="${escapeHtml(t('homeLinkLabel'))}">${escapeHtml(getSiteName())}</a>
-        <div class="text-sm text-muted">${escapeHtml(getSiteSlogan())}</div>
       </div>
       <nav class="flex flex-wrap items-center gap-[18px]">
         ${getNavigationMarkup(activeRoute)}
@@ -95,7 +96,7 @@ export function escapeHtml(value: string): string {
   })[character] ?? character);
 }
 
-export function renderCommentsContent(issueId: number, response: CommentsResponse): string {
+export function renderCommentsContent(pollId: number, response: CommentsResponse): string {
   const totalPages = Math.ceil(response.total / response.pageSize);
   const comments = response.comments.length
     ? `<ul class="m-0 grid list-none gap-3.5 p-0">${response.comments.map(({ comment, createdAt }) => `
@@ -106,16 +107,16 @@ export function renderCommentsContent(issueId: number, response: CommentsRespons
       `).join('')}</ul>`
     : `<p class="text-muted">${t('noComments')}</p>`;
 
-  return `${comments}${renderPagination(response.page, totalPages, (page) => `/poll/${issueId}?commentsPage=${page}`)}`;
+  return `${comments}${renderPagination(response.page, totalPages, (page) => `/poll/${pollId}?commentsPage=${page}`)}`;
 }
 
-export async function updateComments(issueId: number, page: number, bindNavigation: () => void): Promise<void> {
+export async function updateComments(pollId: number, page: number, bindNavigation: () => void): Promise<void> {
   const content = document.querySelector('#comments-content');
   if (!content) return;
 
   try {
-    const response = await getComments(issueId, page, getCommentsPerPage());
-    content.innerHTML = renderCommentsContent(issueId, response);
+    const response = await getComments(pollId, page, getCommentsPerPage());
+    content.innerHTML = renderCommentsContent(pollId, response);
     bindNavigation();
   } catch {
     content.textContent = t('commentsLoadFailed');
@@ -127,7 +128,7 @@ export function getQueryPage(key: string): number {
   return Number.isSafeInteger(page) && page > 0 ? page : 1;
 }
 
-export function renderModeBadge(mode: IssueSummary['mode']): string {
+export function renderModeBadge(mode: PollSummary['mode']): string {
   return `<span class="shrink-0 rounded-full bg-[#f1f3f5] px-[9px] py-[3px] text-xs leading-[1.5] font-light whitespace-nowrap text-muted">${mode === 'deadline' ? t('deadline') : t('evergreen')}</span>`;
 }
 
@@ -143,14 +144,14 @@ export function renderVoteButton(
   total: number,
   disabled: boolean,
   title: string,
-  homeIssueId?: number
+  homePollId?: number
 ): string {
   const style = voteButtonStyles[option];
   const label = t(option);
   const percent = total > 0 ? count / total * 100 : 0;
-  const homeAttributes = homeIssueId === undefined
+  const homeAttributes = homePollId === undefined
     ? ''
-    : `data-home-vote data-issue-id="${homeIssueId}"`;
+    : `data-home-vote data-poll-id="${homePollId}"`;
 
   return `
     <button
@@ -166,7 +167,7 @@ export function renderVoteButton(
       <svg class="pointer-events-none absolute inset-0 h-full w-full" data-vote-fill="${option}" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
         <path d="${count > 0 ? voteFillPath(percent) : ''}" fill="${style.color}"></path>
       </svg>
-      ${homeIssueId === undefined
+      ${homePollId === undefined
     ? `${voteIconMarkup(option, 'relative z-10 h-4 w-4 shrink-0')}<span class="relative z-10 whitespace-nowrap">${label}</span>`
     : voteIconMarkup(option, 'relative z-10 h-4 w-4 shrink-0')}
       <span class="choice-count relative z-10 shrink-0 tabular-nums" data-vote-count="${option}">${count}</span>

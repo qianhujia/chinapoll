@@ -2,7 +2,7 @@ import { handleProposalClaimRequest, handleProposalRequest } from './api/proposa
 import { handleStatsRequest } from './api/stats';
 import { handleVoteRequest, handleVoteStatusRequest } from './api/vote';
 import { handleCommentsRequest } from './api/comments';
-import { handleIssuesRequest } from './api/issues';
+import { handlePollsRequest } from './api/polls';
 import { handlePublicSettingsRequest } from './api/settings';
 
 export interface Env {
@@ -104,7 +104,7 @@ const DEFAULT_PUBLIC_SETTINGS: PublicSettings = {
   comment_rate_limit: '3/h',
   proposal_rate_limit: '1/d',
   hero_title: 'Continuous polls · Fully anonymous · Openly auditable',
-  hero_subtitle: 'No login required to vote yes/no/neutral on open issues.',
+  hero_subtitle: 'No login required to vote yes/no/neutral on open polls.',
   hero_background_color: '',
   read_only_mode: false,
   turnstile_secret_key: '',
@@ -138,8 +138,8 @@ export default {
       return handleStatsRequest(request, url, envWithSettings);
     }
 
-    if (url.pathname === '/api/issues' || url.pathname.startsWith('/api/issues/')) {
-      return handleIssuesRequest(request, url, envWithSettings);
+    if (url.pathname === '/api/polls' || url.pathname.startsWith('/api/polls/')) {
+      return handlePollsRequest(request, url, envWithSettings);
     }
 
     if (url.pathname === '/api/comments' || url.pathname.startsWith('/api/comments/')) {

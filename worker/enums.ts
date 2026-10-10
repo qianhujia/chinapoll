@@ -1,9 +1,9 @@
-export enum IssueMode {
+export enum PollMode {
   Deadline = 1,
   Evergreen = 2
 }
 
-export enum IssueStatus {
+export enum PollStatus {
   Open = 1,
   Closed = 2,
   Archived = 3,
@@ -16,30 +16,30 @@ export enum VoteOption {
   Neutral = 3
 }
 
-export type IssueModeLabel = 'deadline' | 'evergreen';
-export type IssueStatusLabel = 'open' | 'closed' | 'archived';
+export type PollModeLabel = 'deadline' | 'evergreen';
+export type PollStatusLabel = 'open' | 'closed' | 'archived';
 export type VoteOptionLabel = 'approve' | 'oppose' | 'neutral';
 
-export function getIssueModeCode(value: unknown): IssueMode | null {
-  if (value === 'deadline') return IssueMode.Deadline;
-  if (value === 'evergreen') return IssueMode.Evergreen;
+export function getPollModeCode(value: unknown): PollMode | null {
+  if (value === 'deadline') return PollMode.Deadline;
+  if (value === 'evergreen') return PollMode.Evergreen;
   return null;
 }
 
-export function getIssueModeLabel(value: number): IssueModeLabel {
+export function getPollModeLabel(value: number): PollModeLabel {
   switch (value) {
-    case IssueMode.Deadline: return 'deadline';
-    case IssueMode.Evergreen: return 'evergreen';
-    default: throw new Error(`Unknown issue mode code: ${value}`);
+    case PollMode.Deadline: return 'deadline';
+    case PollMode.Evergreen: return 'evergreen';
+    default: throw new Error(`Unknown poll mode code: ${value}`);
   }
 }
 
-export function getIssueStatusLabel(value: number): IssueStatusLabel {
+export function getPollStatusLabel(value: number): PollStatusLabel {
   switch (value) {
-    case IssueStatus.Open: return 'open';
-    case IssueStatus.Closed: return 'closed';
-    case IssueStatus.Archived: return 'archived';
-    default: throw new Error(`Unknown issue status code: ${value}`);
+    case PollStatus.Open: return 'open';
+    case PollStatus.Closed: return 'closed';
+    case PollStatus.Archived: return 'archived';
+    default: throw new Error(`Unknown poll status code: ${value}`);
   }
 }
 

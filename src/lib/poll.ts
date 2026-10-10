@@ -1,6 +1,6 @@
 export type VoteOption = 'approve' | 'oppose' | 'neutral';
 
-export interface IssueSummary {
+export interface PollSummary {
   id: number;
   title: string;
   description: string | null;
@@ -10,9 +10,9 @@ export interface IssueSummary {
   status: 'open' | 'closed' | 'archived';
 }
 
-export interface IssueWithStats {
-  issue: IssueSummary;
-  stats: { issueId: number; counts: Record<VoteOption, number>; voted: boolean };
+export interface PollWithStats {
+  poll: PollSummary;
+  stats: { pollId: number; counts: Record<VoteOption, number>; voted: boolean };
 }
 
 export interface VoteResponse {
@@ -24,13 +24,13 @@ export interface VoteResponse {
 }
 
 export interface VoteStatusResponse {
-  issueId: number;
+  pollId: number;
   voted: boolean;
   option: VoteOption | null;
 }
 
 export interface CommentsResponse {
-  issueId: number;
+  pollId: number;
   page: number;
   pageSize: number;
   total: number;
@@ -66,40 +66,40 @@ export async function fetchJson<T>(input: string, init?: RequestInit): Promise<T
   return response.json() as Promise<T>;
 }
 
-export async function getStats(issueId: number): Promise<{ issueId: number; counts: Record<VoteOption, number>; voted: boolean }> {
-  return fetchJson(`/api/stats/${issueId}`);
+export async function getStats(pollId: number): Promise<{ pollId: number; counts: Record<VoteOption, number>; voted: boolean }> {
+  return fetchJson(`/api/stats/${pollId}`);
 }
 
-export async function getIssues(page: number, pageSize: number): Promise<{
-  issues: IssueWithStats[];
+export async function getPolls(page: number, pageSize: number): Promise<{
+  polls: PollWithStats[];
   page: number;
   pageSize: number;
   total: number;
   totalVotes: number;
 }> {
   const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
-  return fetchJson(`/api/issues?${params}`);
+  return fetchJson(`/api/polls?${params}`);
 }
 
-export async function getIssue(issueId: number): Promise<IssueSummary> {
-  const response = await fetchJson<{ issue: IssueSummary }>(`/api/issues/${issueId}`);
-  return response.issue;
+export async function getPoll(pollId: number): Promise<PollSummary> {
+  const response = await fetchJson<{ poll: PollSummary }>(`/api/polls/${pollId}`);
+  return response.poll;
 }
 
-export async function getComments(issueId: number, page: number, pageSize: number): Promise<CommentsResponse> {
+export async function getComments(pollId: number, page: number, pageSize: number): Promise<CommentsResponse> {
   const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
-  return fetchJson(`/api/comments/${issueId}?${params}`);
+  return fetchJson(`/api/comments/${pollId}?${params}`);
 }
 
-export async function submitComment(issueId: number, comment: string): Promise<void> {
+export async function submitComment(pollId: number, comment: string): Promise<void> {
   await fetchJson<{ ok: boolean }>('/api/comments', {
     method: 'POST',
-    body: JSON.stringify({ issueId, comment })
+    body: JSON.stringify({ pollId, comment })
   });
 }
 
 export async function submitVote(payload: {
-  issueId: number;
+  pollId: number;
   tokenHash: string;
   option: VoteOption;
   ipBucket?: string;
@@ -110,19 +110,19 @@ export async function submitVote(payload: {
   });
 }
 
-export async function getVoteStatus(issueId: number, tokenHash: string): Promise<VoteStatusResponse> {
+export async function getVoteStatus(pollId: number, tokenHash: string): Promise<VoteStatusResponse> {
   return fetchJson('/api/vote/status', {
     method: 'POST',
-    body: JSON.stringify({ issueId, tokenHash })
+    body: JSON.stringify({ pollId, tokenHash })
   });
 }
 
-export function hasVotedLocally(issueId: number, tokenHash: string): boolean {
-  return localStorage.getItem(`chinapoll.voted.${issueId}`) === tokenHash;
+export function hasVotedLocally(pollId: number, tokenHash: string): boolean {
+  return localStorage.getItem(`chinapoll.voted.${pollId}`) === tokenHash;
 }
 
-export function markVotedLocally(issueId: number, tokenHash: string): void {
-  localStorage.setItem(`chinapoll.voted.${issueId}`, tokenHash);
+export function markVotedLocally(pollId: number, tokenHash: string): void {
+  localStorage.setItem(`chinapoll.voted.${pollId}`, tokenHash);
 }
 
 export async function submitProposal(payload: {
@@ -132,17 +132,17 @@ export async function submitProposal(payload: {
   startAt?: string;
   endAt?: string;
   email?: string;
-}): Promise<{ ok: boolean; message: string; issueId: number; submitter?: string }> {
+}): Promise<{ ok: boolean; message: string; pollId: number; submitter?: string }> {
   return fetchJson('/api/proposal', {
     method: 'POST',
     body: JSON.stringify(payload)
   });
 }
 
-export async function claimProposal(issueId: string, email: string): Promise<{ ok: boolean; issueId: number; submitter: string }> {
+export async function claimProposal(pollId: string, email: string): Promise<{ ok: boolean; pollId: number; submitter: string }> {
   return fetchJson('/api/proposal/claim', {
     method: 'POST',
-    body: JSON.stringify({ issueId, email })
+    body: JSON.stringify({ pollId, email })
   });
 }
 
