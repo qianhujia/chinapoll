@@ -50,13 +50,16 @@ export async function handlePollsRequest(request: Request, url: URL, env: PollsE
        AND mode IN (?, ?)`
   ).bind(PollStatus.Open, PollMode.Deadline, PollMode.Evergreen).first<{ total: number }>();
 
-  const voteTotalResult = await env.DB.prepare(
+  const allPollsResult = await env.DB.prepare(
     `SELECT COUNT(*) AS total
-     FROM votes v
-     JOIN polls i ON i.id = v.poll_id
-     WHERE i.status = ? AND i.title IS NOT NULL AND TRIM(i.title) != ''
-       AND i.mode IN (?, ?)`
-  ).bind(PollStatus.Open, PollMode.Deadline, PollMode.Evergreen).first<{ total: number }>();
+     FROM polls
+     WHERE title IS NOT NULL AND TRIM(title) != ''
+       AND mode IN (?, ?)`
+  ).bind(PollMode.Deadline, PollMode.Evergreen).first<{ total: number }>();
+
+  const voteTotalResult = await env.DB.prepare(
+    'SELECT COUNT(*) AS total FROM votes'
+  ).first<{ total: number }>();
 
   const total = Number(countResult?.total ?? 0);
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -106,6 +109,7 @@ export async function handlePollsRequest(request: Request, url: URL, env: PollsE
     page: currentPage,
     pageSize,
     total,
+    totalPolls: Number(allPollsResult?.total ?? 0),
     totalVotes: Number(voteTotalResult?.total ?? 0)
   }, {
     headers: { 'cache-control': 'no-store' }

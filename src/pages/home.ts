@@ -12,7 +12,6 @@ import {
   escapeHtml,
   getErrorMessage,
   getPollsPerPage,
-  getSiteSlogan,
   renderFooter,
   renderHeader,
   renderModeBadge,
@@ -25,12 +24,14 @@ import {
 export async function mountHome(app: HTMLElement, page: number, bindNavigation: () => void, settings?: Record<string, any>): Promise<void> {
   const pollsPerPage = getPollsPerPage();
   let pollStats: Awaited<ReturnType<typeof getPolls>>['polls'];
+  let openPolls: number;
   let totalPolls: number;
   let totalVotes: number;
   try {
     const response = await getPolls(page, pollsPerPage);
     pollStats = response.polls;
-    totalPolls = response.total;
+    openPolls = response.total;
+    totalPolls = response.totalPolls;
     totalVotes = response.totalVotes;
   } catch (error) {
     app.innerHTML = `
@@ -44,7 +45,7 @@ export async function mountHome(app: HTMLElement, page: number, bindNavigation: 
     return;
   }
 
-  const totalPages = Math.max(1, Math.ceil(totalPolls / pollsPerPage));
+  const totalPages = Math.max(1, Math.ceil(openPolls / pollsPerPage));
   const currentPage = Math.min(Math.max(1, page), totalPages);
   const tokenHash = await hashToken(createToken());
   const pollVoteStates = new Map<number, { voted: boolean; error: string }>();
@@ -68,38 +69,40 @@ export async function mountHome(app: HTMLElement, page: number, bindNavigation: 
   const heroBackgroundStyle = hasHeroBackground ? `background: ${heroBackgroundColor};` : '';
   const heroTextClass = hasHeroBackground ? 'text-white' : 'text-ink';
   const heroSubtleClass = hasHeroBackground ? 'text-white/70' : 'text-muted';
-  const heroCtaClass = hasHeroBackground
-    ? 'border-white text-white hover:bg-white/10'
-    : 'border-primary text-primary hover:bg-primary-soft';
-  const openPollsCount = pollStats.filter(({ poll }) => Number(poll.status) === 1).length;
+  const primaryCtaClass = hasHeroBackground
+    ? 'bg-white text-ink hover:bg-white/90'
+    : 'bg-primary text-white hover:opacity-90';
+  const secondaryCtaClass = hasHeroBackground
+    ? 'border border-white/60 text-white hover:bg-white/10'
+    : 'border border-border bg-panel text-ink hover:border-primary hover:text-primary';
+  const openPollsCount = openPolls;
 
   app.innerHTML = `
     <div class="mx-auto max-w-[var(--page-width)] px-5 pt-6">
       ${renderHeader('/')}
     </div>
 
-    <section class="relative flex min-h-[340px] max-[700px]:min-h-[300px] flex-col items-center justify-center overflow-hidden text-center px-5 py-14 max-[700px]:py-10 ${heroTextClass}"
-      style="${heroBackgroundStyle}">
-      <div class="relative z-10 flex flex-col items-center">
-        <p class="m-0 mb-3 text-sm font-semibold tracking-[0.2em] uppercase ${heroSubtleClass}">${escapeHtml(getSiteSlogan())}</p>
-        <h1 class="m-0 text-[clamp(2rem,5vw,3.5rem)] leading-[1.1] font-bold text-balance">${escapeHtml(heroTitle)}</h1>
-        <p class="mt-4 mb-8 text-[clamp(1rem,2.5vw,1.25rem)] leading-[1.5] max-w-2xl mx-auto ${heroSubtleClass}">${escapeHtml(heroSubtitle)}</p>
-        <div class="flex flex-wrap items-center justify-center gap-3 mb-10 max-[700px]:mb-8">
-          <a class="rounded-full border bg-transparent px-5 py-2 font-medium transition-colors ${heroCtaClass}" href="/submit" data-route="/submit">${t('ctaSubmitPolls')}</a>
-          <a class="rounded-full border bg-transparent px-5 py-2 font-medium transition-colors ${heroCtaClass}" href="/about" data-route="/about">${t('ctaAnonymousRules')}</a>
+    <section class="relative px-5 pt-10 pb-12 max-[700px]:pt-6 max-[700px]:pb-8 ${heroTextClass}" style="${heroBackgroundStyle}">
+      <div class="mx-auto flex max-w-[var(--page-width)] flex-col items-center text-center">
+        <h1 class="m-0 max-w-[22ch] text-[clamp(1.875rem,4vw,2.75rem)] leading-[1.15] font-extrabold tracking-[-0.02em] text-balance max-[700px]:max-w-none">${escapeHtml(heroTitle)}</h1>
+        <p class="m-0 mt-4 max-w-2xl text-[clamp(0.95rem,1.8vw,1.1rem)] leading-[1.5] ${heroSubtleClass}">${escapeHtml(heroSubtitle)}</p>
+        <div class="mt-6 flex flex-wrap items-center justify-center gap-3">
+          <a class="rounded-lg px-6 py-2.5 text-sm transition-all ${primaryCtaClass}" href="/submit" data-route="/submit">${t('ctaSubmitPolls')}</a>
+          <a class="rounded-lg px-6 py-2.5 text-sm transition-colors ${secondaryCtaClass}" href="/about" data-route="/about">${t('ctaAnonymousRules')}</a>
         </div>
-        <dl class="m-0 flex items-stretch justify-center gap-10 max-[700px]:gap-6">
-          <div class="flex flex-col items-center gap-1">
-            <dt class="order-2 text-[13px] leading-[1.4] font-medium ${heroSubtleClass}">${t('totalPolls')}</dt>
-            <dd class="order-1 m-0 text-3xl leading-[1.1] font-bold">${totalPolls}</dd>
+
+        <dl class="m-0 mt-12 flex flex-wrap items-start justify-center gap-x-16 gap-y-8 max-[700px]:mt-8 max-[700px]:gap-x-10">
+          <div class="flex min-w-[110px] flex-col items-center gap-2">
+            <dd class="order-1 m-0 text-[clamp(2rem,4vw,2.75rem)] leading-none tracking-[-0.02em] tabular-nums">${totalPolls}</dd>
+            <dt class="order-2 text-sm font-medium ${heroSubtleClass}">${t('totalPolls')}</dt>
           </div>
-          <div class="flex flex-col items-center gap-1">
-            <dt class="order-2 text-[13px] leading-[1.4] font-medium ${heroSubtleClass}">${t('openPolls')}</dt>
-            <dd class="order-1 m-0 text-3xl leading-[1.1] font-bold">${openPollsCount}</dd>
+          <div class="flex min-w-[110px] flex-col items-center gap-2">
+            <dd class="order-1 m-0 text-[clamp(2rem,4vw,2.75rem)] leading-none tracking-[-0.02em] tabular-nums">${openPollsCount}</dd>
+            <dt class="order-2 text-sm font-medium ${heroSubtleClass}">${t('openPolls')}</dt>
           </div>
-          <div class="flex flex-col items-center gap-1">
-            <dt class="order-2 text-[13px] leading-[1.4] font-medium ${heroSubtleClass}">${t('totalVotesCount')}</dt>
-            <dd class="order-1 m-0 text-3xl leading-[1.1] font-bold" data-total-votes>${totalVotes}</dd>
+          <div class="flex min-w-[110px] flex-col items-center gap-2">
+            <dd class="order-1 m-0 text-[clamp(2rem,4vw,2.75rem)] leading-none tracking-[-0.02em] tabular-nums" data-total-votes>${totalVotes}</dd>
+            <dt class="order-2 text-sm font-medium ${heroSubtleClass}">${t('totalVotesCount')}</dt>
           </div>
         </dl>
       </div>

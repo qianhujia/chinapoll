@@ -1,3 +1,4 @@
+import { ArrowBigDown, ArrowBigUp, Minus, type IconNode } from 'lucide';
 import { DEFAULT_LOCALE, getLocaleText } from './i18n';
 import { getComments, type CommentsResponse, type PollSummary, type VoteOption } from './lib/poll';
 import { getPublicSettings } from './config';
@@ -8,15 +9,26 @@ const voteButtonStyles: Record<VoteOption, { color: string; empty: string }> = {
   oppose: { color: '#d95b5b', empty: '#faeaea' }
 };
 
-// Inline SVG markup (stroke-based paths) for each vote option.
-const voteIcons: Record<VoteOption, string> = {
-  approve: '<path stroke-linecap="round" stroke-linejoin="round" d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3H14zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/>',
-  neutral: '<circle cx="12" cy="12" r="10"/><path stroke-linecap="round" stroke-linejoin="round" d="M8 12h8"/>',
-  oppose: '<path stroke-linecap="round" stroke-linejoin="round" d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3H10zm7-13h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17"/>'
+// Lucide icon nodes are inlined into SVG markup at build time; no icon library ships at runtime.
+function iconMarkup(node: IconNode, cssClass: string): string {
+  const children = node.map(([tag, attrs]) => {
+    const attributes = Object.entries(attrs)
+      .filter(([, value]) => value !== undefined && value !== null)
+      .map(([name, value]) => ` ${name}="${value}"`)
+      .join('');
+    return `<${tag}${attributes} />`;
+  }).join('');
+  return `<svg class="${cssClass}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${children}</svg>`;
+}
+
+const voteIcons: Record<VoteOption, IconNode> = {
+  approve: ArrowBigUp,
+  neutral: Minus,
+  oppose: ArrowBigDown
 };
 
 export function voteIconMarkup(option: VoteOption, cssClass: string): string {
-  return `<svg class="${cssClass}" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">${voteIcons[option]}</svg>`;
+  return iconMarkup(voteIcons[option], cssClass);
 }
 
 export function getPollsPerPage(): number {
@@ -38,12 +50,6 @@ export function getErrorMessage(error: unknown): string {
 export function getSiteName(): string {
   return getPublicSettings().site_name || t('appName');
 }
-
-function getSiteSlogan(): string {
-  return getPublicSettings().site_slogan || t('tagline');
-}
-
-export { getSiteSlogan };
 
 export function renderHeader(activeRoute: string): string {
   return `

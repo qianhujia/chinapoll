@@ -75,6 +75,7 @@ export async function getPolls(page: number, pageSize: number): Promise<{
   page: number;
   pageSize: number;
   total: number;
+  totalPolls: number;
   totalVotes: number;
 }> {
   const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
