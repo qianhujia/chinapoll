@@ -6,7 +6,10 @@
   "scripts": {
     "db:migrate": "npx wrangler d1 migrations apply chinapoll-local --local --persist-to .wrangler && npm run admin -- initialize-settings",
     "admin:build": "tsc --project tsconfig.json",
-    "admin": "node dist/admin/cli.js", 
+    "admin": "node dist/admin/cli.js",
+    "admin:worker:dev": "npx wrangler dev --config admin/wrangler.toml --port 8788 --local --persist-to .wrangler --live-reload=false",
+    "admin:worker:deploy": "npx wrangler deploy --config admin/wrangler.toml",
+    "admin:worker:dry-run": "npx wrangler deploy --config admin/wrangler.toml --dry-run",
     "dev": "npm run db:migrate && npm run build && (vite preview --host 0.0.0.0 --port 5173 & npx wrangler dev worker/index.ts --local --persist-to .wrangler --port 8787 --live-reload=false & wait)",
     "dev:web": "npm run build && vite preview --host 0.0.0.0 --port 5173",
     "dev:worker": "npm run db:migrate && npx wrangler dev worker/index.ts --local --persist-to .wrangler --port 8787 --live-reload=false",

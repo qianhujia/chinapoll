@@ -1,0 +1,29 @@
+# Standalone admin Worker for ChinaPoll.
+#
+# This Worker is deployed separately from the public application Worker and
+# binds to the same D1 database. It serves the browser dashboard and the
+# /api/admin/* JSON endpoints used to review submissions, moderate comments,
+# manage admin users, review the audit log, and manage settings.
+#
+# Deploy:
+#   npx wrangler deploy --config admin/wrangler.toml
+
+name = "chinapoll-admin-worker"
+main = "index.ts"
+compatibility_date = "2026-10-08"
+
+# Shared with the public application. Replace database_id with the production
+# database UUID when deploying outside local development.
+[[d1_databases]]
+binding = "DB"
+database_name = "chinapoll-local"
+database_id = "local"
+migrations_dir = "../migrations"
+
+[vars]
+# Public Turnstile site key used to render the login widget. Server-side token
+# verification reuses the turnstile_enable and turnstile_secret_key settings.
+# TURNSTILE_SITE_KEY = "0x4AAAAAAA..."
+# Optional: allow cookie-authenticated mutations from an additional origin.
+# ADMIN_ORIGIN = "https://admin.chinapoll.org"
+

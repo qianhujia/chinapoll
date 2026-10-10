@@ -21,7 +21,7 @@ Application settings are stored in the local D1 `settings` table and served to t
 
 Public application settings use these self-explanatory keys: `default_locale` (`en` or `zh-CN`), `site_name`, `site_slogan`, `data_repository_url`, `polls_per_page`, `comments_per_page`, `page_max_width_px`, `hero_title`, `hero_subtitle`, `hero_background_color`, `read_only_mode`, `turnstile_enable`, `vote_rate_limit`, `comment_rate_limit`, and `proposal_rate_limit`. Page sizes are limited to 1–100; the page width is in pixels. Missing or invalid settings fall back to built-in defaults. The locale supports `en` and `zh-CN`; translations are loaded from `public/i18n/en.json` and `public/i18n/zh.json`.
 
-Manage settings with the admin CLI (values are validated before they are written):
+Settings can be managed from the standalone admin Worker dashboard (see [Admin Worker](#admin-worker)) or, for local scripting, from the admin CLI. The CLI values are validated before they are written:
 
 ```bash
 npm run admin -- set-setting hero_title "Continuous polls · Fully anonymous · Openly auditable"
@@ -52,6 +52,39 @@ npm run admin -- approve-proposal <poll-id>
 ```
 
 This command operates on the local D1 database under `.wrangler`.
+
+## Admin Worker
+
+The admin tools are packaged as a standalone Cloudflare Worker that shares the
+main application's D1 database. It serves a browser dashboard plus a JSON API for
+reviewing submissions, adjusting polls, moderating comments, managing admin
+users, reviewing an audit log, and updating settings. See `admin/README.md` for
+the full endpoint reference.
+
+```bash
+cp admin/.dev.vars.example admin/.dev.vars        # optional local secrets
+npm run db:migrate                                # applies the admin_users migration
+npm run admin:worker:dev                          # http://127.0.0.1:8788
+```
+
+The Worker binds to the same local D1 database under `.wrangler`, so it can run
+alongside the public Worker. Admin users sign in with a username and password
+(PBKDF2-hashed). Because no admin exists yet, the dashboard first shows a setup
+form; the first account becomes the super admin, and accounts added from the
+Admins tab are regular admins. You can also create the first account locally with
+`npm run admin -- create-admin <username> <password>` (append `--super` to grant
+the super admin role). Sessions expire after 30 minutes of inactivity, five
+failed sign-ins lock an account for 15 minutes, and the lock can be reset from the
+Admins tab (or with `npm run admin -- unlock-admin <id>`). Only super admins can
+open the audit log.
+
+Optional Turnstile verification on login reuses the `turnstile_enable` and
+`turnstile_secret_key` settings together with the public `TURNSTILE_SITE_KEY`
+variable; it is skipped while the feature is disabled or keys are absent. The
+dashboard is protected by a per-request CSP nonce, cookie-authenticated writes
+are rejected unless they originate from the Worker itself, and the audit log
+records admin actions without client IP addresses. Deploy with
+`npm run admin:worker:deploy`.
 
 ## Build check
 

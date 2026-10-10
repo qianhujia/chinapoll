@@ -3,8 +3,12 @@
 import { DatabaseSync } from 'node:sqlite';
 import { readdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { pbkdf2Sync, randomBytes } from 'node:crypto';
 import { PollStatus, PollMode, VoteOption } from '../worker/enums.js';
-import { DEFAULT_PUBLIC_SETTINGS, RATE_LIMIT_PATTERN, HERO_BACKGROUND_COLOR_PATTERN } from '../worker/api/settings.js';
+import { DEFAULT_PUBLIC_SETTINGS } from '../worker/api/settings.js';
+import { validateSettingValue } from './lib/settings.js';
+import { ADMIN_ROLE_ADMIN, ADMIN_ROLE_SUPER, adminRoleLabel, validateUsername } from './lib/admins.js';
+import { validatePassword } from './lib/password.js';
 
 interface PendingPollRow {
   id: number;
@@ -30,6 +34,10 @@ function showHelp(): void {
   console.log('  npm run admin -- finalize <pollId>');
   console.log('  npm run admin -- seed-sample-data');
   console.log('  npm run admin -- list-pending');
+  console.log('  npm run admin -- create-admin <username> <password> [--super]');
+  console.log('  npm run admin -- list-admins');
+  console.log('  npm run admin -- unlock-admin <admin-id>');
+  console.log('  npm run admin -- promote-super-admin <admin-id>');
   console.log('  npm run admin -- migrate-rate-limit-columns');
   console.log('  npm run admin -- migrate-rate-limit-settings');
 }
@@ -89,58 +97,8 @@ function upsertSetting(database: DatabaseSync, key: string, value: string): void
   ).run(key, value);
 }
 
-function validateSettingValue(key: string, value: string): { ok: true; value: string } | { ok: false; error: string } {
-  if (!(key in DEFAULT_PUBLIC_SETTINGS)) {
-    return { ok: false, error: `Unknown setting key "${key}". Known keys: ${Object.keys(DEFAULT_PUBLIC_SETTINGS).join(', ')}.` };
-  }
-  switch (key) {
-    case 'default_locale':
-      if (value !== 'en' && value !== 'zh-CN') return { ok: false, error: 'default_locale must be "en" or "zh-CN".' };
-      break;
-    case 'site_name':
-      if (!value.trim() || value.length > 100) return { ok: false, error: 'site_name must contain 1 to 100 characters.' };
-      break;
-    case 'site_slogan':
-      if (value.length > 300) return { ok: false, error: 'site_slogan must not exceed 300 characters.' };
-      break;
-    case 'data_repository_url':
-      if (value && !value.startsWith('https://')) return { ok: false, error: 'data_repository_url must be an HTTPS URL or empty.' };
-      break;
-    case 'polls_per_page':
-    case 'comments_per_page':
-      if (!/^\d+$/.test(value) || Number(value) < 1 || Number(value) > 100) return { ok: false, error: `${key} must be an integer from 1 to 100.` };
-      break;
-    case 'page_max_width_px':
-      if (!/^\d+$/.test(value) || Number(value) < 100 || Number(value) > 9999) return { ok: false, error: 'page_max_width_px must be an integer from 100 to 9999.' };
-      break;
-    case 'vote_rate_limit':
-    case 'comment_rate_limit':
-    case 'proposal_rate_limit': {
-      const normalized = value.trim().toLowerCase();
-      if (!RATE_LIMIT_PATTERN.test(normalized)) return { ok: false, error: `${key} must be in format "N/w|d|h|m|s" (e.g., "5/h", "3/h", "1/d").` };
-      return { ok: true, value: normalized };
-    }
-    case 'hero_title':
-      if (!value.trim() || value.length > 200) return { ok: false, error: 'hero_title must contain 1 to 200 characters.' };
-      break;
-    case 'hero_subtitle':
-      if (value.length > 500) return { ok: false, error: 'hero_subtitle must not exceed 500 characters.' };
-      break;
-    case 'hero_background_color':
-      if (value && !HERO_BACKGROUND_COLOR_PATTERN.test(value)) {
-        return { ok: false, error: 'hero_background_color must be a CSS color (hex, rgb/a, hsl/a, or named) or a CSS gradient.' };
-      }
-      break;
-    case 'read_only_mode':
-    case 'turnstile_enable':
-      if (value !== 'true' && value !== 'false') return { ok: false, error: `${key} must be "true" or "false".` };
-      break;
-    case 'turnstile_secret_key':
-      if (value && !/^[0-9a-f]{64}$/i.test(value)) return { ok: false, error: 'turnstile_secret_key must be a 64-character hex string.' };
-      break;
-  }
-  return { ok: true, value };
-}
+// validateSettingValue is shared with the admin Worker (admin/lib/settings.ts)
+// so the CLI and the dashboard reject invalid values with the same rules.
 
 function setSetting(keyText: string | undefined, valueText: string | undefined): void {
   if (!keyText || valueText === undefined) {
@@ -255,6 +213,25 @@ try {
     case 'readonly':
       setReadOnly(argument);
       break;
+    case 'create-admin': {
+      const rest = process.argv.slice(4);
+      let requestSuper = false;
+      if (rest.length > 0 && rest[rest.length - 1] === '--super') {
+        requestSuper = true;
+        rest.pop();
+      }
+      createAdmin(argument, rest.join(' '), requestSuper);
+      break;
+    }
+    case 'list-admins':
+      listAdmins();
+      break;
+    case 'unlock-admin':
+      unlockAdmin(argument);
+      break;
+    case 'promote-super-admin':
+      promoteSuperAdmin(argument);
+      break;
 
 function listPending(): void {
   const database = new DatabaseSync(getLocalDatabasePath());
@@ -286,6 +263,102 @@ function listPending(): void {
     }
   } catch (error) {
     throw error;
+  } finally {
+    database.close();
+  }
+}
+
+// Produces the same "pbkdf2$iterations$salt$hash" format the Worker verifies.
+function hashPasswordForStorage(password: string): string {
+  const iterations = 100_000;
+  const salt = randomBytes(16);
+  const hash = pbkdf2Sync(password, salt, iterations, 32, 'sha256');
+  return `pbkdf2$${iterations}$${salt.toString('hex')}$${hash.toString('hex')}`;
+}
+
+function createAdmin(usernameText: string | undefined, passwordText: string | undefined, requestSuper = false): void {
+  const usernameResult = validateUsername(usernameText ?? '');
+  if (!usernameResult.ok) throw new Error(usernameResult.error);
+  const password = passwordText ?? '';
+  const passwordResult = validatePassword(password);
+  if (!passwordResult.ok) throw new Error(passwordResult.error);
+
+  const database = new DatabaseSync(getLocalDatabasePath());
+  try {
+    const existing = database.prepare('SELECT id FROM admin_users WHERE username = ?').get(usernameResult.value);
+    if (existing) throw new Error(`Admin "${usernameResult.value}" already exists.`);
+
+    const countRow = database.prepare('SELECT COUNT(*) AS total FROM admin_users').get() as { total: number } | undefined;
+    const role = requestSuper || Number(countRow?.total ?? 0) === 0 ? ADMIN_ROLE_SUPER : ADMIN_ROLE_ADMIN;
+    database.prepare('INSERT INTO admin_users (username, password_hash, role) VALUES (?, ?, ?)')
+      .run(usernameResult.value, hashPasswordForStorage(password), role);
+    console.log(`Created ${adminRoleLabel(role)} "${usernameResult.value}".`);
+  } finally {
+    database.close();
+  }
+}
+
+interface AdminUserRow {
+  id: number;
+  username: string;
+  role: number;
+  status: number;
+  failed_attempts: number;
+  locked_until: number | null;
+}
+
+function listAdmins(): void {
+  const database = new DatabaseSync(getLocalDatabasePath());
+  try {
+    const admins = database.prepare(
+      `SELECT id, username, role, status, failed_attempts, locked_until
+       FROM admin_users ORDER BY id ASC`
+    ).all() as unknown as AdminUserRow[];
+
+    if (admins.length === 0) {
+      console.log('No admin users found.');
+      return;
+    }
+
+    for (const admin of admins) {
+      const status = admin.status === 2 ? 'disabled' : 'active';
+      const lock = admin.locked_until
+        ? `locked until ${new Date(admin.locked_until * 1000).toISOString()}`
+        : (admin.failed_attempts ? `${admin.failed_attempts} failed attempt(s)` : 'ok');
+      console.log(`#${admin.id} ${admin.username} [${adminRoleLabel(admin.role)}/${status}] ${lock}`);
+    }
+  } finally {
+    database.close();
+  }
+}
+
+function unlockAdmin(idText: string | undefined): void {
+  if (!idText || !/^[1-9]\d*$/.test(idText)) {
+    throw new Error('Usage: npm run admin -- unlock-admin <admin-id>');
+  }
+  const database = new DatabaseSync(getLocalDatabasePath());
+  try {
+    const result = database.prepare(
+      'UPDATE admin_users SET failed_attempts = 0, locked_until = NULL, updated_at = unixepoch() WHERE id = ?'
+    ).run(Number(idText));
+    if (Number(result.changes) !== 1) throw new Error(`Admin ${idText} was not found.`);
+    console.log(`Reset lock for admin ${idText}.`);
+  } finally {
+    database.close();
+  }
+}
+
+function promoteSuperAdmin(idText: string | undefined): void {
+  if (!idText || !/^[1-9]\d*$/.test(idText)) {
+    throw new Error('Usage: npm run admin -- promote-super-admin <admin-id>');
+  }
+  const database = new DatabaseSync(getLocalDatabasePath());
+  try {
+    const result = database.prepare(
+      'UPDATE admin_users SET role = ?, updated_at = unixepoch() WHERE id = ?'
+    ).run(ADMIN_ROLE_SUPER, Number(idText));
+    if (Number(result.changes) !== 1) throw new Error(`Admin ${idText} was not found.`);
+    console.log(`Admin ${idText} is now a super admin.`);
   } finally {
     database.close();
   }

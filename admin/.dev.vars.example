@@ -1,0 +1,9 @@
+# Local development secrets for the standalone admin Worker.
+# Copy this file to admin/.dev.vars (which is git-ignored).
+#
+# Admin accounts sign in with a username and password stored in the admin_users
+# table. Create the first account from the dashboard setup screen or from the CLI
+# (`npm run admin -- create-admin <username> <password>`). The first account is a
+# super admin; later admins cannot read the audit log.
+#
+# No secrets are required for local development.
