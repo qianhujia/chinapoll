@@ -1,4 +1,6 @@
 import { sha256 } from '../services/hashchain';
+import { D1Database } from '@cloudflare/workers-types';
+import { RATE_LIMIT_PATTERN } from './settings';
 import {
   getVoteOptionCode,
   getVoteOptionLabel,
@@ -8,8 +10,34 @@ import {
 
 export type VoteOption = VoteOptionLabel;
 
-const DEFAULT_VOTE_RATE_LIMIT_PER_IP_BUCKET_PER_HOUR = 5;
+const DEFAULT_VOTE_RATE_LIMIT = '5/h';
 const VOTE_SALT = 'chinapoll-local-dev-salt';
+
+function parseRateLimit(rateLimitStr: string): { count: number; windowMs: number } {
+  const match = rateLimitStr.match(RATE_LIMIT_PATTERN);
+  if (!match) return { count: 5, windowMs: 3_600_000 };
+  const count = Number(match[1]);
+  const unit = match[2];
+  const unitMs: Record<string, number> = {
+    w: 7 * 24 * 60 * 60 * 1000,
+    d: 24 * 60 * 60 * 1000,
+    h: 60 * 60 * 1000,
+    m: 60 * 1000,
+    s: 1000
+  };
+  return { count, windowMs: unitMs[unit] || 3_600_000 };
+}
+
+async function getVoteRateLimit(db: D1Database): Promise<{ count: number; windowMs: number }> {
+  const row = await db.prepare(
+    'SELECT value FROM settings WHERE key = ?'
+  ).bind('vote_rate_limit').first();
+
+  if (row?.value && typeof row.value === 'string') {
+    return parseRateLimit(row.value);
+  }
+  return parseRateLimit(DEFAULT_VOTE_RATE_LIMIT);
+}
 
 export async function handleVoteStatusRequest(request: Request, env: any): Promise<Response> {
   if (request.method !== 'POST') {
@@ -43,14 +71,11 @@ export async function handleVoteStatusRequest(request: Request, env: any): Promi
 }
 
 export async function handleVoteRequest(request: Request, env: any): Promise<Response> {
-  const voteRateLimit = Number(
-    env.VOTE_RATE_LIMIT_PER_IP_BUCKET_PER_HOUR ?? DEFAULT_VOTE_RATE_LIMIT_PER_IP_BUCKET_PER_HOUR
-  );
-  if (!Number.isSafeInteger(voteRateLimit) || voteRateLimit < 1) {
-    return Response.json({ message: 'invalid VOTE_RATE_LIMIT_PER_IP_BUCKET_PER_HOUR configuration' }, { status: 500 });
-  }
+  const { count: voteRateLimit, windowMs: voteWindowMs } = await getVoteRateLimit(env.DB);
+  const now = Date.now();
+  const bucketStart = now - (now % voteWindowMs);
 
-  if (String(env.READ_ONLY_MODE ?? '').toLowerCase() === 'true') {
+  if (env.read_only_mode === true) {
     return new Response(JSON.stringify({ ok: false, message: 'readonly mode enabled' }), {
       status: 503,
       headers: { 'content-type': 'application/json' }
@@ -86,7 +111,7 @@ export async function handleVoteRequest(request: Request, env: any): Promise<Res
     });
   }
 
-  const localSkipTurnstile = String(env.TURNSTILE_SKIP ?? '').toLowerCase() === 'true' || !env.TURNSTILE_SECRET_KEY;
+  const localSkipTurnstile = !env.turnstile_enable || !env.turnstile_secret_key;
   if (!localSkipTurnstile && !turnstileResponse) {
     return new Response(JSON.stringify({ ok: false, message: 'turnstile verification required' }), {
       status: 403,
@@ -96,7 +121,7 @@ export async function handleVoteRequest(request: Request, env: any): Promise<Res
 
   const remoteIp = request.headers.get('cf-connecting-ip') ?? '127.0.0.1';
   const ipPrefixHash = await sha256(`${VOTE_SALT}:${remoteIp.split('.').slice(0, 3).join('.')}`);
-  const tsHour = Math.floor(Date.now() / 3_600_000) * 3_600;
+  const tsBucket = bucketStart;
 
   const existingVote: any = await env.DB.prepare(
     'SELECT id FROM votes WHERE issue_id = ? AND voter_token_hash = ? LIMIT 1'
@@ -110,8 +135,8 @@ export async function handleVoteRequest(request: Request, env: any): Promise<Res
   }
 
   const rateLimitResult: any = await env.DB.prepare(
-    `SELECT COUNT(*) as count FROM votes WHERE ip_prefix_hash = ? AND ts_hour = ?`
-  ).bind(ipPrefixHash, tsHour).first();
+    `SELECT COUNT(*) as count FROM votes WHERE ip_prefix_hash = ? AND ts_bucket = ?`
+  ).bind(ipPrefixHash, tsBucket).first();
 
   if ((Number(rateLimitResult?.count ?? 0)) >= voteRateLimit) {
     return new Response(JSON.stringify({ ok: false, message: 'rate limit reached' }), {
@@ -121,10 +146,10 @@ export async function handleVoteRequest(request: Request, env: any): Promise<Res
   }
 
   const insertResult = await env.DB.prepare(
-    `INSERT INTO votes (issue_id, voter_token_hash, ip_prefix_hash, option, ts_hour)
+    `INSERT INTO votes (issue_id, voter_token_hash, ip_prefix_hash, option, ts_bucket)
      VALUES (?, ?, ?, ?, ?)
      ON CONFLICT(issue_id, voter_token_hash) DO NOTHING`
-  ).bind(issueId, tokenHash, ipPrefixHash, option, tsHour).run();
+  ).bind(issueId, tokenHash, ipPrefixHash, option, tsBucket).run();
 
   if (!insertResult.meta.changes) {
     return new Response(JSON.stringify({ ok: false, message: 'duplicate vote' }), {

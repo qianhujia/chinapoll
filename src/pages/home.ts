@@ -21,7 +21,7 @@ import {
   updateVoteGroup
 } from '../ui';
 
-export async function mountHome(app: HTMLElement, page: number, bindNavigation: () => void): Promise<void> {
+export async function mountHome(app: HTMLElement, page: number, bindNavigation: () => void, settings?: Record<string, any>): Promise<void> {
   const pollsPerPage = getPollsPerPage();
   let issueStats: Awaited<ReturnType<typeof getIssues>>['issues'];
   let totalIssues: number;
@@ -60,31 +60,54 @@ export async function mountHome(app: HTMLElement, page: number, bindNavigation: 
     issueVoteStates.set(issue.id, { voted, error });
   }));
 
+  const heroTitle = settings?.hero_title || t('heroTitle');
+  const heroSubtitle = settings?.hero_subtitle || t('heroBody');
+  const heroBackgroundColor = settings?.hero_background_color || '';
+  const hasHeroBackground = heroBackgroundColor !== '';
+  const heroBackgroundStyle = hasHeroBackground ? `background: ${heroBackgroundColor};` : '';
+  const heroTextClass = hasHeroBackground ? 'text-white' : 'text-ink';
+  const heroSubtleClass = hasHeroBackground ? 'text-white/70' : 'text-muted';
+  const heroCtaClass = hasHeroBackground
+    ? 'border-white text-white hover:bg-white/10'
+    : 'border-primary text-primary hover:bg-primary-soft';
+  const heroDividerClass = hasHeroBackground ? 'bg-white/25' : 'bg-border';
+  const openPollsCount = issueStats.filter(({ issue }) => Number(issue.status) === 1).length;
+
   app.innerHTML = `
-    <div class="mx-auto max-w-[var(--page-width)] px-5 pt-6 pb-16">
+    <div class="mx-auto max-w-[var(--page-width)] px-5 pt-6">
       ${renderHeader('/')}
+    </div>
 
+    <section class="relative flex min-h-[340px] max-[700px]:min-h-[300px] flex-col items-center justify-center overflow-hidden text-center px-5 py-14 max-[700px]:py-10 ${heroTextClass}"
+      style="${heroBackgroundStyle}">
+      <div class="relative z-10 flex flex-col items-center">
+        <h1 class="m-0 text-[clamp(2rem,5vw,3.5rem)] leading-[1.1] font-bold text-balance">${escapeHtml(heroTitle)}</h1>
+        <p class="mt-4 mb-8 text-[clamp(1rem,2.5vw,1.25rem)] leading-[1.5] max-w-2xl mx-auto ${heroSubtleClass}">${escapeHtml(heroSubtitle)}</p>
+        <div class="flex flex-wrap items-center justify-center gap-3 mb-10 max-[700px]:mb-8">
+          <a class="rounded-full border-2 bg-transparent px-6 py-3 font-medium transition-colors ${heroCtaClass}" href="/submit" data-route="/submit">${t('ctaSubmitIssues')}</a>
+          <a class="rounded-full border-2 bg-transparent px-6 py-3 font-medium transition-colors ${heroCtaClass}" href="/about" data-route="/about">${t('ctaAnonymousRules')}</a>
+        </div>
+        <dl class="m-0 flex items-stretch justify-center gap-10 max-[700px]:gap-6">
+          <div class="flex flex-col items-center gap-1">
+            <dt class="order-2 text-[13px] leading-[1.4] font-medium ${heroSubtleClass}">${t('totalIssues')}</dt>
+            <dd class="order-1 m-0 text-3xl leading-[1.1] font-bold">${totalIssues}</dd>
+          </div>
+          <div class="w-px ${heroDividerClass}" aria-hidden="true"></div>
+          <div class="flex flex-col items-center gap-1">
+            <dt class="order-2 text-[13px] leading-[1.4] font-medium ${heroSubtleClass}">${t('openPolls')}</dt>
+            <dd class="order-1 m-0 text-3xl leading-[1.1] font-bold">${openPollsCount}</dd>
+          </div>
+          <div class="w-px ${heroDividerClass}" aria-hidden="true"></div>
+          <div class="flex flex-col items-center gap-1">
+            <dt class="order-2 text-[13px] leading-[1.4] font-medium ${heroSubtleClass}">${t('totalVotesCount')}</dt>
+            <dd class="order-1 m-0 text-3xl leading-[1.1] font-bold" data-total-votes>${totalVotes}</dd>
+          </div>
+        </dl>
+      </div>
+    </section>
+
+    <div class="mx-auto max-w-[var(--page-width)] px-5 pt-6 pb-16">
       <main class="grid gap-5">
-        <section class="pt-7 pb-2">
-          <h1 class="mb-2.5 text-[clamp(2rem,4vw,3rem)] leading-[1.1] font-bold">${t('heroTitle')}</h1>
-          <p class="m-0 text-[1.05rem] text-muted">${t('heroBody')}</p>
-        </section>
-
-        <section class="grid grid-cols-3 gap-3 rounded-[22px] border border-border bg-panel p-6 shadow-card max-[700px]:grid-cols-1">
-          <div>
-            <span class="mb-1 block text-xs tracking-[0.08em] text-muted uppercase">${t('openPolls')}</span>
-            <strong>${totalIssues}</strong>
-          </div>
-          <div>
-            <span class="mb-1 block text-xs tracking-[0.08em] text-muted uppercase">${t('totalVotes')}</span>
-            <strong data-total-votes>${totalVotes}</strong>
-          </div>
-          <div>
-            <span class="mb-1 block text-xs tracking-[0.08em] text-muted uppercase">${t('modes')}</span>
-            <strong>${t('deadline')} + ${t('evergreen')}</strong>
-          </div>
-        </section>
-
         <section class="border-t border-border">
           ${issueStats.length === 0
     ? `<p class="py-6 text-center text-muted">${t('noPolls')}</p>`

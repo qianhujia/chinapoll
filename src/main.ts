@@ -61,7 +61,7 @@ async function render() {
   }
 
   if (route === '/polls') {
-    await mountHome(app!, getQueryPage('page'), bindNavigation);
+    await mountHome(app!, getQueryPage('page'), bindNavigation, getPublicSettings());
     return;
   }
 
@@ -78,7 +78,7 @@ async function render() {
     return;
   }
 
-  await mountHome(app!, getQueryPage('page'), bindNavigation);
+  await mountHome(app!, getQueryPage('page'), bindNavigation, getPublicSettings());
 }
 
 window.addEventListener('popstate', () => { render(); });

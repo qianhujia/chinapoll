@@ -8,6 +8,17 @@ const voteButtonStyles: Record<VoteOption, { color: string; empty: string }> = {
   oppose: { color: '#d95b5b', empty: '#faeaea' }
 };
 
+// Inline SVG markup (stroke-based paths) for each vote option.
+const voteIcons: Record<VoteOption, string> = {
+  approve: '<path stroke-linecap="round" stroke-linejoin="round" d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3H14zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/>',
+  neutral: '<circle cx="12" cy="12" r="10"/><path stroke-linecap="round" stroke-linejoin="round" d="M8 12h8"/>',
+  oppose: '<path stroke-linecap="round" stroke-linejoin="round" d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3H10zm7-13h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17"/>'
+};
+
+export function voteIconMarkup(option: VoteOption, cssClass: string): string {
+  return `<svg class="${cssClass}" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">${voteIcons[option]}</svg>`;
+}
+
 export function getPollsPerPage(): number {
   return getPublicSettings().polls_per_page;
 }
@@ -155,7 +166,9 @@ export function renderVoteButton(
       <svg class="pointer-events-none absolute inset-0 h-full w-full" data-vote-fill="${option}" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
         <path d="${count > 0 ? voteFillPath(percent) : ''}" fill="${style.color}"></path>
       </svg>
-      <span class="relative z-10 whitespace-nowrap">${label}</span>
+      ${homeIssueId === undefined
+    ? `${voteIconMarkup(option, 'relative z-10 h-4 w-4 shrink-0')}<span class="relative z-10 whitespace-nowrap">${label}</span>`
+    : voteIconMarkup(option, 'relative z-10 h-4 w-4 shrink-0')}
       <span class="choice-count relative z-10 shrink-0 tabular-nums" data-vote-count="${option}">${count}</span>
     </button>
   `;

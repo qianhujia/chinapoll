@@ -13,6 +13,7 @@
     "allowSyntheticDefaultImports": true,
     "strict": true,
     "noEmit": false,
+    "rootDir": ".",
     "outDir": "./dist",
     "jsx": "preserve",
     "types": ["vite/client", "node", "@cloudflare/workers-types"],

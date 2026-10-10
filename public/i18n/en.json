@@ -7,7 +7,8 @@
   "propose": "Submit",
   "submitProposal": "Submit",
   "openPolls": "Open polls",
-  "totalVotes": "Total votes",
+  "totalIssues": "Total issues",
+  "totalVotesCount": "Total votes",
   "modes": "Modes",
   "vote": "Vote",
   "approve": "Approve",
@@ -86,5 +87,13 @@
   "voteLabelApprove": "Approve",
   "voteLabelOppose": "Oppose",
   "voteLabelNeutral": "Neutral",
-  "privacyNote": "We store only: salted token hash + anonymized network bucket · no names or emails · open source"
+  "privacyNote": "We store only: salted token hash + anonymized network bucket · no names or emails · open source",
+  "ctaSubmitIssues": "Submit Issues",
+  "ctaAnonymousRules": "Anonymous Rules",
+  "settingHeroTitle": "Hero Title",
+  "settingHeroSubtitle": "Hero Subtitle",
+  "settingHeroBackgroundColor": "Hero Background Color",
+  "settingReadOnlyMode": "Read Only Mode",
+  "settingTurnstileSecretKey": "Turnstile Secret Key",
+  "settingTurnstileEnable": "Turnstile Enable"
 }

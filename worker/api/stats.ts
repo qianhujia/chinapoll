@@ -1,4 +1,4 @@
-import { getVoteOptionLabel, VoteOption as VoteOptionCode, type VoteOptionLabel } from '../enums';
+import { getVoteOptionLabel, VoteOption as VoteOptionCode, type VoteOptionLabel } from '../enums.js';
 
 export type VoteOption = VoteOptionLabel;
 

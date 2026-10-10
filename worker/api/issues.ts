@@ -5,7 +5,7 @@ import {
   IssueStatus,
   VoteOption,
   toIsoDate
-} from '../enums';
+} from '../enums.js';
 
 const MAX_PAGE_SIZE = 100;
 

@@ -1,4 +1,5 @@
 import { getIssueModeCode, IssueMode, IssueStatus, toUnixSeconds } from '../enums';
+import { RATE_LIMIT_PATTERN } from './settings';
 
 interface ProposalEnv {
   DB: D1Database;
@@ -8,6 +9,33 @@ interface ProposalEnv {
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MAX_TITLE_LENGTH = 200;
 const MAX_DESCRIPTION_LENGTH = 2000;
+const DEFAULT_PROPOSAL_RATE_LIMIT = '1/d';
+
+function parseRateLimit(rateLimitStr: string): { count: number; windowMs: number } {
+  const match = rateLimitStr.match(RATE_LIMIT_PATTERN);
+  if (!match) return { count: 1, windowMs: 24 * 60 * 60 * 1000 };
+  const count = Number(match[1]);
+  const unit = match[2];
+  const unitMs: Record<string, number> = {
+    w: 7 * 24 * 60 * 60 * 1000,
+    d: 24 * 60 * 60 * 1000,
+    h: 60 * 60 * 1000,
+    m: 60 * 1000,
+    s: 1000
+  };
+  return { count, windowMs: unitMs[unit] || 24 * 60 * 60 * 1000 };
+}
+
+async function getProposalRateLimit(db: any): Promise<{ count: number; windowMs: number }> {
+  const row = await db.prepare(
+    'SELECT value FROM settings WHERE key = ?'
+  ).bind('proposal_rate_limit').first();
+
+  if (row?.value && typeof row.value === 'string') {
+    return parseRateLimit(row.value);
+  }
+  return parseRateLimit(DEFAULT_PROPOSAL_RATE_LIMIT);
+}
 
 export async function handleProposalRequest(request: Request, env: ProposalEnv): Promise<Response> {
   if (request.method !== 'POST') {
@@ -40,6 +68,21 @@ export async function handleProposalRequest(request: Request, env: ProposalEnv):
     return Response.json({ ok: false, message: 'invalid proposal title, schedule, or email' }, { status: 400 });
   }
 
+  const { count: proposalRateLimit, windowMs: proposalWindowMs } = await getProposalRateLimit(env.DB);
+  const now = Date.now();
+  const bucketStart = now - (now % proposalWindowMs);
+
+  const remoteIp = request.headers.get('cf-connecting-ip') ?? '127.0.0.1';
+  const ipPrefix = remoteIp.split('.').slice(0, 3).join('.');
+
+  const rateLimitResult: any = await env.DB.prepare(
+    `SELECT COUNT(*) as count FROM issues WHERE ip_prefix = ? AND ts_bucket = ?`
+  ).bind(ipPrefix, bucketStart).first();
+
+  if ((Number(rateLimitResult?.count ?? 0)) >= proposalRateLimit) {
+    return Response.json({ ok: false, message: 'proposal rate limit reached' }, { status: 429 });
+  }
+
   let pollerId: string | null = null;
   if (email) {
     const emailHmac = await createEmailHmac(email, env.SERVER_SECRET);
@@ -59,8 +102,8 @@ export async function handleProposalRequest(request: Request, env: ProposalEnv):
   }
 
   const result = await env.DB.prepare(
-    `INSERT INTO issues (title, description, mode, start_at, end_at, status, poller_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO issues (title, description, mode, start_at, end_at, status, poller_id, ip_prefix, ts_bucket)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).bind(
     title,
     description || null,
@@ -68,7 +111,9 @@ export async function handleProposalRequest(request: Request, env: ProposalEnv):
     mode === IssueMode.Deadline ? toUnixSeconds(startAt) : null,
     mode === IssueMode.Deadline ? toUnixSeconds(endAt) : null,
     IssueStatus.Pending,
-    pollerId
+    pollerId,
+    ipPrefix,
+    bucketStart
   ).run();
 
   const issueId = Number(result.meta.last_row_id);

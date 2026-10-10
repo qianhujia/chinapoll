@@ -3,8 +3,8 @@
 import { DatabaseSync } from 'node:sqlite';
 import { readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { IssueStatus, IssueMode, VoteOption } from '../worker/enums';
-import { DEFAULT_PUBLIC_SETTINGS } from '../worker/api/settings';
+import { IssueStatus, IssueMode, VoteOption } from '../worker/enums.js';
+import { DEFAULT_PUBLIC_SETTINGS, RATE_LIMIT_PATTERN, HERO_BACKGROUND_COLOR_PATTERN } from '../worker/api/settings.js';
 
 interface PendingIssueRow {
   id: number;
@@ -14,18 +14,24 @@ interface PendingIssueRow {
   start_at: number | null;
   end_at: number | null;
   status: number;
+  created_at: number;
+  updated_at: number;
 }
 
 function showHelp(): void {
   console.log('ChinaPoll admin CLI');
   console.log('Usage:');
   console.log('  npm run admin -- initialize-settings');
+  console.log('  npm run admin -- set-setting <key> <value>');
+  console.log('  npm run admin -- readonly on|off');
   console.log('  npm run admin -- approve-proposal <issue-id>');
   console.log('  npm run admin -- audit-proposal <id>');
   console.log('  npm run admin -- publish-issue <id>');
   console.log('  npm run admin -- finalize <issueId>');
-  console.log('  npm run admin -- readonly on|off');
   console.log('  npm run admin -- seed-sample-data');
+  console.log('  npm run admin -- list-pending');
+  console.log('  npm run admin -- migrate-rate-limit-columns');
+  console.log('  npm run admin -- migrate-rate-limit-settings');
 }
 
 function getLocalDatabasePath(): string {
@@ -71,6 +77,95 @@ function initializeSettings(): void {
       }
     }
     throw error;
+  } finally {
+    database.close();
+  }
+}
+
+function upsertSetting(database: DatabaseSync, key: string, value: string): void {
+  database.prepare(
+    `INSERT INTO settings (key, value, updated_at) VALUES (?, ?, unixepoch())
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = unixepoch()`
+  ).run(key, value);
+}
+
+function validateSettingValue(key: string, value: string): { ok: true; value: string } | { ok: false; error: string } {
+  if (!(key in DEFAULT_PUBLIC_SETTINGS)) {
+    return { ok: false, error: `Unknown setting key "${key}". Known keys: ${Object.keys(DEFAULT_PUBLIC_SETTINGS).join(', ')}.` };
+  }
+  switch (key) {
+    case 'default_locale':
+      if (value !== 'en' && value !== 'zh-CN') return { ok: false, error: 'default_locale must be "en" or "zh-CN".' };
+      break;
+    case 'site_name':
+      if (!value.trim() || value.length > 100) return { ok: false, error: 'site_name must contain 1 to 100 characters.' };
+      break;
+    case 'site_slogan':
+      if (value.length > 300) return { ok: false, error: 'site_slogan must not exceed 300 characters.' };
+      break;
+    case 'data_repository_url':
+      if (value && !value.startsWith('https://')) return { ok: false, error: 'data_repository_url must be an HTTPS URL or empty.' };
+      break;
+    case 'polls_per_page':
+    case 'comments_per_page':
+      if (!/^\d+$/.test(value) || Number(value) < 1 || Number(value) > 100) return { ok: false, error: `${key} must be an integer from 1 to 100.` };
+      break;
+    case 'page_max_width_px':
+      if (!/^\d+$/.test(value) || Number(value) < 100 || Number(value) > 9999) return { ok: false, error: 'page_max_width_px must be an integer from 100 to 9999.' };
+      break;
+    case 'vote_rate_limit':
+    case 'comment_rate_limit':
+    case 'proposal_rate_limit': {
+      const normalized = value.trim().toLowerCase();
+      if (!RATE_LIMIT_PATTERN.test(normalized)) return { ok: false, error: `${key} must be in format "N/w|d|h|m|s" (e.g., "5/h", "3/h", "1/d").` };
+      return { ok: true, value: normalized };
+    }
+    case 'hero_title':
+      if (!value.trim() || value.length > 200) return { ok: false, error: 'hero_title must contain 1 to 200 characters.' };
+      break;
+    case 'hero_subtitle':
+      if (value.length > 500) return { ok: false, error: 'hero_subtitle must not exceed 500 characters.' };
+      break;
+    case 'hero_background_color':
+      if (value && !HERO_BACKGROUND_COLOR_PATTERN.test(value)) {
+        return { ok: false, error: 'hero_background_color must be a CSS color (hex, rgb/a, hsl/a, or named) or a CSS gradient.' };
+      }
+      break;
+    case 'read_only_mode':
+    case 'turnstile_enable':
+      if (value !== 'true' && value !== 'false') return { ok: false, error: `${key} must be "true" or "false".` };
+      break;
+    case 'turnstile_secret_key':
+      if (value && !/^[0-9a-f]{64}$/i.test(value)) return { ok: false, error: 'turnstile_secret_key must be a 64-character hex string.' };
+      break;
+  }
+  return { ok: true, value };
+}
+
+function setSetting(keyText: string | undefined, valueText: string | undefined): void {
+  if (!keyText || valueText === undefined) {
+    throw new Error('Usage: npm run admin -- set-setting <key> <value>');
+  }
+  const validation = validateSettingValue(keyText, valueText);
+  if (!validation.ok) throw new Error(validation.error);
+
+  const database = new DatabaseSync(getLocalDatabasePath());
+  try {
+    upsertSetting(database, keyText, validation.value);
+    console.log(`Set ${keyText} = ${validation.value}`);
+  } finally {
+    database.close();
+  }
+}
+
+function setReadOnly(modeText: string | undefined): void {
+  if (modeText !== 'on' && modeText !== 'off') {
+    throw new Error('Usage: npm run admin -- readonly on|off');
+  }
+  const database = new DatabaseSync(getLocalDatabasePath());
+  try {
+    upsertSetting(database, 'read_only_mode', modeText === 'on' ? 'true' : 'false');
+    console.log(`Read-only mode set to ${modeText}.`);
   } finally {
     database.close();
   }
@@ -154,9 +249,157 @@ try {
     case 'finalize':
       console.log(`Finalize issue ${argument ?? 'unknown'} and export CSV snapshot.`);
       break;
-    case 'readonly':
-      console.log(`Readonly flag set to ${argument ?? 'off'}`);
+    case 'set-setting':
+      setSetting(argument, process.argv.slice(4).join(' '));
       break;
+    case 'readonly':
+      setReadOnly(argument);
+      break;
+
+function listPending(): void {
+  const database = new DatabaseSync(getLocalDatabasePath());
+  try {
+    const pending = database.prepare(
+      `SELECT id, title, description, mode, start_at, end_at, status, created_at, updated_at
+       FROM issues WHERE status = ? ORDER BY id DESC`
+    ).all(IssueStatus.Pending) as unknown as PendingIssueRow[];
+
+    if (pending.length === 0) {
+      console.log('No pending issues found.');
+      return;
+    }
+
+    console.log(`Found ${pending.length} pending issue(s):\n`);
+    for (const issue of pending) {
+      const modeLabel = issue.mode === IssueMode.Deadline ? 'Deadline' : 'Evergreen';
+      const startAt = issue.start_at ? new Date(issue.start_at * 1000).toISOString().split('T')[0] : 'N/A';
+      const endAt = issue.end_at ? new Date(issue.end_at * 1000).toISOString().split('T')[0] : 'N/A';
+      const createdAt = new Date(issue.created_at * 1000).toISOString().split('T')[0];
+
+      console.log(`ID: ${issue.id}`);
+      console.log(`  Title: ${issue.title ?? '(no title)'}`);
+      console.log(`  Description: ${issue.description?.substring(0, 80) ?? '(none)'}${issue.description && issue.description.length > 80 ? '...' : ''}`);
+      console.log(`  Mode: ${modeLabel}`);
+      console.log(`  Start: ${startAt}, End: ${endAt}`);
+      console.log(`  Created: ${createdAt}`);
+      console.log('');
+    }
+  } catch (error) {
+    throw error;
+  } finally {
+    database.close();
+  }
+}
+
+function migrateRateLimitColumns(): void {
+  const database = new DatabaseSync(getLocalDatabasePath());
+  let transactionStarted = false;
+  try {
+    database.exec('BEGIN IMMEDIATE');
+    transactionStarted = true;
+
+    // Add ts_bucket column to votes table (replaces ts_hour)
+    try {
+      database.exec('ALTER TABLE votes ADD COLUMN ts_bucket INTEGER');
+      console.log('Added ts_bucket column to votes table');
+    } catch (e) {
+      if (!(e instanceof Error && e.message.includes('duplicate column'))) throw e;
+      console.log('ts_bucket column already exists in votes table');
+    }
+
+    // Add ip_prefix and ts_bucket to comments table (replaces hour_bucket)
+    try {
+      database.exec('ALTER TABLE comments ADD COLUMN ip_prefix TEXT');
+      console.log('Added ip_prefix column to comments table');
+    } catch (e) {
+      if (!(e instanceof Error && e.message.includes('duplicate column'))) throw e;
+      console.log('ip_prefix column already exists in comments table');
+    }
+
+    try {
+      database.exec('ALTER TABLE comments ADD COLUMN ts_bucket INTEGER');
+      console.log('Added ts_bucket column to comments table');
+    } catch (e) {
+      if (!(e instanceof Error && e.message.includes('duplicate column'))) throw e;
+      console.log('ts_bucket column already exists in comments table');
+    }
+
+    // Add ip_prefix and ts_bucket to issues table (replaces day_bucket)
+    try {
+      database.exec('ALTER TABLE issues ADD COLUMN ip_prefix TEXT');
+      console.log('Added ip_prefix column to issues table');
+    } catch (e) {
+      if (!(e instanceof Error && e.message.includes('duplicate column'))) throw e;
+      console.log('ip_prefix column already exists in issues table');
+    }
+
+    try {
+      database.exec('ALTER TABLE issues ADD COLUMN ts_bucket INTEGER');
+      console.log('Added ts_bucket column to issues table');
+    } catch (e) {
+      if (!(e instanceof Error && e.message.includes('duplicate column'))) throw e;
+      console.log('ts_bucket column already exists in issues table');
+    }
+
+    database.exec('COMMIT');
+    transactionStarted = false;
+    console.log('Rate limit columns migration completed successfully.');
+  } catch (error) {
+    if (transactionStarted) {
+      try {
+        database.exec('ROLLBACK');
+      } catch (rollbackError) {
+        console.error('Failed to roll back migration:', rollbackError);
+      }
+    }
+    throw error;
+  } finally {
+    database.close();
+  }
+}
+
+function migrateRateLimitSettings(): void {
+  const database = new DatabaseSync(getLocalDatabasePath());
+  let transactionStarted = false;
+  try {
+    database.exec('BEGIN IMMEDIATE');
+    transactionStarted = true;
+
+    // Update settings to new format
+    const settings = [
+      ['vote_rate_limit', '5/h'],
+      ['comment_rate_limit', '3/h'],
+      ['proposal_rate_limit', '1/d'],
+      ['hero_title', 'Continuous polls · Fully anonymous · Openly auditable'],
+      ['hero_subtitle', 'No login required to vote yes/no/neutral on open issues.'],
+      ['hero_background_color', ''],
+      ['read_only_mode', 'false'],
+      ['turnstile_secret_key', ''],
+      ['turnstile_enable', 'false']
+    ];
+
+    const insert = database.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)');
+    for (const [key, value] of settings) {
+      insert.run(key, value);
+      console.log(`Set ${key} = ${value}`);
+    }
+
+    database.exec('COMMIT');
+    transactionStarted = false;
+    console.log('Rate limit settings migration completed successfully.');
+  } catch (error) {
+    if (transactionStarted) {
+      try {
+        database.exec('ROLLBACK');
+      } catch (rollbackError) {
+        console.error('Failed to roll back settings migration:', rollbackError);
+      }
+    }
+    throw error;
+  } finally {
+    database.close();
+  }
+}
 
 function seedSampleData(): void {
   const database = new DatabaseSync(getLocalDatabasePath());
@@ -180,7 +423,7 @@ function seedSampleData(): void {
     `);
 
     const voteStmt = database.prepare(`
-      INSERT INTO votes (issue_id, voter_token_hash, ip_prefix_hash, option, ts_hour, created_at)
+      INSERT INTO votes (issue_id, voter_token_hash, ip_prefix_hash, option, ts_bucket, created_at)
       VALUES (?, ?, ?, ?, ?, ?)
     `);
 
@@ -267,7 +510,7 @@ function seedSampleData(): void {
     // Add sample votes (using dummy hashes)
     const dummyVoterHash = 'a'.repeat(64);
     const dummyIpHash = 'b'.repeat(64);
-    const hourNow = Math.floor(now / 3600);
+    const hourNow = Math.floor(now / 3600) * 3_600_000;
 
     // Votes for issue 1 (four-day work week)
     for (let i = 0; i < 15; i++) {
@@ -534,6 +777,15 @@ function seedSampleData(): void {
 }
     case 'seed-sample-data':
       seedSampleData();
+      break;
+    case 'list-pending':
+      listPending();
+      break;
+    case 'migrate-rate-limit-columns':
+      migrateRateLimitColumns();
+      break;
+    case 'migrate-rate-limit-settings':
+      migrateRateLimitSettings();
       break;
     case 'help':
       showHelp();

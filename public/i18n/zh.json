@@ -7,7 +7,8 @@
   "propose": "提交",
   "submitProposal": "提交",
   "openPolls": "开放议题",
-  "totalVotes": "总票数",
+  "totalIssues": "总议题",
+  "totalVotesCount": "总投票次数",
   "modes": "模式",
   "vote": "投票",
   "approve": "赞同",
@@ -86,5 +87,13 @@
   "voteLabelApprove": "赞同",
   "voteLabelOppose": "反对",
   "voteLabelNeutral": "中立",
-  "privacyNote": "我们只存：随机令牌哈希 + 模糊网段 · 不收姓名邮箱 · 代码开源"
+  "privacyNote": "我们只存：随机令牌哈希 + 模糊网段 · 不收姓名邮箱 · 代码开源",
+  "ctaSubmitIssues": "提交议题",
+  "ctaAnonymousRules": "匿名规则",
+  "settingHeroTitle": "Hero 标题",
+  "settingHeroSubtitle": "Hero 副标题",
+  "settingHeroBackgroundColor": "Hero 背景色",
+  "settingReadOnlyMode": "只读模式",
+  "settingTurnstileSecretKey": "Turnstile 密钥",
+  "settingTurnstileEnable": "启用 Turnstile"
 }

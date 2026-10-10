@@ -1,6 +1,35 @@
+import { RATE_LIMIT_PATTERN } from './settings';
+
 const MAX_PAGE_SIZE = 100;
 const MIN_COMMENT_LENGTH = 5;
 const MAX_COMMENT_LENGTH = 140;
+const DEFAULT_COMMENT_RATE_LIMIT = '3/h';
+
+function parseRateLimit(rateLimitStr: string): { count: number; windowMs: number } {
+  const match = rateLimitStr.match(RATE_LIMIT_PATTERN);
+  if (!match) return { count: 3, windowMs: 3_600_000 };
+  const count = Number(match[1]);
+  const unit = match[2];
+  const unitMs: Record<string, number> = {
+    w: 7 * 24 * 60 * 60 * 1000,
+    d: 24 * 60 * 60 * 1000,
+    h: 60 * 60 * 1000,
+    m: 60 * 1000,
+    s: 1000
+  };
+  return { count, windowMs: unitMs[unit] || 3_600_000 };
+}
+
+async function getCommentRateLimit(db: any): Promise<{ count: number; windowMs: number }> {
+  const row = await db.prepare(
+    'SELECT value FROM settings WHERE key = ?'
+  ).bind('comment_rate_limit').first();
+
+  if (row?.value && typeof row.value === 'string') {
+    return parseRateLimit(row.value);
+  }
+  return parseRateLimit(DEFAULT_COMMENT_RATE_LIMIT);
+}
 
 export async function handleCommentsRequest(request: Request, url: URL, env: any): Promise<Response> {
   if (request.method === 'POST') {
@@ -72,9 +101,24 @@ async function handleCommentSubmission(request: Request, env: any): Promise<Resp
     return Response.json({ message: 'comment must be between 5 and 140 characters' }, { status: 400 });
   }
 
+  const { count: commentRateLimit, windowMs: commentWindowMs } = await getCommentRateLimit(env.DB);
+  const now = Date.now();
+  const bucketStart = now - (now % commentWindowMs);
+
+  const remoteIp = request.headers.get('cf-connecting-ip') ?? '127.0.0.1';
+  const ipPrefix = remoteIp.split('.').slice(0, 3).join('.');
+
+  const rateLimitResult: any = await env.DB.prepare(
+    `SELECT COUNT(*) as count FROM comments WHERE ip_prefix = ? AND ts_bucket = ?`
+  ).bind(ipPrefix, bucketStart).first();
+
+  if ((Number(rateLimitResult?.count ?? 0)) >= commentRateLimit) {
+    return Response.json({ message: 'comment rate limit reached' }, { status: 429 });
+  }
+
   const result = await env.DB.prepare(
-    'INSERT INTO comments (issue_id, comment) VALUES (?, ?)'
-  ).bind(issueId, comment).run();
+    'INSERT INTO comments (issue_id, comment, ip_prefix, ts_bucket) VALUES (?, ?, ?, ?)'
+  ).bind(issueId, comment, ipPrefix, bucketStart).run();
 
   return Response.json({ ok: true, id: result.meta.last_row_id }, { status: 201 });
 }
