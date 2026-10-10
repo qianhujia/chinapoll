@@ -4,6 +4,7 @@ import { mountAboutPage, mountClaimProposalPage, mountProposePage } from './page
 import { mountHome } from './pages/home';
 import { mountVotePage } from './pages/poll';
 import { getPublicSettings, loadPublicSettings } from './config';
+import { bindHeaderSearch, setSearchNavigator } from './search';
 import { getErrorMessage, getQueryPage, getSiteName } from './ui';
 
 const app = document.querySelector<HTMLElement>('#app');
@@ -31,6 +32,11 @@ function bindNavigation() {
       render();
     });
   });
+}
+
+function navigateTo(route: string): void {
+  window.history.pushState({}, '', route);
+  void render();
 }
 
 async function render() {
@@ -90,6 +96,8 @@ async function start(): Promise<void> {
     setDefaultLocale(settings.default_locale);
     document.documentElement.style.setProperty('--page-width', `${getPublicSettings().page_max_width_px}px`);
     await loadTranslations(DEFAULT_LOCALE);
+    setSearchNavigator(navigateTo);
+    bindHeaderSearch();
     await render();
   } catch (error) {
     app.setAttribute('role', 'alert');

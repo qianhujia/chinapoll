@@ -12,23 +12,27 @@ import {
   escapeHtml,
   getErrorMessage,
   getPollsPerPage,
+  getQueryValue,
   renderFooter,
   renderHeader,
   renderModeBadge,
   renderPagination,
+  renderToast,
   renderVoteButton,
+  showToast,
   t,
   updateVoteGroup
 } from '../ui';
 
 export async function mountHome(app: HTMLElement, page: number, bindNavigation: () => void, settings?: Record<string, any>): Promise<void> {
   const pollsPerPage = getPollsPerPage();
+  const searchQuery = getQueryValue('q');
   let pollStats: Awaited<ReturnType<typeof getPolls>>['polls'];
   let openPolls: number;
   let totalPolls: number;
   let totalVotes: number;
   try {
-    const response = await getPolls(page, pollsPerPage);
+    const response = await getPolls(page, pollsPerPage, searchQuery);
     pollStats = response.polls;
     openPolls = response.total;
     totalPolls = response.totalPolls;
@@ -76,12 +80,14 @@ export async function mountHome(app: HTMLElement, page: number, bindNavigation: 
     ? 'border border-white/60 text-white hover:bg-white/10'
     : 'border border-border bg-panel text-ink hover:border-primary hover:text-primary';
   const openPollsCount = openPolls;
+  const showHero = currentPage === 1 && searchQuery === '';
 
   app.innerHTML = `
     <div class="mx-auto max-w-[var(--page-width)] px-5 pt-6">
       ${renderHeader('/')}
     </div>
 
+    ${showHero ? `
     <section class="relative px-5 pt-10 pb-12 max-[700px]:pt-6 max-[700px]:pb-8 ${heroTextClass}" style="${heroBackgroundStyle}">
       <div class="mx-auto flex max-w-[var(--page-width)] flex-col items-center text-center">
         <h1 class="m-0 max-w-[22ch] text-[clamp(1.875rem,4vw,2.75rem)] leading-[1.15] font-extrabold tracking-[-0.02em] text-balance max-[700px]:max-w-none">${escapeHtml(heroTitle)}</h1>
@@ -94,25 +100,31 @@ export async function mountHome(app: HTMLElement, page: number, bindNavigation: 
         <dl class="m-0 mt-12 flex flex-wrap items-start justify-center gap-x-16 gap-y-8 max-[700px]:mt-8 max-[700px]:gap-x-10">
           <div class="flex min-w-[110px] flex-col items-center gap-2">
             <dd class="order-1 m-0 text-[clamp(2rem,4vw,2.75rem)] leading-none tracking-[-0.02em] tabular-nums">${totalPolls}</dd>
-            <dt class="order-2 text-sm font-medium ${heroSubtleClass}">${t('totalPolls')}</dt>
+            <dt class="order-2 text-xs font-normal ${heroSubtleClass}">${t('totalPolls')}</dt>
           </div>
           <div class="flex min-w-[110px] flex-col items-center gap-2">
             <dd class="order-1 m-0 text-[clamp(2rem,4vw,2.75rem)] leading-none tracking-[-0.02em] tabular-nums">${openPollsCount}</dd>
-            <dt class="order-2 text-sm font-medium ${heroSubtleClass}">${t('openPolls')}</dt>
+            <dt class="order-2 text-xs font-normal ${heroSubtleClass}">${t('openPolls')}</dt>
           </div>
           <div class="flex min-w-[110px] flex-col items-center gap-2">
             <dd class="order-1 m-0 text-[clamp(2rem,4vw,2.75rem)] leading-none tracking-[-0.02em] tabular-nums" data-total-votes>${totalVotes}</dd>
-            <dt class="order-2 text-sm font-medium ${heroSubtleClass}">${t('totalVotesCount')}</dt>
+            <dt class="order-2 text-xs font-normal ${heroSubtleClass}">${t('totalVotesCount')}</dt>
           </div>
         </dl>
       </div>
-    </section>
+    </section>` : ''}
 
     <div class="mx-auto max-w-[var(--page-width)] px-5 pt-6 pb-16">
       <main class="grid gap-5">
+        ${searchQuery
+    ? `<div class="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-panel px-4 py-3 text-sm">
+            <span class="text-muted">${t('searchResultsFor')}: <strong class="text-ink">${escapeHtml(searchQuery)}</strong> · ${openPolls}</span>
+            <a class="text-primary hover:underline" href="/" data-route="/">${t('searchClear')}</a>
+          </div>`
+    : ''}
         <section class="border-t border-border">
           ${pollStats.length === 0
-    ? `<p class="py-6 text-center text-muted">${t('noPolls')}</p>`
+    ? `<p class="py-6 text-center text-muted">${searchQuery ? t('searchNoResults') : t('noPolls')}</p>`
     : pollStats.map(({ poll, stats }) => {
             const total = stats.counts.approve + stats.counts.oppose + stats.counts.neutral;
             const voteState = pollVoteStates.get(poll.id) ?? { voted: false, error: '' };
@@ -144,26 +156,17 @@ export async function mountHome(app: HTMLElement, page: number, bindNavigation: 
             `;
           }).join('')}
         </section>
-        ${renderPagination(currentPage, totalPages, (targetPage) => `/?page=${targetPage}`)}
+        ${renderPagination(currentPage, totalPages, (targetPage) => searchQuery
+    ? `/?q=${encodeURIComponent(searchQuery)}&page=${targetPage}`
+    : `/?page=${targetPage}`)}
       </main>
 
-      <div class="fixed top-5 left-1/2 z-10 max-w-[min(420px,calc(100vw-40px))] -translate-x-1/2 rounded-xl border border-border bg-panel px-[18px] py-3 text-ink shadow-card" data-home-toast role="status" aria-live="polite" hidden></div>
+      ${renderToast()}
       ${renderFooter()}
     </div>
   `;
 
   bindNavigation();
-  const toast = document.querySelector<HTMLElement>('[data-home-toast]');
-  let toastTimer: ReturnType<typeof setTimeout> | undefined;
-  const showToast = (message: string) => {
-    if (!toast) return;
-    if (toastTimer) clearTimeout(toastTimer);
-    toast.textContent = message;
-    toast.hidden = false;
-    toastTimer = setTimeout(() => {
-      toast.hidden = true;
-    }, 3500);
-  };
   document.querySelectorAll<HTMLButtonElement>('[data-home-vote]').forEach((button) => {
     button.addEventListener('click', async () => {
       const pollId = Number(button.dataset.pollId);
@@ -190,7 +193,7 @@ export async function mountHome(app: HTMLElement, page: number, bindNavigation: 
         if (pollTotalElement) pollTotalElement.textContent = `${pollTotal} ${t('votes')}`;
         const voteGroup = document.querySelector<HTMLElement>(`[data-vote-group="${pollId}"]`);
         if (voteGroup) updateVoteGroup(voteGroup, result.counts);
-        showToast(`${t('voteRecord')}: ${t(option)} ✅`);
+        showToast(`${t('voteRecord')}: ${t(option)}`);
       } catch (error) {
         let alreadyVoted = false;
         let message = `${t('submitFailed')}: ${getErrorMessage(error)}`;
@@ -205,7 +208,7 @@ export async function mountHome(app: HTMLElement, page: number, bindNavigation: 
         } catch {
           // Keep the original submission error if the follow-up status check fails.
         }
-        showToast(message);
+        showToast(message, alreadyVoted ? 'success' : 'error');
         if (!alreadyVoted) pollButtons.forEach((voteButton) => { voteButton.disabled = false; });
       }
     });

@@ -1,5 +1,5 @@
 import { claimProposal, submitProposal } from '../lib/poll';
-import { getErrorMessage, renderFooter, renderHeader, t } from '../ui';
+import { getErrorMessage, renderFooter, renderHeader, renderToast, showToast, t } from '../ui';
 
 export function mountAboutPage(app: HTMLElement, bindNavigation: () => void): void {
   app.innerHTML = `
@@ -16,6 +16,7 @@ export function mountAboutPage(app: HTMLElement, bindNavigation: () => void): vo
           </ul>
         </section>
       </main>
+      ${renderToast()}
       ${renderFooter()}
     </div>
   `;
@@ -73,16 +74,15 @@ export function mountProposePage(app: HTMLElement, bindNavigation: () => void): 
               </label>
             </div>
             <button class="mx-auto mt-2 cursor-pointer rounded-full border border-primary bg-primary px-4 py-2.5 text-white" type="submit">${t('submitProposal')}</button>
-            <p class="m-0 min-h-5 text-muted" data-proposal-status role="status" aria-live="polite"></p>
           </form>
         </section>
       </main>
+      ${renderToast()}
       ${renderFooter()}
     </div>
   `;
 
   const proposalForm = document.querySelector<HTMLFormElement>('[data-proposal-form]');
-  const proposalStatus = document.querySelector('[data-proposal-status]');
   const proposalSchedule = proposalForm?.querySelector<HTMLDivElement>('[data-proposal-schedule]');
   const proposalStart = proposalForm?.querySelector<HTMLInputElement>('[name="startAt"]');
   const proposalEnd = proposalForm?.querySelector<HTMLInputElement>('[name="endAt"]');
@@ -110,7 +110,6 @@ export function mountProposePage(app: HTMLElement, bindNavigation: () => void): 
     const email = String(formData.get('email') ?? '').trim();
     const submitButton = proposalForm.querySelector<HTMLButtonElement>('button[type="submit"]')!;
     submitButton.disabled = true;
-    if (proposalStatus) proposalStatus.textContent = '';
 
     try {
       const result = await submitProposal({
@@ -121,14 +120,12 @@ export function mountProposePage(app: HTMLElement, bindNavigation: () => void): 
         endAt: mode === 'deadline' ? new Date(endAt).toISOString() : undefined,
         email: email || undefined
       });
-      if (proposalStatus) {
-        const submitter = result.submitter ?? t('anonymousSubmitter');
-        proposalStatus.textContent = `${t('proposalSubmitted')}: ${result.pollId} · ${submitter}`;
-      }
+      const submitter = result.submitter ?? t('anonymousSubmitter');
+      showToast(`${t('proposalSubmitted')}: ${result.pollId} · ${submitter}`);
       proposalForm.reset();
       updateProposalSchedule(false);
     } catch (error) {
-      if (proposalStatus) proposalStatus.textContent = `${t('proposalSubmitFailed')} ${getErrorMessage(error)}`;
+      showToast(`${t('proposalSubmitFailed')} ${getErrorMessage(error)}`, 'error');
     } finally {
       submitButton.disabled = false;
     }
@@ -153,16 +150,15 @@ export function mountClaimProposalPage(app: HTMLElement, bindNavigation: () => v
               <input class="w-full rounded-[14px] border border-border bg-[#f9fbff] px-3.5 py-3" id="claim-email" name="email" type="email" autocomplete="email" required>
             </label>
             <button class="mx-auto mt-2 cursor-pointer rounded-full border border-primary bg-primary px-4 py-2.5 text-white" type="submit">${t('claimProposal')}</button>
-            <p class="m-0 min-h-5 text-muted" data-claim-status role="status" aria-live="polite"></p>
           </form>
         </section>
       </main>
+      ${renderToast()}
       ${renderFooter()}
     </div>
   `;
 
   const claimForm = document.querySelector<HTMLFormElement>('[data-claim-form]');
-  const claimStatus = document.querySelector('[data-claim-status]');
   claimForm?.addEventListener('submit', async (event) => {
     event.preventDefault();
     const formData = new FormData(claimForm);
@@ -170,13 +166,12 @@ export function mountClaimProposalPage(app: HTMLElement, bindNavigation: () => v
     const email = String(formData.get('email') ?? '').trim();
     const submitButton = claimForm.querySelector<HTMLButtonElement>('button[type="submit"]')!;
     submitButton.disabled = true;
-    if (claimStatus) claimStatus.textContent = '';
 
     try {
       const result = await claimProposal(pollId, email);
-      if (claimStatus) claimStatus.textContent = `${t('claimConfirmed')}: ${result.pollId} · ${result.submitter}`;
+      showToast(`${t('claimConfirmed')}: ${result.pollId} · ${result.submitter}`);
     } catch (error) {
-      if (claimStatus) claimStatus.textContent = `${t('claimFailed')} ${getErrorMessage(error)}`;
+      showToast(`${t('claimFailed')} ${getErrorMessage(error)}`, 'error');
     } finally {
       submitButton.disabled = false;
     }

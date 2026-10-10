@@ -70,15 +70,17 @@ export async function getStats(pollId: number): Promise<{ pollId: number; counts
   return fetchJson(`/api/stats/${pollId}`);
 }
 
-export async function getPolls(page: number, pageSize: number): Promise<{
+export async function getPolls(page: number, pageSize: number, query = ''): Promise<{
   polls: PollWithStats[];
   page: number;
   pageSize: number;
   total: number;
+  query: string;
   totalPolls: number;
   totalVotes: number;
 }> {
   const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
+  if (query) params.set('q', query);
   return fetchJson(`/api/polls?${params}`);
 }
 

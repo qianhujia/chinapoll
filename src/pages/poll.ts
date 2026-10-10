@@ -19,7 +19,9 @@ import {
   renderFooter,
   renderHeader,
   renderModeBadge,
+  renderToast,
   renderVoteButton,
+  showToast,
   t,
   updateComments,
   updateVoteGroup
@@ -124,22 +126,10 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
           <div id="comments-content">${commentsContent}</div>
         </section>
       </main>
-      <div class="fixed top-5 left-1/2 z-10 max-w-[min(420px,calc(100vw-40px))] -translate-x-1/2 rounded-xl border border-border bg-panel px-[18px] py-3 text-ink shadow-card" data-poll-toast role="status" aria-live="polite" hidden></div>
+      ${renderToast()}
       ${renderFooter()}
     </div>
   `;
-
-  const toast = document.querySelector<HTMLElement>('[data-poll-toast]');
-  let toastTimer: ReturnType<typeof setTimeout> | undefined;
-  const showToast = (message: string) => {
-    if (!toast) return;
-    if (toastTimer) clearTimeout(toastTimer);
-    toast.textContent = message;
-    toast.hidden = false;
-    toastTimer = setTimeout(() => {
-      toast.hidden = true;
-    }, 3500);
-  };
 
   const commentToggle = document.querySelector<HTMLButtonElement>('[data-toggle-comment]');
   const commentForm = document.querySelector<HTMLDivElement>('#comment-form');
@@ -210,12 +200,12 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
           const status = document.querySelector('.vote-status');
           if (status) status.textContent = statusMessage;
         }
-        showToast(statusMessage);
+        showToast(statusMessage, hasVoted ? 'success' : 'error');
         return;
       }
 
       const statusText = option === 'approve' ? t('approve') : option === 'oppose' ? t('oppose') : t('neutral');
-      const message = `${t('voteRecord')}: ${statusText} ✅`;
+      const message = `${t('voteRecord')}: ${statusText}`;
       if (result.ok) {
         const voteGroup = document.querySelector<HTMLElement>(`[data-vote-group="${poll.id}"]`);
         if (voteGroup) updateVoteGroup(voteGroup, result.counts);
@@ -227,7 +217,7 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
         const choices = document.querySelector<HTMLElement>(`[data-vote-group="${poll.id}"]`);
         if (choices) choices.setAttribute('title', t('alreadyVoted'));
       }
-      showToast(message);
+      showToast(message, result.ok ? 'success' : 'error');
     });
   });
 

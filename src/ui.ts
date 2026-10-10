@@ -1,4 +1,4 @@
-import { ArrowBigDown, ArrowBigUp, Minus, type IconNode } from 'lucide';
+import { ArrowBigDown, ArrowBigUp, CircleAlert, CircleCheck, Minus, Search, X, type IconNode } from 'lucide';
 import { DEFAULT_LOCALE, getLocaleText } from './i18n';
 import { getComments, type CommentsResponse, type PollSummary, type VoteOption } from './lib/poll';
 import { getPublicSettings } from './config';
@@ -31,6 +31,39 @@ export function voteIconMarkup(option: VoteOption, cssClass: string): string {
   return iconMarkup(voteIcons[option], cssClass);
 }
 
+export function searchIconMarkup(cssClass: string): string {
+  return iconMarkup(Search, cssClass);
+}
+
+export function closeIconMarkup(cssClass: string): string {
+  return iconMarkup(X, cssClass);
+}
+
+const toastIcons: Record<'success' | 'error', IconNode> = {
+  success: CircleCheck,
+  error: CircleAlert
+};
+
+// Shared toast used by every page. Shows a Lucide icon instead of an emoji.
+export function renderToast(): string {
+  return '<div class="fixed top-5 left-1/2 z-10 flex max-w-[min(420px,calc(100vw-40px))] -translate-x-1/2 items-center gap-2 rounded-xl border border-border bg-panel px-[18px] py-3 text-ink shadow-card" data-toast role="status" aria-live="polite" hidden></div>';
+}
+
+let toastTimer: ReturnType<typeof setTimeout> | undefined;
+
+export function showToast(message: string, kind: 'success' | 'error' = 'success'): void {
+  const toast = document.querySelector<HTMLElement>('[data-toast]');
+  if (!toast) return;
+  if (toastTimer) clearTimeout(toastTimer);
+
+  const iconClass = kind === 'error' ? 'h-4 w-4 shrink-0 text-[#d95b5b]' : 'h-4 w-4 shrink-0 text-[#1fa36a]';
+  toast.innerHTML = `${iconMarkup(toastIcons[kind], iconClass)}<span>${escapeHtml(message)}</span>`;
+  toast.hidden = false;
+  toastTimer = setTimeout(() => {
+    toast.hidden = true;
+  }, 3500);
+}
+
 export function getPollsPerPage(): number {
   return getPublicSettings().polls_per_page;
 }
@@ -53,14 +86,70 @@ export function getSiteName(): string {
 
 export function renderHeader(activeRoute: string): string {
   return `
-    <header class="flex items-center justify-between py-4 pb-5 max-[700px]:flex-col max-[700px]:items-start">
-      <div class="flex flex-col gap-1">
+    <header class="flex items-center justify-between gap-4 py-4 pb-5 max-[700px]:flex-wrap max-[700px]:gap-3">
+      <div class="flex flex-wrap items-center gap-x-7 gap-y-2 max-[700px]:gap-x-5">
         <a class="text-3xl font-extrabold leading-none text-primary hover:underline" href="/" data-route="/" aria-label="${escapeHtml(t('homeLinkLabel'))}">${escapeHtml(getSiteName())}</a>
+        <nav class="flex flex-wrap items-center gap-[18px]">
+          ${getNavigationMarkup(activeRoute)}
+        </nav>
       </div>
-      <nav class="flex flex-wrap items-center gap-[18px]">
-        ${getNavigationMarkup(activeRoute)}
-      </nav>
+      ${renderHeaderSearch()}
     </header>
+  `;
+}
+
+function renderHeaderSearch(): string {
+  const initialQuery = new URLSearchParams(window.location.search).get('q') ?? '';
+  const isOpen = initialQuery !== '';
+  const formStateClass = isOpen
+    ? 'w-56 opacity-100 max-[700px]:w-full'
+    : 'w-0 opacity-0 pointer-events-none';
+  const toggleStateClass = isOpen
+    ? 'w-0 overflow-hidden border-0 opacity-0 pointer-events-none'
+    : 'w-9 opacity-100';
+
+  return `
+    <div class="flex flex-wrap items-center gap-2 max-[700px]:w-full" data-search-root data-search-open="${isOpen}">
+      <button
+        type="button"
+        class="flex h-9 shrink-0 cursor-pointer items-center justify-center rounded-full border border-border bg-panel text-muted transition-[width,opacity] duration-200 ease-out hover:border-primary hover:text-primary ${toggleStateClass}"
+        data-search-toggle
+        aria-expanded="${isOpen}"
+        aria-controls="header-search-form"
+        aria-label="${escapeHtml(t('search'))}"
+        title="${escapeHtml(t('search'))}"
+      >
+        ${searchIconMarkup('h-4 w-4 shrink-0')}
+      </button>
+      <form
+        class="flex items-center gap-2 overflow-hidden transition-[width,opacity] duration-200 ease-out max-[700px]:max-w-full ${formStateClass}"
+        id="header-search-form"
+        data-search-form
+        role="search"
+      >
+        <input
+          class="h-9 w-full min-w-0 rounded-full border border-border bg-panel px-4 text-sm text-ink outline-none focus:border-primary"
+          data-search-input
+          name="q"
+          type="search"
+          autocomplete="off"
+          maxlength="100"
+          value="${escapeHtml(initialQuery)}"
+          placeholder="${escapeHtml(t('searchPlaceholder'))}"
+          aria-label="${escapeHtml(t('searchPlaceholder'))}"
+        >
+        <button
+          class="flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-full border border-border bg-panel text-muted transition-colors hover:border-primary hover:text-primary"
+          data-search-close
+          type="button"
+          aria-label="${escapeHtml(t('searchClose'))}"
+          title="${escapeHtml(t('searchClose'))}"
+        >
+          ${closeIconMarkup('h-4 w-4')}
+        </button>
+      </form>
+      <p class="m-0 hidden basis-full text-xs text-muted" data-search-status role="status" aria-live="polite"></p>
+    </div>
   `;
 }
 
@@ -132,6 +221,10 @@ export async function updateComments(pollId: number, page: number, bindNavigatio
 export function getQueryPage(key: string): number {
   const page = Number(new URLSearchParams(window.location.search).get(key));
   return Number.isSafeInteger(page) && page > 0 ? page : 1;
+}
+
+export function getQueryValue(key: string): string {
+  return (new URLSearchParams(window.location.search).get(key) ?? '').trim().slice(0, 100);
 }
 
 export function renderModeBadge(mode: PollSummary['mode']): string {

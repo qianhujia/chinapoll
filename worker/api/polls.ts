@@ -8,6 +8,7 @@ import {
 } from '../enums.js';
 
 const MAX_PAGE_SIZE = 100;
+const MAX_QUERY_LENGTH = 100;
 
 interface PollsEnv {
   DB: D1Database;
@@ -43,12 +44,19 @@ export async function handlePollsRequest(request: Request, url: URL, env: PollsE
     return Response.json({ message: 'invalid pagination parameters' }, { status: 400 });
   }
 
+  const query = (url.searchParams.get('q') ?? '').trim().slice(0, MAX_QUERY_LENGTH);
+  const likePattern = query ? `%${query.replace(/[\\%_]/g, (character) => `\\${character}`)}%` : '';
+  const searchClause = query ? " AND title LIKE ? ESCAPE '\\'" : '';
+
   const countResult = await env.DB.prepare(
     `SELECT COUNT(*) AS total
      FROM polls
      WHERE status = ? AND title IS NOT NULL AND TRIM(title) != ''
-       AND mode IN (?, ?)`
-  ).bind(PollStatus.Open, PollMode.Deadline, PollMode.Evergreen).first<{ total: number }>();
+       AND mode IN (?, ?)${searchClause}`
+  ).bind(
+    PollStatus.Open, PollMode.Deadline, PollMode.Evergreen,
+    ...(query ? [likePattern] : [])
+  ).first<{ total: number }>();
 
   const allPollsResult = await env.DB.prepare(
     `SELECT COUNT(*) AS total
@@ -73,13 +81,14 @@ export async function handlePollsRequest(request: Request, url: URL, env: PollsE
      FROM polls i
      LEFT JOIN votes v ON v.poll_id = i.id
      WHERE i.status = ? AND i.title IS NOT NULL AND TRIM(i.title) != ''
-       AND i.mode IN (?, ?)
+       AND i.mode IN (?, ?)${searchClause ? searchClause.replace('title', 'i.title') : ''}
      GROUP BY i.id
      ORDER BY i.created_at DESC, i.id DESC
      LIMIT ? OFFSET ?`
   ).bind(
     VoteOption.Approve, VoteOption.Neutral, VoteOption.Oppose,
     PollStatus.Open, PollMode.Deadline, PollMode.Evergreen,
+    ...(query ? [likePattern] : []),
     pageSize, offset
   ).all<PollRow>();
 
@@ -109,6 +118,7 @@ export async function handlePollsRequest(request: Request, url: URL, env: PollsE
     page: currentPage,
     pageSize,
     total,
+    query,
     totalPolls: Number(allPollsResult?.total ?? 0),
     totalVotes: Number(voteTotalResult?.total ?? 0)
   }, {
