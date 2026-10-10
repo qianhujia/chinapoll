@@ -16,8 +16,7 @@ an audit log, and update application settings.
 | `api/comments.ts` | List and delete comments |
 | `api/audit.ts` | Read-only audit log |
 | `api/overview.ts` | Aggregate counts for the dashboard |
-| `api/proposals.ts` | List, inspect, approve, and reject submissions |
-| `api/polls.ts` | List polls and change poll status |
+| `api/polls.ts` | List polls, review pending submissions, and change poll status |
 | `api/settings.ts` | List, validate, and update application settings |
 | `services/turnstile.ts` | Turnstile configuration and token verification |
 | `lib/password.ts` | PBKDF2 password hashing and policy |
@@ -101,11 +100,7 @@ login endpoint) or an `Authorization: Bearer <session-token>` header.
 | `DELETE` | `/api/admin/session` | Logout |
 | `POST` | `/api/admin/setup` | Create the first admin user when none exist |
 | `GET` | `/api/admin/overview` | Dashboard counts and recent submissions |
-| `GET` | `/api/admin/proposals` | List submissions (`status`, `page`, `pageSize`, `q`) |
-| `GET` | `/api/admin/proposals/:id` | Submission detail and vote count |
-| `POST` | `/api/admin/proposals/:id/approve` | Publish a pending submission |
-| `POST` | `/api/admin/proposals/:id/reject` | Archive a pending submission |
-| `GET` | `/api/admin/polls` | List polls with vote counts (`status`, `page`, `pageSize`, `q`) |
+| `GET` | `/api/admin/polls` | List polls including pending submissions (`status`, `page`, `pageSize`, `q`) |
 | `POST` | `/api/admin/polls/:id/status` | Set poll status (`{ "status": "open" }`) |
 | `GET` | `/api/admin/comments` | List comments (`pollId`, `page`, `pageSize`, `q`) |
 | `DELETE` | `/api/admin/comments/:id` | Delete a comment |
@@ -129,9 +124,10 @@ active admin cannot be removed.
 
 The audit log is visible to super admins only. Every state change is recorded
 with the acting username, action, target, and JSON details: login
-success/failure/lock, logout, submission approval and rejection, poll status
-changes, comment deletion, setting updates, and admin user management. Secret
-setting values are never written. Client IP addresses are never stored.
+success/failure/lock, logout, poll status changes (including approving or
+rejecting submissions), comment deletion, setting updates, and admin user
+management. Secret setting values are never written. Client IP addresses are
+never stored.
 
 ## CLI
 

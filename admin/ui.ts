@@ -89,21 +89,17 @@ tr:hover td{background:rgba(255,255,255,.02);}
     session: null,
     turnstile: { enabled: false, siteKey: '' },
     overview: null,
-    proposals: null,
     polls: null,
     comments: null,
     admins: null,
     audit: null,
     settings: null,
-    proposalStatus: 'pending',
-    proposalQuery: '',
     pollStatus: 'all',
     pollQuery: '',
     commentQuery: '',
     commentPollId: '',
     auditAction: '',
     auditQuery: '',
-    proposalPage: 1,
     pollPage: 1,
     commentPage: 1,
     auditPage: 1
@@ -251,7 +247,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
   }
 
   function renderShell() {
-    var items = ['overview', 'proposals', 'polls', 'comments', 'admins'];
+    var items = ['overview', 'polls', 'comments', 'admins'];
     if (isSuperAdmin()) items.push('audit');
     items.push('settings');
     var nav = items.map(function (item) {
@@ -303,7 +299,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
       statCard(o.archived, 'Archived polls') +
       statCard(o.votes, 'Total votes') +
       statCard(o.comments, 'Total comments') +
-      statCard(o.identities, 'Proposal identities') +
+      statCard(o.identities, 'Submitter identities') +
       statCard(o.adminUsers, 'Admin users') +
       (isSuperAdmin() ? statCard(o.auditEntries, 'Audit entries') : '') +
       statCard(o.settings, 'Settings rows') +
@@ -319,47 +315,6 @@ tr:hover td{background:rgba(255,255,255,.02);}
     return values.map(function (value) {
       return '<option value="' + value + '"' + (value === selected ? ' selected' : '') + '>' + value + '</option>';
     }).join('');
-  }
-
-  function renderProposals() {
-    var view = document.getElementById('view');
-    var data = state.proposals;
-    var toolbar = '<div class="toolbar">' +
-      '<select id="proposal-status" class="grow">' + statusOptions(state.proposalStatus, true, true) + '</select>' +
-      '<input id="proposal-query" class="grow" placeholder="Search titles…" value="' + esc(state.proposalQuery) + '">' +
-      '<button data-action="search-proposals" class="primary">Search</button>' +
-      '</div>';
-
-    if (!data) {
-      view.innerHTML = '<section class="card"><h2>Submissions</h2>' + toolbar + '<div class="empty">Loading…</div></section>';
-      return;
-    }
-
-    var rows = data.proposals.length
-      ? data.proposals.map(function (item) {
-          var actions = item.status === 'pending'
-            ? '<div class="actions">' +
-              '<button class="ok" data-action="approve" data-id="' + item.id + '">Approve</button>' +
-              '<button class="danger" data-action="reject" data-id="' + item.id + '">Reject</button>' +
-              '</div>'
-            : '<span class="muted small">Reviewed</span>';
-          return '<tr><td>' + esc(item.id) + '</td>' +
-            '<td><strong>' + esc(item.title || '(no title)') + '</strong>' +
-            '<div class="desc">' + esc(item.description || '') + '</div></td>' +
-            '<td><span class="badge ' + esc(item.status) + '">' + esc(item.status) + '</span><div class="small muted">' + esc(item.mode) + '</div></td>' +
-            '<td class="small">' + esc(item.submitter || '(anonymous)') + '<div class="muted">' + esc(formatDate(item.createdAt)) + '</div></td>' +
-            '<td>' + actions + '</td></tr>';
-        }).join('')
-      : '<tr><td colspan="5"><div class="empty">No submissions match this filter.</div></td></tr>';
-
-    view.innerHTML = '<section class="card"><h2>Submissions</h2>' + toolbar +
-      '<table><thead><tr><th>ID</th><th>Title</th><th>Status</th><th>Submitter</th><th>Actions</th></tr></thead>' +
-      '<tbody>' + rows + '</tbody></table>' +
-      '<div class="pager">' +
-      '<span>Page ' + esc(data.page) + ' of ' + esc(data.totalPages) + ' · ' + esc(data.total) + ' total</span>' +
-      '<button data-action="proposal-page" data-dir="-1"' + (data.page <= 1 ? ' disabled' : '') + '>Previous</button>' +
-      '<button data-action="proposal-page" data-dir="1"' + (data.page >= data.totalPages ? ' disabled' : '') + '>Next</button>' +
-      '</div></section>';
   }
 
   function renderPolls() {
@@ -566,15 +521,6 @@ tr:hover td{background:rgba(255,255,255,.02);}
     });
   }
 
-  function loadProposals() {
-    var path = '/api/admin/proposals?status=' + encodeURIComponent(state.proposalStatus) +
-      '&page=' + state.proposalPage + '&q=' + encodeURIComponent(state.proposalQuery);
-    return api(path).then(function (data) {
-      state.proposals = data;
-      if (state.view === 'proposals') renderProposals();
-    });
-  }
-
   function loadPolls() {
     var path = '/api/admin/polls?status=' + encodeURIComponent(state.pollStatus) +
       '&page=' + state.pollPage + '&q=' + encodeURIComponent(state.pollQuery);
@@ -620,7 +566,6 @@ tr:hover td{background:rgba(255,255,255,.02);}
 
   function loadCurrent() {
     if (state.view === 'overview') return loadOverview();
-    if (state.view === 'proposals') return loadProposals();
     if (state.view === 'polls') return loadPolls();
     if (state.view === 'comments') return loadComments();
     if (state.view === 'admins') return loadAdmins();
@@ -631,7 +576,6 @@ tr:hover td{background:rgba(255,255,255,.02);}
   function showView() {
     if (!document.getElementById('view')) renderShell();
     if (state.view === 'overview') renderOverview();
-    else if (state.view === 'proposals') renderProposals();
     else if (state.view === 'polls') renderPolls();
     else if (state.view === 'comments') renderComments();
     else if (state.view === 'admins') renderAdmins();
@@ -652,7 +596,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
       return;
     }
     if (action === 'refresh') {
-      state.overview = null; state.proposals = null; state.polls = null;
+      state.overview = null; state.polls = null;
       state.comments = null; state.admins = null; state.audit = null; state.settings = null;
       showView();
       guard(loadCurrent());
@@ -663,30 +607,6 @@ tr:hover td{background:rgba(255,255,255,.02);}
         state.user = null;
         boot();
       }));
-      return;
-    }
-    if (action === 'approve' || action === 'reject') {
-      var id = target.getAttribute('data-id');
-      target.disabled = true;
-      guard(api('/api/admin/proposals/' + id + '/' + action, { method: 'POST' }).then(function (result) {
-        toast(result.message);
-        return Promise.all([loadProposals(), loadOverview()]);
-      }));
-      return;
-    }
-    if (action === 'search-proposals') {
-      state.proposalQuery = document.getElementById('proposal-query').value.trim();
-      state.proposalStatus = document.getElementById('proposal-status').value;
-      state.proposalPage = 1; state.proposals = null;
-      renderProposals();
-      guard(loadProposals());
-      return;
-    }
-    if (action === 'proposal-page') {
-      state.proposalPage = Math.max(1, state.proposalPage + Number(target.getAttribute('data-dir')));
-      state.proposals = null;
-      renderProposals();
-      guard(loadProposals());
       return;
     }
     if (action === 'search-polls') {
@@ -860,7 +780,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
       }
 
       state.view = 'overview';
-      state.overview = null; state.proposals = null; state.polls = null;
+      state.overview = null; state.polls = null;
       state.comments = null; state.admins = null; state.audit = null; state.settings = null;
       renderShell();
       showView();

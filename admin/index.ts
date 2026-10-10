@@ -17,7 +17,6 @@ import { handleAuditRequest } from './api/audit';
 import { handleCommentsRequest } from './api/comments';
 import { handleOverviewRequest } from './api/overview';
 import { handlePollsRequest } from './api/polls';
-import { handleProposalsRequest } from './api/proposals';
 import { handleSessionRequest, handleSetupRequest } from './api/session';
 import { handleSettingsRequest } from './api/settings';
 import { renderDashboard } from './ui';
@@ -85,9 +84,6 @@ export default {
 
       if (url.pathname === '/api/admin/overview') {
         return handleOverviewRequest(request, env);
-      }
-      if (url.pathname === '/api/admin/proposals' || url.pathname.startsWith('/api/admin/proposals/')) {
-        return handleProposalsRequest(request, url, env, actor);
       }
       if (url.pathname === '/api/admin/polls' || url.pathname.startsWith('/api/admin/polls/')) {
         return handlePollsRequest(request, url, env, actor);
