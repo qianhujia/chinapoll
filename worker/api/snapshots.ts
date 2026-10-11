@@ -11,6 +11,7 @@ interface SnapshotRow {
   neutral: number;
   prev_hash: string;
   hash: string;
+  final: number;
 }
 
 const MAX_SNAPSHOTS = 500;
@@ -31,7 +32,7 @@ function toRecord(row: SnapshotRow): SnapshotRecord {
 // cursor, ordered ascending.
 async function fetchPage(env: HandlerEnv, pollId: number, after: number, limit: number): Promise<SnapshotRow[]> {
   const result = await env.DB.prepare(
-    `SELECT poll_id, ts_hour, approve, oppose, neutral, prev_hash, hash
+    `SELECT poll_id, ts_hour, approve, oppose, neutral, prev_hash, hash, final
      FROM stats_snapshots WHERE poll_id = ? AND ts_hour > ?
      ORDER BY ts_hour ASC LIMIT ?`
   ).bind(pollId, after, limit).all<SnapshotRow>();
@@ -104,7 +105,11 @@ export async function handleSnapshotRequest(request: Request, url: URL, env: Han
         oppose: snapshot.oppose,
         neutral: snapshot.neutral,
         prevHash: snapshot.prevHash,
-        hash: snapshot.hash
+        hash: snapshot.hash,
+        // `final` marks the terminal snapshot written when the poll closed. It
+        // is reported for verifiers and the publish script; the hash above
+        // covers the counts and the chain link.
+        final: Number(row.final) === 1
       };
     }),
     nextAfter: last,

@@ -78,6 +78,14 @@ Workers only and are stripped from the public endpoint.
 Signed hourly counts per poll, published for verification. Contents are public
 by design; the hash chain makes rewriting detectable.
 
+| Column | Contents | Readers | Retention |
+| --- | --- | --- | --- |
+| poll_id, ts_hour | poll reference and hour bucket | Public | forever |
+| approve, oppose, neutral | counts at that hour | Public | forever |
+| prev_hash, hash | chain link and record hash | Public | forever |
+| final | 1 on the terminal snapshot written when the poll closed, 0 otherwise | Public | forever |
+
+
 ## admin_users, admin_sessions, admin_audit_log
 
 Administrative credentials, sessions, and an action log that records no client

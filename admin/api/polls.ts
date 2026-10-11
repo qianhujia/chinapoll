@@ -1,4 +1,5 @@
 import { PollMode, PollStatus, VoteOption } from '../../worker/enums';
+import { currentHour, writeSnapshotForPoll } from '../../worker/services/maintenance';
 import type { AdminActor, AdminEnv } from '../auth';
 import { logAudit } from '../lib/audit';
 import { POLL_STATUS_VALUES, parsePollStatus, pollModeLabel, pollStatusLabel, type AdminPollStatus } from '../lib/enums';
@@ -175,6 +176,9 @@ async function updatePollStatus(pollId: number, request: Request, env: AdminEnv,
   // updated_at, and clear it when a poll is reopened.
   if (nextStatus === 'closed') {
     await env.DB.prepare('UPDATE polls SET closed_at = COALESCE(closed_at, unixepoch()) WHERE id = ?').bind(pollId).run();
+    // Capture the terminal snapshot in the closing hour so the published chain
+    // ends on the poll's final counts even when the hourly run has already passed.
+    await writeSnapshotForPoll(env, pollId, currentHour(), true);
   } else if (nextStatus === 'open' || nextStatus === 'pending') {
     await env.DB.prepare('UPDATE polls SET closed_at = NULL WHERE id = ?').bind(pollId).run();
   }

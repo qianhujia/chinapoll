@@ -11,6 +11,7 @@ import { enforceSameOrigin } from '../services/csrf';
 import { verifyPassword } from '../../shared/password';
 import { generateRecoveryCode } from '../services/recovery';
 import { ownerHash } from '../services/owner';
+import { currentHour, writeSnapshotForPoll } from '../services/maintenance';
 
 const MAX_IDS = 100;
 
@@ -152,6 +153,11 @@ async function closeUserPoll(env: UserEnv, userId: number, pollId: number): Prom
     `UPDATE polls SET status = 2, closed_at = unixepoch(), updated_at = unixepoch()
      WHERE id = ? AND owner_hash = ?`
   ).bind(pollId, poll.owner_hash).run();
+
+  // Capture the terminal snapshot in the closing hour so the published chain
+  // ends on the poll's final counts even when the hourly run has already passed.
+  await writeSnapshotForPoll(env, pollId, currentHour(), true);
+
   return noStoreJson({ ok: true, pollId, status: 'closed' });
 }
 
