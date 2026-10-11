@@ -6,12 +6,16 @@ are run from the repository root.
 ## Deployments
 
 1. Apply D1 migrations: `npx wrangler d1 migrations apply chinapoll --remote`.
-2. Build the SPA: `npm run build` (outputs to `dist/web`).
-3. Deploy the public Worker: `npx wrangler deploy`.
-4. Deploy the admin Worker: `npm run admin:worker:deploy`.
-5. Set production secrets once: `npx wrangler secret put IP_HASH_KEY` (a fresh
-   64-character hex value) for the public Worker, and `npx wrangler secret put
-   TURNSTILE_SITE_KEY` (or a `[vars]` entry) for the admin Worker.
+   Migrations are immutable: never edit one that has already been applied. Because
+   the initial schema was consolidated, only a **fresh** database is supported;
+   create the production database empty and apply `0001_initial.sql` + later
+   migrations in order.
+2. Set the required secret before the first deploy:
+   `npx wrangler secret put IP_HASH_KEY` (a fresh 64-character hex value).
+3. Build the SPA: `npm run build` (outputs to `dist/web`).
+4. Deploy the public Worker: `npx wrangler deploy`.
+5. Deploy the admin Worker: `npm run admin:worker:deploy`.
+6. Optionally set `TURNSTILE_SITE_KEY` for the admin Worker.
 
 ## Uptime monitoring
 

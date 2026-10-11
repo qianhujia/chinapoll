@@ -75,21 +75,25 @@ async function listPolls(url: URL, env: AdminEnv): Promise<Response> {
   const offset = (currentPage - 1) * pageSize;
 
   const result = await env.DB.prepare(
-    `SELECT i.id, i.title, i.description, i.mode, i.start_at, i.end_at, i.status,
+    `WITH page AS (
+       SELECT id FROM polls i
+       WHERE 1 = 1${statusClause}${searchClause}
+       ORDER BY i.created_at DESC, i.id DESC LIMIT ? OFFSET ?
+     )
+     SELECT i.id, i.title, i.description, i.mode, i.start_at, i.end_at, i.status,
             i.created_at, i.updated_at,
             COALESCE(SUM(CASE WHEN v.option = ? THEN 1 ELSE 0 END), 0) AS approve,
             COALESCE(SUM(CASE WHEN v.option = ? THEN 1 ELSE 0 END), 0) AS neutral,
             COALESCE(SUM(CASE WHEN v.option = ? THEN 1 ELSE 0 END), 0) AS oppose
-     FROM polls i
+     FROM page
+     JOIN polls i ON i.id = page.id
      LEFT JOIN votes v ON v.poll_id = i.id
-     WHERE 1 = 1${statusClause}${searchClause}
      GROUP BY i.id
-     ORDER BY i.created_at DESC, i.id DESC
-     LIMIT ? OFFSET ?`
+     ORDER BY i.created_at DESC, i.id DESC`
   ).bind(
-    VoteOption.Approve, VoteOption.Neutral, VoteOption.Oppose,
     ...statusBind, ...(query ? [likePattern] : []),
-    pageSize, offset
+    pageSize, offset,
+    VoteOption.Approve, VoteOption.Neutral, VoteOption.Oppose
   ).all<AdminPollRow>();
 
   return Response.json({
@@ -165,6 +169,14 @@ async function updatePollStatus(pollId: number, request: Request, env: AdminEnv,
 
   if (update.meta.changes !== 1) {
     return Response.json({ message: `poll ${pollId} could not be updated` }, { status: 409 });
+  }
+
+  // Stamp closed_at when a poll closes so retention does not depend on
+  // updated_at, and clear it when a poll is reopened.
+  if (nextStatus === 'closed') {
+    await env.DB.prepare('UPDATE polls SET closed_at = COALESCE(closed_at, unixepoch()) WHERE id = ?').bind(pollId).run();
+  } else if (nextStatus === 'open' || nextStatus === 'pending') {
+    await env.DB.prepare('UPDATE polls SET closed_at = NULL WHERE id = ?').bind(pollId).run();
   }
 
   await logAudit(env, {

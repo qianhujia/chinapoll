@@ -44,6 +44,16 @@ describe('hashedNetworkBucket', () => {
     expect(day1).toBe(day1again);
     expect(day1).not.toBe(day2);
   });
+
+  it('rotates the month period per calendar month', async () => {
+    const january = await hashedNetworkBucket('203.0.113.10', KEY, new Date('2026-01-01T00:00:00Z'), 'month');
+    const januaryLater = await hashedNetworkBucket('203.0.113.10', KEY, new Date('2026-01-28T00:00:00Z'), 'month');
+    const february = await hashedNetworkBucket('203.0.113.10', KEY, new Date('2026-02-01T00:00:00Z'), 'month');
+    const daily = await hashedNetworkBucket('203.0.113.10', KEY, new Date('2026-01-01T00:00:00Z'), 'day');
+    expect(january).toBe(januaryLater);
+    expect(january).not.toBe(february);
+    expect(january).not.toBe(daily);
+  });
 });
 
 describe('makeSnapshot', () => {

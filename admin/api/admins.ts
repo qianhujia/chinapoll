@@ -12,8 +12,8 @@ import {
   validateUsername
 } from '../lib/admins';
 import { logAudit } from '../lib/audit';
-import { noStoreJson, readJsonBody, readString } from '../lib/http';
-import { hashPassword, validatePassword } from '../lib/password';
+import { noStoreJson, readJsonBody, readString } from '../../shared/http';
+import { hashPassword, validatePassword } from '../../shared/password';
 
 interface AdminUserRow {
   id: number;

@@ -1,4 +1,4 @@
-import { submitProposal } from '../lib/poll';
+import { rememberMyPoll, submitProposal } from '../lib/poll';
 import { getCurrentUser } from '../lib/session';
 import { getErrorMessage, renderFooter, renderHeader, renderToast, showToast, t } from '../ui';
 
@@ -137,6 +137,8 @@ export function mountProposePage(app: HTMLElement, bindNavigation: () => void): 
       } else {
         showToast(`${t('proposalSubmitted')}: ${result.pollId}`);
       }
+      // Remember the id so the account page can list this poll later.
+      rememberMyPoll(result.pollId);
       proposalForm.reset();
       updateProposalSchedule(false);
     } catch (error) {

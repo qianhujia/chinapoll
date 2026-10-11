@@ -1,3 +1,4 @@
+import type { HandlerEnv } from '../index';
 import {
   getPollModeLabel,
   getPollStatusLabel,
@@ -9,11 +10,6 @@ import {
 
 const MAX_PAGE_SIZE = 100;
 const MAX_QUERY_LENGTH = 100;
-
-interface PollsEnv {
-  DB: D1Database;
-  min_votes_to_display?: number;
-}
 
 interface PollRow {
   id: number;
@@ -39,7 +35,7 @@ function buildSearch(query: string, prefix = ''): { clause: string; pattern: str
   };
 }
 
-export async function handlePollsRequest(request: Request, url: URL, env: PollsEnv): Promise<Response> {
+export async function handlePollsRequest(request: Request, url: URL, env: HandlerEnv): Promise<Response> {
   if (request.method !== 'GET') {
     return Response.json({ message: 'method not allowed' }, { status: 405 });
   }
@@ -63,46 +59,51 @@ export async function handlePollsRequest(request: Request, url: URL, env: PollsE
   const countResult = await env.DB.prepare(
     `SELECT COUNT(*) AS total
      FROM polls
-     WHERE status = ? AND title IS NOT NULL AND TRIM(title) != ''
-       AND mode IN (?, ?)${search.clause}`
+     WHERE status = ? AND mode IN (?, ?)${search.clause}`
   ).bind(
     PollStatus.Open, PollMode.Deadline, PollMode.Evergreen,
     ...searchBinds
   ).first<{ total: number }>();
 
   const allPollsResult = await env.DB.prepare(
-    `SELECT COUNT(*) AS total
-     FROM polls
-     WHERE title IS NOT NULL AND TRIM(title) != ''
-       AND mode IN (?, ?)`
+    'SELECT COUNT(*) AS total FROM polls WHERE mode IN (?, ?)'
   ).bind(PollMode.Deadline, PollMode.Evergreen).first<{ total: number }>();
 
+  // The site-wide vote total is read from the latest snapshot per poll rather
+  // than counting every vote on every request.
   const voteTotalResult = await env.DB.prepare(
-    'SELECT COUNT(*) AS total FROM votes'
+    `SELECT COALESCE(SUM(s.approve + s.oppose + s.neutral), 0) AS total
+     FROM stats_snapshots s
+     JOIN (SELECT poll_id, MAX(ts_hour) AS ts_hour FROM stats_snapshots GROUP BY poll_id) latest
+       ON latest.poll_id = s.poll_id AND latest.ts_hour = s.ts_hour`
   ).first<{ total: number }>();
 
   const total = Number(countResult?.total ?? 0);
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const currentPage = Math.min(page, totalPages);
   const offset = (currentPage - 1) * pageSize;
-  const joinedSearch = buildSearch(query, 'i.');
+// Select the page of poll ids first, then aggregate only those rows, so the
+  // cost does not grow with the total number of votes.
   const result = await env.DB.prepare(
-    `SELECT i.id, i.title, i.description, i.mode, i.start_at, i.end_at, i.status,
+    `WITH page AS (
+       SELECT id FROM polls
+       WHERE status = ? AND mode IN (?, ?)${search.clause}
+       ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?
+     )
+     SELECT i.id, i.title, i.description, i.mode, i.start_at, i.end_at, i.status,
        COALESCE(SUM(CASE WHEN v.option = ? THEN 1 ELSE 0 END), 0) AS approve,
        COALESCE(SUM(CASE WHEN v.option = ? THEN 1 ELSE 0 END), 0) AS neutral,
        COALESCE(SUM(CASE WHEN v.option = ? THEN 1 ELSE 0 END), 0) AS oppose
-     FROM polls i
+     FROM page
+     JOIN polls i ON i.id = page.id
      LEFT JOIN votes v ON v.poll_id = i.id
-     WHERE i.status = ? AND i.title IS NOT NULL AND TRIM(i.title) != ''
-       AND i.mode IN (?, ?)${joinedSearch.clause}
      GROUP BY i.id
-     ORDER BY i.created_at DESC, i.id DESC
-     LIMIT ? OFFSET ?`
+     ORDER BY i.created_at DESC, i.id DESC`
   ).bind(
-    VoteOption.Approve, VoteOption.Neutral, VoteOption.Oppose,
     PollStatus.Open, PollMode.Deadline, PollMode.Evergreen,
-...(joinedSearch.pattern ? [joinedSearch.pattern, joinedSearch.pattern] : []),
-    pageSize, offset
+    ...searchBinds,
+    pageSize, offset,
+    VoteOption.Approve, VoteOption.Neutral, VoteOption.Oppose
   ).all<PollRow>();
 
   // Vote totals below the threshold are withheld so a small sample cannot reveal
@@ -149,7 +150,7 @@ export async function handlePollsRequest(request: Request, url: URL, env: PollsE
   });
 }
 
-async function getPoll(pollIdText: string, env: PollsEnv): Promise<Response> {
+async function getPoll(pollIdText: string, env: HandlerEnv): Promise<Response> {
   if (!/^[1-9]\d*$/.test(pollIdText)) {
     return Response.json({ message: 'invalid poll ID' }, { status: 400 });
   }
@@ -162,9 +163,7 @@ async function getPoll(pollIdText: string, env: PollsEnv): Promise<Response> {
   const poll = await env.DB.prepare(
     `SELECT id, title, description, mode, start_at, end_at, status
      FROM polls
-     WHERE id = ? AND title IS NOT NULL AND TRIM(title) != ''
-       AND mode IN (?, ?)
-       AND status IN (?, ?, ?)`
+     WHERE id = ? AND mode IN (?, ?) AND status IN (?, ?, ?)`
   ).bind(
     pollId,
     PollMode.Deadline, PollMode.Evergreen,

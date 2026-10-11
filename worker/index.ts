@@ -1,9 +1,10 @@
-// Public application Worker: JSON API plus the SPA and text-only read paths.
+// Public application Worker: JSON API plus the SPA shell.
 //
 // The Worker binds to D1 for persistent data and to a RateLimiter Durable Object
-// for atomic, storage-free rate limiting. It never stores a raw client address:
-// network buckets are keyed and rotated daily with IP_HASH_KEY (see
-// worker/services/ip.ts).
+// for atomic rate limiting. It never stores a raw client address: network
+// buckets are keyed and rotated with IP_HASH_KEY (see worker/services/ip.ts).
+// The HTML shell is routed through the Worker so the document gets a Content
+// Security Policy; other static assets are served by the assets layer directly.
 
 import { handleProposalRequest } from './api/proposal';
 import { handleStatsRequest } from './api/stats';
@@ -25,6 +26,7 @@ import { runMaintenanceTasks } from './services/maintenance';
 export interface Env {
   DB: D1Database;
   RATE_LIMITER: DurableObjectNamespace;
+  ASSETS: Fetcher;
   IP_HASH_KEY?: string;
   BUILD_SHA?: string;
 }
@@ -41,8 +43,23 @@ function buildSha(env: Env): string {
   return typeof __BUILD_SHA__ === 'string' ? __BUILD_SHA__ : 'dev';
 }
 
-// Privacy headers applied to every response. These forbid caching and storage of
-// referrers, and harden against sniffing and framing.
+// Content Security Policy for the SPA document. Only the site itself and the
+// Turnstile host may be used; inline styles are allowed because the SPA sets
+// style attributes. Kept in sync with scripts allowed by the frontend.
+const PUBLIC_CSP = [
+  "default-src 'none'",
+  "script-src 'self' https://challenges.cloudflare.com",
+  "style-src 'self' 'unsafe-inline'",
+  "connect-src 'self' https://challenges.cloudflare.com",
+  "frame-src https://challenges.cloudflare.com",
+  "img-src 'self' data:",
+  "font-src 'self' data:",
+  "base-uri 'none'",
+  "form-action 'self'",
+  "frame-ancestors 'none'"
+].join('; ');
+
+// Privacy headers applied to every response.
 function withSecurityHeaders(response: Response): Response {
   const headers = new Headers(response.headers);
   headers.set('cache-control', 'no-store');
@@ -57,17 +74,42 @@ function withSecurityHeaders(response: Response): Response {
   });
 }
 
-async function loadSettings(env: Env): Promise<PublicSettings> {
-  try {
-    return await loadPublicSettings(env.DB);
-  } catch (error) {
-    // A malformed stored setting must not take the whole site down.
-    console.error('settings load failed', error);
-    return { ...DEFAULT_PUBLIC_SETTINGS };
-  }
+// Attaches the CSP to the HTML document returned by the assets layer.
+function withHtmlCsp(response: Response): Response {
+  if (!(response.headers.get('content-type') ?? '').includes('text/html')) return response;
+  const headers = new Headers(response.headers);
+  headers.set('content-security-policy', PUBLIC_CSP);
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers
+  });
 }
 
-async function handleHealth(env: Env): Promise<Response> {
+// Settings are cached per isolate for a short window so every request does not
+// re-read them. A change therefore takes up to 30 seconds to apply.
+const SETTINGS_TTL_MS = 30_000;
+let settingsCache: { settings: PublicSettings; loadedAt: number; error: boolean } | null = null;
+
+async function loadSettings(env: Env): Promise<{ settings: PublicSettings; error: boolean }> {
+  const now = Date.now();
+  if (settingsCache && now - settingsCache.loadedAt < SETTINGS_TTL_MS) {
+    return { settings: settingsCache.settings, error: settingsCache.error };
+  }
+  try {
+    const settings = await loadPublicSettings(env.DB);
+    settingsCache = { settings, loadedAt: now, error: false };
+    return { settings, error: false };
+  } catch (error) {
+    // Fail closed: a malformed stored setting must not silently turn off
+    // read-only mode or the vote threshold, so the site degrades to read-only.
+    console.error('settings load failed', error);
+    const settings: PublicSettings = { ...DEFAULT_PUBLIC_SETTINGS, read_only_mode: true };
+    settingsCache = { settings, loadedAt: now, error: true };
+    return { settings, error: true };
+  }
+}
+async function handleHealth(env: Env, settingsError: boolean): Promise<Response> {
   let db = 'ok';
   let lastSnapshotAt: string | null = null;
   try {
@@ -79,15 +121,27 @@ async function handleHealth(env: Env): Promise<Response> {
   } catch {
     db = 'error';
   }
-  return Response.json({ ok: db === 'ok', build: buildSha(env), db, lastSnapshotAt });
+  return Response.json({
+    ok: db === 'ok' && !settingsError,
+    build: buildSha(env),
+    db,
+    settingsError,
+    lastSnapshotAt
+  });
 }
 
 async function route(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
 
-  if (url.pathname === '/api/health') return handleHealth(env);
+  // The HTML shell goes through the Worker so the document receives the CSP.
+  if (url.pathname === '/' || url.pathname === '/index.html') {
+    return withHtmlCsp(await env.ASSETS.fetch(request));
+  }
 
-  const settings = await loadSettings(env);
+  const { settings, error: settingsError } = await loadSettings(env);
+
+  if (url.pathname === '/api/health') return handleHealth(env, settingsError);
+
   const envWithSettings: HandlerEnv = { ...env, ...settings };
 
   if (url.pathname === '/api/settings/public') {

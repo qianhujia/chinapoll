@@ -1,17 +1,15 @@
 import {
   closeUserPoll,
   deleteAccount,
-  deleteUserComment,
   deleteUserPoll,
   getCurrentUser,
   getRecoveryCodeStatus,
-  getUserComments,
   getUserPolls,
   logoutUser,
   regenerateRecoveryCode,
-  type UserComment,
   type UserPoll
 } from '../lib/session';
+import { forgetMyPoll, getMyPollIds } from '../lib/poll';
 import { escapeHtml, getErrorMessage, renderFooter, renderHeader, renderRecoveryCode, renderToast, showToast, t } from '../ui';
 
 function statusLabel(status: UserPoll['status']): string {
@@ -44,19 +42,6 @@ function pollCardMarkup(poll: UserPoll): string {
   `;
 }
 
-function commentCardMarkup(comment: UserComment): string {
-  return `
-    <li class="flex flex-wrap items-start justify-between gap-3 border-b border-border py-3.5">
-      <div class="grid gap-1">
-        <a class="font-semibold text-primary hover:underline" href="/poll/${comment.pollId}" data-route="/poll/${comment.pollId}">#${comment.pollId} ${escapeHtml(comment.pollTitle ?? '')}</a>
-        <p class="m-0 whitespace-pre-wrap [overflow-wrap:anywhere]">${escapeHtml(comment.comment)}</p>
-        <span class="text-xs text-muted">${escapeHtml(comment.createdAt)}</span>
-      </div>
-      <button class="cursor-pointer rounded-full border border-border bg-panel px-3 py-1.5 text-sm text-ink hover:border-[#d95b5b] hover:text-[#d95b5b]" type="button" data-delete-comment="${comment.id}">${t('accountDeleteComment')}</button>
-    </li>
-  `;
-}
-
 export async function mountAccountPage(
   app: HTMLElement,
   bindNavigation: () => void,
@@ -82,14 +67,10 @@ export async function mountAccountPage(
   }
 
   let polls: UserPoll[] = [];
-  let comments: UserComment[] = [];
   let hasRecoveryCode = false;
   let loadError = '';
   try {
-    [polls, comments] = await Promise.all([
-      getUserPolls().then((response) => response.polls),
-      getUserComments().then((response) => response.comments)
-    ]);
+    polls = await getUserPolls(getMyPollIds());
   } catch (error) {
     loadError = getErrorMessage(error);
   }
@@ -138,14 +119,6 @@ export async function mountAccountPage(
             : polls.length
               ? `<ul class="m-0 grid list-none gap-0 p-0">${polls.map(pollCardMarkup).join('')}</ul>`
               : `<p class="m-0 text-muted">${t('accountNoPolls')}</p>`}
-        </section>
-
-        <section class="rounded-[22px] border border-border bg-panel p-6 shadow-card">
-          <h2 class="mb-3.5 text-xl font-bold">${t('accountCommentsTitle')}</h2>
-          ${loadError ? ''
-            : comments.length
-              ? `<ul class="m-0 grid list-none gap-0 p-0">${comments.map(commentCardMarkup).join('')}</ul>`
-              : `<p class="m-0 text-muted">${t('accountNoComments')}</p>`}
         </section>
       </main>
       ${renderToast()}
@@ -214,22 +187,10 @@ export async function mountAccountPage(
     button.addEventListener('click', async () => {
       button.disabled = true;
       try {
-        await deleteUserPoll(Number(button.dataset.deletePoll));
+        const pollId = Number(button.dataset.deletePoll);
+        await deleteUserPoll(pollId);
+        forgetMyPoll(pollId);
         showToast(t('accountWithdrawn'));
-        await mountAccountPage(app, bindNavigation, navigate);
-      } catch (error) {
-        showToast(`${t('accountActionFailed')} ${getErrorMessage(error)}`, 'error');
-        button.disabled = false;
-      }
-    });
-  });
-
-  document.querySelectorAll<HTMLButtonElement>('[data-delete-comment]').forEach((button) => {
-    button.addEventListener('click', async () => {
-      button.disabled = true;
-      try {
-        await deleteUserComment(Number(button.dataset.deleteComment));
-        showToast(t('accountCommentDeleted'));
         await mountAccountPage(app, bindNavigation, navigate);
       } catch (error) {
         showToast(`${t('accountActionFailed')} ${getErrorMessage(error)}`, 'error');

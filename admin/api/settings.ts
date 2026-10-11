@@ -60,7 +60,10 @@ async function listSettings(env: AdminEnv): Promise<Response> {
         value: maskSettingValue(key, row?.value ?? null),
         isSet: row !== undefined,
         isSecret: SECRET_SETTING_KEYS.includes(key),
-        defaultValue: SECRET_SETTING_KEYS.includes(key) ? '••••••••' : String(DEFAULT_PUBLIC_SETTINGS[key]),
+        // A placeholder for secret defaults; source kept ASCII with escapes.
+        defaultValue: SECRET_SETTING_KEYS.includes(key)
+          ? '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022'
+          : String(DEFAULT_PUBLIC_SETTINGS[key]),
         updatedAt: row?.updated_at ? new Date(row.updated_at * 1000).toISOString() : null
       };
     })
@@ -68,7 +71,6 @@ async function listSettings(env: AdminEnv): Promise<Response> {
     headers: { 'cache-control': 'no-store' }
   });
 }
-
 async function updateSetting(key: string, request: Request, env: AdminEnv, actor: AdminActor): Promise<Response> {
   if (!isSettingKey(key)) {
     return Response.json({ message: `unknown setting key "${key}"` }, { status: 404 });

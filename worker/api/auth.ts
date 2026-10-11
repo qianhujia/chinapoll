@@ -17,7 +17,7 @@ import {
   hashPassword,
   passwordIterations,
   verifyPassword
-} from '../services/password';
+} from '../../shared/password';
 import { generateRecoveryCode, hashRecoveryCode, normalizeRecoveryCode } from '../services/recovery';
 import {
   USER_STATUS_ACTIVE,
@@ -43,8 +43,9 @@ const DEFAULT_MAX_ACCOUNTS_PER_IP = 4;
 const DEFAULT_MAX_FAILED_ATTEMPTS = 5;
 const DEFAULT_LOCK_MINUTES = 15;
 // One network bucket may create at most `max_accounts_per_ip` accounts in any
-// rolling thirty-day window.
-const ACCOUNT_CAP_WINDOW_SECONDS = 30 * 24 * 60 * 60;
+// rolling window. The cap hash rotates per calendar month (see ip.ts) and the
+// window covers the longest month, so rows from the current month still match.
+const ACCOUNT_CAP_WINDOW_SECONDS = 31 * 24 * 60 * 60;
 const GENERIC_LOGIN_ERROR = 'invalid username or password';
 
 interface UserRow {
@@ -96,17 +97,19 @@ async function countAccounts(db: D1Database, ipHash: string): Promise<number> {
 }
 
 async function recordAccount(db: D1Database, ipHash: string): Promise<void> {
-  await db.batch([
-    db.prepare('DELETE FROM auth_attempts WHERE created_at < unixepoch() - ?').bind(ACCOUNT_CAP_WINDOW_SECONDS),
-    db.prepare("INSERT INTO auth_attempts (ip_hash, kind) VALUES (?, 'account')").bind(ipHash)
-  ]);
+  // The hourly cron purges stale rows, so no inline delete is needed here.
+  // `created_at` is rounded to the hour; the cap only needs day resolution.
+  const coarseNow = Math.floor(Date.now() / 1000 / 3600) * 3600;
+  await db.prepare(
+    "INSERT INTO auth_attempts (ip_hash, kind, created_at) VALUES (?, 'account', ?)"
+  ).bind(ipHash, coarseNow).run();
 }
 
 // Verifies the Turnstile token when the feature is enabled and configured.
 async function turnstileGate(env: HandlerEnv, body: Record<string, unknown> | null): Promise<Response | null> {
   if (!env.turnstile_enable || !env.turnstile_secret_key) return null;
   const token = readString(body, 'turnstileToken');
-  if (!token || !await verifyTurnstile(env, token)) {
+  if (!token || !await verifyTurnstile(env.turnstile_secret_key, token)) {
     return noStoreJson({ message: 'turnstile verification failed' }, 403);
   }
   return null;
@@ -157,17 +160,20 @@ async function register(request: Request, env: HandlerEnv): Promise<Response> {
   const turnstileError = await turnstileGate(env, body);
   if (turnstileError) return turnstileError;
 
-  const ipHash = await hashedNetworkBucket(clientAddress(request), env.IP_HASH_KEY);
-  if (!ipHash) return noStoreJson({ message: 'ip hash key is not configured' }, 503);
+  // Rate limiting uses the daily hash; the account cap uses the monthly hash so
+  // it stays effective across the whole calendar month.
+  const dayHash = await hashedNetworkBucket(clientAddress(request), env.IP_HASH_KEY, new Date(), 'day');
+  const monthHash = await hashedNetworkBucket(clientAddress(request), env.IP_HASH_KEY, new Date(), 'month');
+  if (!dayHash || !monthHash) return noStoreJson({ message: 'ip hash key is not configured' }, 503);
 
   // Per-network account cap: one bucket may only register a configurable number
   // of accounts within the rolling window.
   const maxAccounts = Number(env.max_accounts_per_ip ?? DEFAULT_MAX_ACCOUNTS_PER_IP);
-  if (await countAccounts(env.DB, ipHash) >= maxAccounts) {
+  if (await countAccounts(env.DB, monthHash) >= maxAccounts) {
     return noStoreJson({ message: 'too many accounts have been registered from this network' }, 429);
   }
 
-  const limited = await checkRateLimit(env, 'register', ipHash, env.register_rate_limit, DEFAULT_REGISTER_RATE_LIMIT);
+  const limited = await checkRateLimit(env, 'register', dayHash, env.register_rate_limit, DEFAULT_REGISTER_RATE_LIMIT);
   if (!limited.allowed) {
     return noStoreJson({ message: 'registration rate limit reached' }, 429);
   }
@@ -187,7 +193,7 @@ async function register(request: Request, env: HandlerEnv): Promise<Response> {
     return noStoreJson({ message: 'username is already taken' }, 409);
   }
 
-  await recordAccount(env.DB, ipHash);
+  await recordAccount(env.DB, monthHash);
 
   const token = await createSession(env, userId);
   return noStoreJson({
@@ -210,7 +216,7 @@ async function login(request: Request, env: HandlerEnv): Promise<Response> {
   const turnstileError = await turnstileGate(env, body);
   if (turnstileError) return turnstileError;
 
-  const ipHash = await hashedNetworkBucket(clientAddress(request), env.IP_HASH_KEY);
+  const ipHash = await hashedNetworkBucket(clientAddress(request), env.IP_HASH_KEY, new Date(), 'day');
   if (!ipHash) return noStoreJson({ message: 'ip hash key is not configured' }, 503);
 
   const limited = await checkRateLimit(env, 'login', ipHash, env.login_rate_limit, DEFAULT_LOGIN_RATE_LIMIT);
@@ -299,7 +305,7 @@ async function recover(request: Request, env: HandlerEnv): Promise<Response> {
   const code = normalizeRecoveryCode(readString(body, 'code'));
   if (!code) return invalid;
 
-  const ipHash = await hashedNetworkBucket(clientAddress(request), env.IP_HASH_KEY);
+  const ipHash = await hashedNetworkBucket(clientAddress(request), env.IP_HASH_KEY, new Date(), 'day');
   if (!ipHash) return noStoreJson({ message: 'ip hash key is not configured' }, 503);
 
   // Recovery attempts share the login rate limit.

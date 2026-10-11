@@ -5,7 +5,7 @@
 // public site key comes from the TURNSTILE_SITE_KEY variable.
 
 import type { AdminEnv } from '../auth';
-import { getTurnstileConfig as loadConfig, verifyTurnstile } from '../../worker/services/turnstile';
+import { getTurnstileConfig as loadConfig, getTurnstileSecret, verifyTurnstile } from '../../worker/services/turnstile';
 
 export interface TurnstileConfig {
   enabled: boolean;
@@ -16,4 +16,8 @@ export function getTurnstileConfig(env: AdminEnv): Promise<TurnstileConfig> {
   return loadConfig(env, env.TURNSTILE_SITE_KEY ?? '');
 }
 
-export { verifyTurnstile };
+// Reads the secret once and verifies the token against it.
+export async function verifyAdminTurnstile(env: AdminEnv, token: string): Promise<boolean> {
+  const secret = await getTurnstileSecret(env);
+  return verifyTurnstile(secret, token);
+}

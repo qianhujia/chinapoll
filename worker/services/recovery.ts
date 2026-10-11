@@ -6,7 +6,7 @@
 // carries about 120 bits of entropy, so a fast hash is enough: an attacker who
 // steals the hash still cannot brute-force the code.
 
-import { sha256 } from './hashchain';
+import { sha256Hex } from '../../shared/crypto';
 
 // Crockford base32 alphabet: I, L, O, and U are omitted so a code is hard to
 // misread or mistype when a user copies it by hand.
@@ -50,7 +50,7 @@ export function normalizeRecoveryCode(value: string): string {
 }
 
 export async function hashRecoveryCode(code: string): Promise<string> {
-  return sha256(normalizeRecoveryCode(code));
+  return sha256Hex(normalizeRecoveryCode(code));
 }
 
 export async function generateRecoveryCode(): Promise<GeneratedRecoveryCode> {

@@ -1,9 +1,12 @@
 // Durable Object backed rate limiter.
 //
-// Counters live in memory only. Nothing about a caller is written to storage, so
-// the limiter cannot leak origin data and the counter update is atomic because a
-// single Durable Object handles one key space serially. An alarm evicts expired
-// keys so the in-memory map stays bounded.
+// Counters are persisted in the Durable Object's private storage so an idle
+// object that gets evicted does not lose its state; an attacker cannot reset a
+// quota by pausing. Storage keys are keyed hashes or `user:<id>` and never leave
+// the platform. The read-modify-write runs inside `blockConcurrencyWhile` so
+// concurrent requests for the same key cannot interleave. An alarm evicts
+// expired keys and is only re-armed when a new reset time is earlier than the
+// one already scheduled (tracked in memory).
 
 interface RateLimitRequest {
   key: string;
@@ -17,7 +20,9 @@ interface Bucket {
 }
 
 export class RateLimiter {
-  private buckets = new Map<string, Bucket>();
+  // In-memory view of the currently scheduled alarm so a call does not need a
+  // storage read just to decide whether to re-arm.
+  private nextAlarmAt = 0;
 
   constructor(private state: DurableObjectState) {}
 
@@ -36,43 +41,43 @@ export class RateLimiter {
       return Response.json({ message: 'invalid rate limit request' }, { status: 400 });
     }
 
-    const now = Date.now();
-    const existing = this.buckets.get(key);
-    const bucket: Bucket = existing && existing.resetAt > now ? existing : { count: 0, resetAt: now + windowMs };
+    const result = await this.state.blockConcurrencyWhile(async () => {
+      const now = Date.now();
+      const stored = await this.state.storage.get<Bucket>(key);
+      const bucket: Bucket = stored && stored.resetAt > now ? stored : { count: 0, resetAt: now + windowMs };
 
-    if (bucket.count >= limit) {
-      this.scheduleEviction(bucket.resetAt);
-      return Response.json({ allowed: false, remaining: 0, resetAt: bucket.resetAt });
-    }
+      if (bucket.count >= limit) {
+        return { allowed: false, remaining: 0, resetAt: bucket.resetAt };
+      }
 
-    bucket.count += 1;
-    this.buckets.set(key, bucket);
-    this.scheduleEviction(bucket.resetAt);
-    return Response.json({ allowed: true, remaining: Math.max(0, limit - bucket.count), resetAt: bucket.resetAt });
+      bucket.count += 1;
+      await this.state.storage.put(key, bucket);
+      return { allowed: true, remaining: Math.max(0, limit - bucket.count), resetAt: bucket.resetAt };
+    });
+
+    await this.scheduleAlarm(result.resetAt);
+    return Response.json(result);
   }
 
   async alarm(): Promise<void> {
     const now = Date.now();
-    let nextReset = Number.POSITIVE_INFINITY;
-    for (const [key, bucket] of this.buckets) {
+    const entries = await this.state.storage.list<Bucket>();
+    this.nextAlarmAt = 0;
+    for (const [key, bucket] of entries) {
       if (bucket.resetAt <= now) {
-        this.buckets.delete(key);
-      } else {
-        nextReset = Math.min(nextReset, bucket.resetAt);
+        await this.state.storage.delete(key);
+      } else if (this.nextAlarmAt === 0 || bucket.resetAt < this.nextAlarmAt) {
+        this.nextAlarmAt = bucket.resetAt;
       }
     }
-    if (Number.isFinite(nextReset)) {
-      await this.state.storage.setAlarm(nextReset);
+    if (this.nextAlarmAt !== 0) {
+      await this.state.storage.setAlarm(this.nextAlarmAt);
     }
   }
 
-  private scheduleEviction(resetAt: number): void {
-    // Best-effort: if an alarm is already set further out it is left in place.
-    void this.state.storage.getAlarm().then((current) => {
-      if (current === null || current > resetAt) {
-        return this.state.storage.setAlarm(resetAt);
-      }
-      return undefined;
-    });
+  private async scheduleAlarm(resetAt: number): Promise<void> {
+    if (this.nextAlarmAt !== 0 && this.nextAlarmAt <= resetAt) return;
+    this.nextAlarmAt = resetAt;
+    await this.state.storage.setAlarm(resetAt);
   }
 }

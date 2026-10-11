@@ -27,6 +27,25 @@ function toRecord(row: SnapshotRow): SnapshotRecord {
   };
 }
 
+// Returns up to `limit` snapshots for a poll whose ts_hour is greater than the
+// cursor, ordered ascending.
+async function fetchPage(env: HandlerEnv, pollId: number, after: number, limit: number): Promise<SnapshotRow[]> {
+  const result = await env.DB.prepare(
+    `SELECT poll_id, ts_hour, approve, oppose, neutral, prev_hash, hash
+     FROM stats_snapshots WHERE poll_id = ? AND ts_hour > ?
+     ORDER BY ts_hour ASC LIMIT ?`
+  ).bind(pollId, after, limit).all<SnapshotRow>();
+  return result.results ?? [];
+}
+
+function parseCursor(url: URL): number | null {
+  const raw = url.searchParams.get('after');
+  if (raw === null) return 0;
+  const value = Number(raw);
+  if (!Number.isSafeInteger(value) || value < 0) return null;
+  return value;
+}
+
 export async function handleSnapshotRequest(request: Request, url: URL, env: HandlerEnv): Promise<Response> {
   if (request.method !== 'GET') {
     return Response.json({ message: 'method not allowed' }, { status: 405 });
@@ -42,46 +61,54 @@ export async function handleSnapshotRequest(request: Request, url: URL, env: Han
     return Response.json({ message: 'invalid poll ID' }, { status: 400 });
   }
 
-  const result = await env.DB.prepare(
-    `SELECT poll_id, ts_hour, approve, oppose, neutral, prev_hash, hash
-     FROM stats_snapshots WHERE poll_id = ?
-     ORDER BY ts_hour ASC LIMIT ?`
-  ).bind(pollId, MAX_SNAPSHOTS).all<SnapshotRow>();
-
-  const snapshots = (result.results ?? []).map(toRecord);
-
   if (match[2] === 'verify') {
+    // Walk the whole chain in pages so a long-running poll stays verifiable.
+    let cursor = 0;
+    let prevHash = 'GENESIS';
+    let total = 0;
     let valid = true;
-    for (let index = 0; index < snapshots.length; index += 1) {
-      const expectedPrev = index === 0 ? 'GENESIS' : snapshots[index - 1].hash;
-      const recomputed = await verifySnapshotHash({
-        pollId: snapshots[index].pollId,
-        tsHour: snapshots[index].tsHour,
-        approve: snapshots[index].approve,
-        oppose: snapshots[index].oppose,
-        neutral: snapshots[index].neutral,
-        prevHash: snapshots[index].prevHash
-      });
-      if (snapshots[index].prevHash !== expectedPrev || recomputed !== snapshots[index].hash) {
-        valid = false;
-        break;
+    for (;;) {
+      const rows = await fetchPage(env, pollId, cursor, MAX_SNAPSHOTS);
+      if (rows.length === 0) break;
+      for (const row of rows) {
+        const record = toRecord(row);
+        if (record.prevHash !== prevHash) { valid = false; break; }
+        if (await verifySnapshotHash(record) !== record.hash) { valid = false; break; }
+        prevHash = record.hash;
+        total += 1;
       }
+      cursor = Number(rows[rows.length - 1].ts_hour);
+      if (!valid || rows.length < MAX_SNAPSHOTS) break;
     }
-    return Response.json({ pollId, valid, count: snapshots.length }, {
+    return Response.json({ pollId, valid, count: total }, {
       headers: { 'cache-control': 'no-store' }
     });
   }
 
+  const after = parseCursor(url);
+  if (after === null) {
+    return Response.json({ message: 'invalid after cursor' }, { status: 400 });
+  }
+
+  const rows = await fetchPage(env, pollId, after, MAX_SNAPSHOTS);
+  const last = rows.length > 0 ? Number(rows[rows.length - 1].ts_hour) : after;
+
   return Response.json({
     pollId,
-    snapshots: snapshots.map((snapshot) => ({
-      tsHour: new Date(snapshot.tsHour * 1000).toISOString(),
-      approve: snapshot.approve,
-      oppose: snapshot.oppose,
-      neutral: snapshot.neutral,
-      prevHash: snapshot.prevHash,
-      hash: snapshot.hash
-    }))
+    snapshots: rows.map((row) => {
+      const snapshot = toRecord(row);
+      return {
+        tsHour: new Date(snapshot.tsHour * 1000).toISOString(),
+        tsHourEpoch: snapshot.tsHour,
+        approve: snapshot.approve,
+        oppose: snapshot.oppose,
+        neutral: snapshot.neutral,
+        prevHash: snapshot.prevHash,
+        hash: snapshot.hash
+      };
+    }),
+    nextAfter: last,
+    hasMore: rows.length === MAX_SNAPSHOTS
   }, {
     headers: { 'cache-control': 'no-store' }
   });

@@ -1,3 +1,4 @@
+import type { HandlerEnv } from '../index';
 import { getVoteOptionLabel, VoteOption as VoteOptionCode, type VoteOptionLabel } from '../enums.js';
 
 export type VoteOption = VoteOptionLabel;
@@ -10,7 +11,7 @@ export interface StatsResponse {
   voted: boolean;
 }
 
-export async function handleStatsRequest(request: Request, url: URL, env: any): Promise<Response> {
+export async function handleStatsRequest(request: Request, url: URL, env: HandlerEnv): Promise<Response> {
   if (request.method !== 'GET') {
     return Response.json({ message: 'method not allowed' }, { status: 405 });
   }

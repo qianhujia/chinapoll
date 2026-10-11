@@ -166,3 +166,9 @@ npm run admin:worker:deploy
 Because this Worker can publish polls, delete comments, and manage other admins,
 put it behind Cloudflare Access or another access control layer in production.
 
+## Settings cache
+
+The public Worker caches its merged settings in memory for 30 seconds, so a
+change made here (or from this dashboard's Settings tab) can take up to half a
+minute to be seen by the public site. Restarting or redeploying the Worker
+applies changes immediately.

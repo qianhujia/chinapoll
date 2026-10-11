@@ -8,6 +8,7 @@ import type { HandlerEnv } from '../index';
 import { getPollModeCode, PollMode, PollStatus, toUnixSeconds } from '../enums';
 import { checkRateLimit } from '../services/rateLimit';
 import { enforceSameOrigin } from '../services/csrf';
+import { ownerHash } from '../services/owner';
 import { requireUser } from '../services/session';
 import { checkAccountAge } from '../services/users';
 
@@ -82,8 +83,8 @@ export async function handleProposalRequest(request: Request, env: HandlerEnv): 
   const autoApprove = env.auto_approve_polls === true;
 
   const result = await env.DB.prepare(
-    `INSERT INTO polls (title, description, mode, start_at, end_at, status, reviewed_at, user_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO polls (title, description, mode, start_at, end_at, status, reviewed_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
   ).bind(
     title,
     description,
@@ -91,11 +92,18 @@ export async function handleProposalRequest(request: Request, env: HandlerEnv): 
     mode === PollMode.Deadline ? toUnixSeconds(startAt) : null,
     mode === PollMode.Deadline ? toUnixSeconds(endAt) : null,
     autoApprove ? PollStatus.Open : PollStatus.Pending,
-    autoApprove ? Math.floor(Date.now() / 1000) : null,
-    auth.user.id
+    autoApprove ? Math.floor(Date.now() / 1000) : null
   ).run();
 
   const pollId = Number(result.meta.last_row_id);
+
+  // The owner is stored as a one-way hash computed with the poll id, so it can
+  // only be written after the row exists.
+  const hash = await ownerHash(auth.user.id, pollId, env.IP_HASH_KEY);
+  if (hash) {
+    await env.DB.prepare('UPDATE polls SET owner_hash = ? WHERE id = ?').bind(hash, pollId).run();
+  }
+
   return Response.json({
     ok: true,
     message: autoApprove ? 'poll published' : 'proposal submitted for review',

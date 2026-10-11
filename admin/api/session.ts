@@ -19,20 +19,19 @@ import {
   validateUsername
 } from '../lib/admins';
 import { logAudit } from '../lib/audit';
-import { noStoreJson, readJsonBody, readString } from '../lib/http';
-import { PBKDF2_ITERATIONS, hashPassword, passwordIterations, validatePassword, verifyPassword } from '../lib/password';
-import { getTurnstileConfig, verifyTurnstile } from '../services/turnstile';
+import { noStoreJson, readJsonBody, readString } from '../../shared/http';
+import { PBKDF2_ITERATIONS, hashPassword, passwordIterations, validatePassword, verifyPassword } from '../../shared/password';
+import { getTurnstileConfig, verifyAdminTurnstile } from '../services/turnstile';
 import { checkRateLimit } from '../../worker/services/rateLimit';
 
-// Admin login and setup are rate limited through the shared RateLimiter Durable
-// Object. No address is stored; the keys are fixed strings.
-const LOGIN_GLOBAL_LIMIT = '30/m';
+// Admin login is rate limited per username through the shared RateLimiter
+// Durable Object. There is no global limiter: a global counter would let anyone
+// lock every admin out with a burst of bad requests. Turnstile, when enabled,
+// provides the cross-cutting guard instead.
 const LOGIN_USER_LIMIT = '10/m';
 const SETUP_LIMIT = '3/m';
 
 async function enforceLoginRateLimit(env: AdminEnv, username: string): Promise<Response | null> {
-  const global = await checkRateLimit(env, 'admin-login-global', 'global:login', LOGIN_GLOBAL_LIMIT, LOGIN_GLOBAL_LIMIT);
-  if (!global.allowed) return noStoreJson({ message: 'too many login attempts; try again later' }, 429);
   const perUser = await checkRateLimit(env, 'admin-login-user', `user:${username}`, LOGIN_USER_LIMIT, LOGIN_USER_LIMIT);
   if (!perUser.allowed) return noStoreJson({ message: 'too many login attempts; try again later' }, 429);
   return null;
@@ -104,7 +103,7 @@ async function login(request: Request, env: AdminEnv): Promise<Response> {
     if (!turnstileToken) {
       return noStoreJson({ message: 'turnstile verification required' }, 403);
     }
-    if (!await verifyTurnstile(env, turnstileToken)) {
+    if (!await verifyAdminTurnstile(env, turnstileToken)) {
       return noStoreJson({ message: 'turnstile verification failed' }, 403);
     }
   }

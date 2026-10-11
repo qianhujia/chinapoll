@@ -31,7 +31,6 @@ export const scriptUsers = `  function renderUsers() {
           return '<tr><td>' + esc(item.id) + '</td>' +
             '<td><strong>' + esc(item.username) + '</strong><div class="small muted">registered ' + esc(formatDate(item.createdAt)) + '</div></td>' +
             '<td><span class="badge ' + esc(item.status) + '">' + esc(item.status) + '</span><div class="small muted">' + lock + '</div></td>' +
-            '<td class="small">' + esc(item.pollCount) + ' polls<div class="muted">' + esc(item.commentCount) + ' comments</div></td>' +
             '<td class="small">' + esc(formatDate(item.lastLoginAt)) + '</td>' +
             '<td><div class="actions">' + unlockButton + statusButton +
             '<button class="danger" data-action="delete-user" data-id="' + item.id + '">Delete</button>' +
@@ -42,7 +41,7 @@ export const scriptUsers = `  function renderUsers() {
     view.innerHTML = '<section class="card"><h2>Users</h2>' +
       '<p class="small muted">Public accounts sign in with a username and password only, and there is no password recovery. Disabling an account revokes its sessions. Deleting keeps the user&#39;s polls and comments but detaches them from the account.</p>' +
       toolbar +
-      '<table><thead><tr><th>ID</th><th>Username</th><th>Status</th><th>Activity</th><th>Last login</th><th>Actions</th></tr></thead>' +
+      '<table><thead><tr><th>ID</th><th>Username</th><th>Status</th><th>Last login</th><th>Actions</th></tr></thead>' +
       '<tbody>' + rows + '</tbody></table>' +
       '<div class="pager">' +
       '<span>Page ' + esc(data.page) + ' of ' + esc(data.totalPages) + ' &middot; ' + esc(data.total) + ' total</span>' +

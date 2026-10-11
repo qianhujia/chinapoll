@@ -14,7 +14,7 @@ Cloudflare (edge and logs).
 | id | sequential poll id | Public, User, Admin | 30 days after close, then archived |
 | title, description | submission text | Public, User, Admin | as above |
 | mode, start_at, end_at, status, reviewed_at | lifecycle | Public, User, Admin | as above |
-| user_id | owning account, nullable | Admin | detached on account deletion |
+| owner_hash | one-way HMAC of the server secret with the account id and poll id | none | until the poll is deleted |
 | created_at, updated_at | timestamps | Public (derived), Admin | as above |
 
 Note: `ip_prefix` was removed; no network value is stored for a poll.
@@ -36,10 +36,9 @@ Note: `ip_prefix` was removed; no network value is stored for a poll.
 | public_id | random public identifier | Public | until deleted |
 | poll_id | poll reference | Public | until deleted |
 | comment | free text | Public | until deleted |
-| user_id | owning account, nullable | Admin | detached on account deletion |
 | created_at | hour-coarsened timestamp | Public (derived) | until deleted |
 
-Note: `ip_prefix` and `ts_bucket` were removed.
+Note: `ip_prefix` and `ts_bucket` were removed, and comments carry no owner.
 
 ## users
 
@@ -88,7 +87,9 @@ IP address. Read only by the admin Worker.
 
 - Vote totals and comment text, which are public anyway.
 - Account usernames and password/recovery hashes, but not plaintext secrets.
-- Owner links between one account and its polls/comments. Contributions are not
+- Poll rows carry only a one-way owner hash, and comments carry no owner, so no
+  author link can be recovered from the tables alone. Contributions are not
   linked to votes and carry no network value.
 - Per-network account-cap counters only as keyed hashes; the raw address cannot
-  be recovered without `IP_HASH_KEY`.
+  be recovered without `IP_HASH_KEY`. Because the cap hash rotates per calendar
+  month, rows sharing a hash are linkable within one month.

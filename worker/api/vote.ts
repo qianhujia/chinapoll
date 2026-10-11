@@ -92,7 +92,7 @@ export async function handleVoteRequest(request: Request, env: HandlerEnv): Prom
 
   // Turnstile is enforced only when it is enabled and fully configured.
   if (env.turnstile_enable && env.turnstile_secret_key) {
-    if (!turnstileResponse || !await verifyTurnstile(env, turnstileResponse)) {
+    if (!turnstileResponse || !await verifyTurnstile(env.turnstile_secret_key, turnstileResponse)) {
       return Response.json({ ok: false, message: 'turnstile verification failed' }, { status: 403 });
     }
   }
@@ -121,13 +121,8 @@ export async function handleVoteRequest(request: Request, env: HandlerEnv): Prom
     return Response.json({ ok: false, message: 'rate limit reached' }, { status: 429 });
   }
 
-  const existingVote: any = await env.DB.prepare(
-    'SELECT id FROM votes WHERE poll_id = ? AND voter_token_hash = ? LIMIT 1'
-  ).bind(pollId, tokenHash).first();
-  if (existingVote) {
-    return Response.json({ ok: false, message: 'duplicate vote' }, { status: 409 });
-  }
-
+  // The ON CONFLICT clause both inserts and detects a duplicate in one round
+  // trip, so no separate existence check is needed.
   // Timestamps are coarsened to the hour so a vote cannot be correlated with
   // edge logs or with another row created at the same second.
   const coarseNow = nowSeconds - (nowSeconds % 3600);

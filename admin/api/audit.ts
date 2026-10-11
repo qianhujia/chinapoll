@@ -1,7 +1,7 @@
 // Read-only access to the admin audit log. Entries never contain client IPs.
 
 import type { AdminActor, AdminEnv } from '../auth';
-import { noStoreJson } from '../lib/http';
+import { noStoreJson } from '../../shared/http';
 
 const MAX_PAGE_SIZE = 100;
 const MAX_QUERY_LENGTH = 100;

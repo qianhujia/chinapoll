@@ -65,12 +65,12 @@ async function render() {
   }
 
   if (route === '/login') {
-    mountLoginPage(app!, bindNavigation);
+    await mountLoginPage(app!, bindNavigation);
     return;
   }
 
   if (route === '/register') {
-    mountRegisterPage(app!, bindNavigation);
+    await mountRegisterPage(app!, bindNavigation);
     return;
   }
 

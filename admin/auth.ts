@@ -6,7 +6,7 @@
 // session token as an `Authorization: Bearer` header.
 
 import { ADMIN_STATUS_ACTIVE, adminRoleLabel, type AdminRole } from './lib/admins';
-import { sha256Hex, toHex } from './lib/crypto';
+import { sha256Hex, toHex } from '../shared/crypto';
 import { enforceSameOrigin as enforceSameOriginShared } from '../worker/services/csrf';
 
 export const SESSION_COOKIE_NAME = 'chinapoll_admin_session';

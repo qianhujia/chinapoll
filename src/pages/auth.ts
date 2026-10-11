@@ -1,6 +1,7 @@
 import { loginUser, recoverPassword, registerUser } from '../lib/session';
 import { escapeHtml, getErrorMessage, renderFooter, renderHeader, renderRecoveryCode, renderToast, showToast, t } from '../ui';
 import { getPublicSettings } from '../config';
+import { renderTurnstile, resetTurnstile, turnstileSiteKey, turnstileToken } from '../lib/turnstile';
 
 // Re-renders the current route after a state change by replaying the router's
 // popstate handler.
@@ -17,7 +18,7 @@ function fieldMarkup(id: string, name: string, label: string, type: string, auto
   `;
 }
 
-export function mountLoginPage(app: HTMLElement, bindNavigation: () => void): void {
+export async function mountLoginPage(app: HTMLElement, bindNavigation: () => void): Promise<void> {
   app.innerHTML = `
     <div class="mx-auto max-w-[var(--page-width)] px-5 pt-6 pb-16">
       ${renderHeader('/login')}
@@ -28,6 +29,7 @@ export function mountLoginPage(app: HTMLElement, bindNavigation: () => void): vo
           <form class="grid gap-3" data-login-form>
             ${fieldMarkup('login-username', 'username', t('username'), 'text', 'username')}
             ${fieldMarkup('login-password', 'password', t('password'), 'password', 'current-password')}
+            ${turnstileSiteKey() ? '<div class="flex justify-center" data-turnstile-login></div>' : ''}
             <button class="mx-auto mt-2 cursor-pointer rounded-full border border-primary bg-primary px-4 py-2.5 text-white" type="submit">${t('loginSubmit')}</button>
           </form>
           <p class="m-0 text-center text-sm text-muted"><a class="text-primary hover:underline" href="/register" data-route="/register">${t('registerLink')}</a></p>
@@ -48,20 +50,24 @@ export function mountLoginPage(app: HTMLElement, bindNavigation: () => void): vo
     const submitButton = form.querySelector<HTMLButtonElement>('button[type="submit"]')!;
     submitButton.disabled = true;
     try {
-      const user = await loginUser(username, password);
+      const user = await loginUser(username, password, turnstileToken('login'));
       showToast(`${t('loginSuccess')}: ${user.username}`);
       navigate('/account');
     } catch (error) {
       showToast(`${t('loginFailed')} ${getErrorMessage(error)}`, 'error');
     } finally {
       submitButton.disabled = false;
+      resetTurnstile('login');
     }
   });
+
+  const loginWidget = document.querySelector<HTMLElement>('[data-turnstile-login]');
+  if (loginWidget) await renderTurnstile('login', loginWidget);
 
   bindNavigation();
 }
 
-export function mountRegisterPage(app: HTMLElement, bindNavigation: () => void): void {
+export async function mountRegisterPage(app: HTMLElement, bindNavigation: () => void): Promise<void> {
   app.innerHTML = `
     <div class="mx-auto max-w-[var(--page-width)] px-5 pt-6 pb-16">
       ${renderHeader('/register')}
@@ -83,6 +89,7 @@ export function mountRegisterPage(app: HTMLElement, bindNavigation: () => void):
               <input class="mt-1 accent-primary" id="register-ack" name="acknowledge" type="checkbox" required>
               <span>${t('registerAcknowledge')}</span>
             </label>
+            ${turnstileSiteKey() ? '<div class="flex justify-center" data-turnstile-register></div>' : ''}
             <button class="mx-auto mt-2 cursor-pointer rounded-full border border-primary bg-primary px-4 py-2.5 text-white" type="submit">${t('registerSubmit')}</button>
           </form>
           <p class="m-0 text-center text-sm text-muted"><a class="text-primary hover:underline" href="/login" data-route="/login">${t('loginLink')}</a></p>
@@ -113,13 +120,14 @@ export function mountRegisterPage(app: HTMLElement, bindNavigation: () => void):
     const submitButton = form.querySelector<HTMLButtonElement>('button[type="submit"]')!;
     submitButton.disabled = true;
     try {
-      const { user, recoveryCode } = await registerUser(username, password);
+      const { user, recoveryCode } = await registerUser(username, password, turnstileToken('register'));
       // Show the recovery code before the user can leave this page.
       renderRecoveryCodeStep(app, recoveryCode, t('recoveryCodeContinue'), '/account', bindNavigation);
       showToast(`${t('registerSuccess')}: ${user.username}`);
     } catch (error) {
       showToast(`${t('registerFailed')} ${getErrorMessage(error)}`, 'error');
       submitButton.disabled = false;
+      resetTurnstile('register');
     }
   });
 
@@ -131,6 +139,9 @@ export function mountRegisterPage(app: HTMLElement, bindNavigation: () => void):
     note.textContent = `${t('registerDelayNote')} ${settings.user_poll_delay_hours}h / ${settings.user_comment_delay_hours}h`;
     form?.insertAdjacentElement('afterend', note);
   }
+
+  const registerWidget = document.querySelector<HTMLElement>('[data-turnstile-register]');
+  if (registerWidget) await renderTurnstile('register', registerWidget);
 
   bindNavigation();
 }

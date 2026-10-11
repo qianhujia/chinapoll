@@ -17,28 +17,10 @@ export interface UserPoll {
   createdAt: string;
 }
 
-export interface UserComment {
-  id: number;
-  pollId: number;
-  pollTitle: string | null;
-  comment: string;
-  createdAt: string;
-}
-
+// The client remembers the poll ids it submitted; the server answers "my polls"
+// only for ids whose owner hash matches.
 interface PollsResponse {
   polls: UserPoll[];
-  page: number;
-  pageSize: number;
-  total: number;
-  totalPages: number;
-}
-
-interface CommentsResponse {
-  comments: UserComment[];
-  page: number;
-  pageSize: number;
-  total: number;
-  totalPages: number;
 }
 
 // The signed-in user is cached in memory so the header and pages can render
@@ -65,19 +47,16 @@ export function getCurrentUser(): UserPublic | null {
   return currentUser;
 }
 
-export async function registerUser(username: string, password: string): Promise<RegistrationResult> {
+export async function registerUser(username: string, password: string, turnstileToken = ''): Promise<RegistrationResult> {
   const result = await fetchJson<{ ok: boolean; user: UserPublic; recoveryCode: string }>('/api/auth/register', {
     method: 'POST',
-    body: JSON.stringify({ username, password })
+    body: JSON.stringify({ username, password, turnstileToken })
   });
   currentUser = await loadSession();
   return { user: result.user, recoveryCode: result.recoveryCode ?? '' };
 }
 
 // Resets the password with a single-use recovery code and returns a fresh code.
-// The server rotates the code as it consumes it, the whole code set is not left
-// empty, and every device is signed out, so the caller must sign in again with
-// the new password afterwards.
 export async function recoverPassword(username: string, code: string, newPassword: string): Promise<string> {
   const result = await fetchJson<{ ok: boolean; recoveryCode: string }>('/api/auth/recover', {
     method: 'POST',
@@ -102,8 +81,8 @@ export async function regenerateRecoveryCode(currentPassword: string): Promise<s
   return result.recoveryCode ?? '';
 }
 
-// Deletes the account after confirming the password. Content stays but is
-// detached from the removed account.
+// Deletes the account after confirming the password. Content stays but carries
+// no account link.
 export async function deleteAccount(currentPassword: string): Promise<void> {
   await fetchJson<{ ok: boolean }>('/api/user/account', {
     method: 'DELETE',
@@ -112,10 +91,10 @@ export async function deleteAccount(currentPassword: string): Promise<void> {
   currentUser = null;
 }
 
-export async function loginUser(username: string, password: string): Promise<UserPublic> {
+export async function loginUser(username: string, password: string, turnstileToken = ''): Promise<UserPublic> {
   const result = await fetchJson<{ ok: boolean; user: UserPublic }>('/api/auth/login', {
     method: 'POST',
-    body: JSON.stringify({ username, password })
+    body: JSON.stringify({ username, password, turnstileToken })
   });
   currentUser = await loadSession();
   return result.user;
@@ -126,18 +105,12 @@ export async function logoutUser(): Promise<void> {
   currentUser = null;
 }
 
-export async function getUserPolls(page = 1, pageSize = 20): Promise<PollsResponse> {
-  const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
-  return fetchJson<PollsResponse>(`/api/user/polls?${params}`);
-}
-
-export async function getUserComments(page = 1, pageSize = 20): Promise<CommentsResponse> {
-  const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
-  return fetchJson<CommentsResponse>(`/api/user/comments?${params}`);
-}
-
-export async function deleteUserComment(commentId: number): Promise<void> {
-  await fetchJson<{ ok: boolean }>(`/api/user/comments/${commentId}`, { method: 'DELETE' });
+// Lists the remembered poll ids that the account actually owns.
+export async function getUserPolls(ids: number[]): Promise<UserPoll[]> {
+  if (ids.length === 0) return [];
+  const params = new URLSearchParams({ ids: ids.join(',') });
+  const result = await fetchJson<PollsResponse>(`/api/user/polls?${params}`);
+  return result.polls ?? [];
 }
 
 export async function closeUserPoll(pollId: number): Promise<void> {

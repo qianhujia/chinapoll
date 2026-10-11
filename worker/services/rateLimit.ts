@@ -33,7 +33,9 @@ export function parseRateLimit(value: string | null | undefined, fallback: strin
 }
 
 // Consumes one unit against the named scope/key through the Durable Object. The
-// key never leaves the Worker in a form that can be tied back to a person.
+// key never leaves the Worker in a form that can be tied back to a person. The
+// object is sharded by the first two characters of the key so a single scope is
+// not one global serialization point.
 export async function checkRateLimit(
   env: RateLimitEnv,
   scope: string,
@@ -42,7 +44,8 @@ export async function checkRateLimit(
   fallback: string
 ): Promise<{ allowed: boolean; remaining: number }> {
   const { count, windowMs } = parseRateLimit(setting, fallback);
-  const stub = env.RATE_LIMITER.get(env.RATE_LIMITER.idFromName(scope));
+  const shard = key.slice(0, 2);
+  const stub = env.RATE_LIMITER.get(env.RATE_LIMITER.idFromName(`${scope}:${shard}`));
   const response = await stub.fetch('https://rate-limiter.internal/', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },

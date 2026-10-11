@@ -21,6 +21,11 @@ async function getSettingValue(env: TurnstileEnv, key: string): Promise<string> 
   return row?.value ?? '';
 }
 
+// Reads the private secret once per request so verification does not re-query D1.
+export function getTurnstileSecret(env: TurnstileEnv): Promise<string> {
+  return getSettingValue(env, 'turnstile_secret_key');
+}
+
 export async function getTurnstileConfig(env: TurnstileEnv, siteKey = ''): Promise<TurnstileConfig> {
   const [enableValue, secret] = await Promise.all([
     getSettingValue(env, 'turnstile_enable'),
@@ -30,10 +35,10 @@ export async function getTurnstileConfig(env: TurnstileEnv, siteKey = ''): Promi
   return { enabled, siteKey };
 }
 
-export async function verifyTurnstile(env: TurnstileEnv, token: string): Promise<boolean> {
-  if (!token) return false;
-  const secret = await getSettingValue(env, 'turnstile_secret_key');
-  if (!secret) return false;
+// Verifies a token against the given secret. The secret is passed in so callers
+// that already hold it (the public Worker keeps it in `env`) do not re-read D1.
+export async function verifyTurnstile(secret: string, token: string): Promise<boolean> {
+  if (!secret || !token) return false;
 
   const form = new FormData();
   form.append('secret', secret);

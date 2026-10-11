@@ -47,6 +47,8 @@ Public account endpoints (session state, register, login, logout, and recovery) 
 
 The local database schema is managed with versioned SQL migrations in the `migrations/` folder. `npm run db:migrate` applies every pending migration (the Wrangler tracking table is named `migrations`, set with `migrations_table` in `wrangler.toml`). Public settings fall back to built-in defaults until they are written, and the dashboard's Settings tab can insert any missing defaults.
 
+**Applied migrations are never edited.** Migrations are immutable once recorded: schema changes go in a new file (numbered from `0002`). Because the initial schema was consolidated into `0001_initial.sql`, **only fresh databases are supported**: create a database from scratch (run `npm run db:reset` locally, or apply `0001` and later migrations to an empty production database) rather than upgrading a database that recorded the earlier pre-consolidation migrations.
+
 ```bash
 npm run db:migrate
 ```
@@ -112,7 +114,17 @@ request, fails if the built SPA references any external origin other than
 
 Vote timestamps and comment timestamps are coarsened to the hour, network
 buckets are stored only as keyed daily-rotated hashes, and account deletion is
-self-service from `/account` (content is kept but detached).
+self-service from `/account` (content is kept but carries no account link).
+
+Two deliberate trade-offs are documented in `docs/THREAT_MODEL.md`: the
+account-cap hash is linkable within a calendar month, and the browser vote token
+rotates every 30 days (which lets a returning browser vote again on an evergreen
+poll).
+
+Password hashing uses PBKDF2-HMAC-SHA256 at 600,000 iterations, which needs the
+Cloudflare Workers **paid plan** (the free plan allows only 10 ms of CPU per
+request). Lower the iteration count in `shared/password.ts` if the free plan must
+be used.
 
 ## Local workflow
 

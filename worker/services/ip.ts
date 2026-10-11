@@ -42,16 +42,25 @@ export function isValidIpHashKey(keyHex: string | undefined | null): keyHex is s
   return typeof keyHex === 'string' && IP_HASH_KEY_PATTERN.test(keyHex);
 }
 
-// Returns the keyed, day-rotated hash of the network bucket for an address, or
-// null when the configured key is missing or malformed.
+// The rotation period for the keyed hash. `month` keeps a value linkable within
+// a calendar month (used for the 30-day account cap); `day` is the default and
+// is used everywhere rate limiting applies.
+export type IpHashPeriod = 'day' | 'month';
+
+// Returns the keyed hash of the network bucket for an address, or null when the
+// configured key is missing or malformed. The sub-key rotates per `period`: a
+// YYYY-MM-DD stamp for 'day' and a YYYY-MM stamp for 'month'.
 export async function hashedNetworkBucket(
   address: string,
   keyHex: string | undefined | null,
-  date: Date = new Date()
+  date: Date = new Date(),
+  period: IpHashPeriod = 'day'
 ): Promise<string | null> {
   if (!isValidIpHashKey(keyHex)) return null;
-  const dayKey = await hmacSha256(fromHex(keyHex), date.toISOString().slice(0, 10));
-  return hmacSha256Hex(dayKey, String(ipBucket(address)));
+  const iso = date.toISOString();
+  const stamp = period === 'month' ? iso.slice(0, 7) : iso.slice(0, 10);
+  const periodKey = await hmacSha256(fromHex(keyHex), stamp);
+  return hmacSha256Hex(periodKey, String(ipBucket(address)));
 }
 
 // Reads the client address from the request headers. Callers still hash the

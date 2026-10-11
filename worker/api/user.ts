@@ -1,13 +1,18 @@
-// Self-service endpoints for the signed-in account: list and manage the polls
-// and comments that belong to it.
+// Self-service endpoints for the signed-in account.
+//
+// Poll ownership is stored as a one-way owner hash (see worker/services/owner.ts),
+// so "my polls" is answered only for the poll ids the client remembers and only
+// for rows whose owner hash matches. Comments carry no owner, so there is no
+// comment list or comment deletion endpoint here.
 
 import type { HandlerEnv } from '../index';
 import { requireUser } from '../services/session';
 import { enforceSameOrigin } from '../services/csrf';
-import { verifyPassword } from '../services/password';
+import { verifyPassword } from '../../shared/password';
 import { generateRecoveryCode } from '../services/recovery';
+import { ownerHash } from '../services/owner';
 
-const MAX_PAGE_SIZE = 100;
+const MAX_IDS = 100;
 
 // Status and mode labels are mapped locally (rather than via worker/enums) so a
 // poll that is still pending under review does not raise.
@@ -49,11 +54,6 @@ export async function handleUserRequest(request: Request, url: URL, env: UserEnv
     return listUserPolls(url, env, auth.user.id);
   }
 
-  if (url.pathname === '/api/user/comments') {
-    if (request.method !== 'GET') return noStoreJson({ message: 'method not allowed' }, 405);
-    return listUserComments(url, env, auth.user.id);
-  }
-
   if (url.pathname === '/api/user/recovery-code') {
     if (request.method === 'GET') return recoveryCodeStatus(env, auth.user.id);
     if (request.method === 'POST') return regenerateRecoveryCode(request, env, auth.user.id);
@@ -72,153 +72,101 @@ export async function handleUserRequest(request: Request, url: URL, env: UserEnv
     return deleteUserPoll(env, auth.user.id, pollId);
   }
 
-  const commentMatch = url.pathname.match(/^\/api\/user\/comments\/(\d+)$/);
-  if (commentMatch) {
-    const commentId = Number(commentMatch[1]);
-    if (!Number.isSafeInteger(commentId) || commentId < 1) return noStoreJson({ message: 'invalid comment ID' }, 400);
-    if (request.method !== 'DELETE') return noStoreJson({ message: 'method not allowed' }, 405);
-    return deleteUserComment(env, auth.user.id, commentId);
-  }
-
   return noStoreJson({ message: 'not found' }, 404);
 }
 
-function parsePagination(url: URL): { page: number; pageSize: number } | null {
-  const page = Number(url.searchParams.get('page') ?? '1');
-  const pageSize = Number(url.searchParams.get('pageSize') ?? '20');
-  if (!Number.isSafeInteger(page) || page < 1
-    || !Number.isSafeInteger(pageSize) || pageSize < 1 || pageSize > MAX_PAGE_SIZE) {
-    return null;
+// Parses the comma-separated `ids` query parameter used by the client-side list.
+function parseIds(url: URL): number[] | null {
+  const raw = (url.searchParams.get('ids') ?? '').trim();
+  if (!raw) return [];
+  const ids: number[] = [];
+  for (const part of raw.split(',').slice(0, MAX_IDS)) {
+    const value = Number(part);
+    if (!Number.isSafeInteger(value) || value < 1) return null;
+    ids.push(value);
   }
-  return { page, pageSize };
+  return ids;
 }
 
+interface OwnedPollRow {
+  id: number;
+  title: string | null;
+  description: string | null;
+  mode: number;
+  status: number;
+  start_at: number | null;
+  end_at: number | null;
+  owner_hash: string | null;
+  created_at: number;
+}
+
+// Returns the poll row when the recomputed owner hash matches, otherwise null.
+async function findOwnedPoll(env: UserEnv, userId: number, pollId: number): Promise<OwnedPollRow | null> {
+  const row = await env.DB.prepare(
+    `SELECT id, title, description, mode, status, start_at, end_at, owner_hash, created_at
+     FROM polls WHERE id = ?`
+  ).bind(pollId).first<OwnedPollRow>();
+  if (!row) return null;
+  const expected = await ownerHash(userId, pollId, env.IP_HASH_KEY);
+  if (!expected || expected !== row.owner_hash) return null;
+  return row;
+}
+// Lists the requested poll ids that the signed-in account actually owns. The
+// client supplies the ids it remembers from submission, so the server never has
+// to scan all polls.
 async function listUserPolls(url: URL, env: UserEnv, userId: number): Promise<Response> {
-  const pagination = parsePagination(url);
-  if (!pagination) return noStoreJson({ message: 'invalid pagination parameters' }, 400);
-  const { page, pageSize } = pagination;
+  const ids = parseIds(url);
+  if (!ids) return noStoreJson({ message: 'invalid ids parameter' }, 400);
+  if (ids.length === 0) return noStoreJson({ polls: [] });
 
-  const countRow = await env.DB.prepare(
-    'SELECT COUNT(*) AS total FROM polls WHERE user_id = ?'
-  ).bind(userId).first<{ total: number }>();
-  const total = Number(countRow?.total ?? 0);
-  const totalPages = Math.max(1, Math.ceil(total / pageSize));
-  const currentPage = Math.min(page, totalPages);
-  const offset = (currentPage - 1) * pageSize;
-
+  const placeholders = ids.map(() => '?').join(', ');
   const result = await env.DB.prepare(
-    `SELECT id, title, description, mode, status, start_at, end_at, created_at
-     FROM polls WHERE user_id = ?
-     ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?`
-  ).bind(userId, pageSize, offset).all<{
-    id: number;
-    title: string | null;
-    description: string | null;
-    mode: number;
-    status: number;
-    start_at: number | null;
-    end_at: number | null;
-    created_at: number;
-  }>();
+    `SELECT id, title, description, mode, status, start_at, end_at, owner_hash, created_at
+     FROM polls WHERE id IN (${placeholders})`
+  ).bind(...ids).all<OwnedPollRow>();
 
-  return noStoreJson({
-    polls: (result.results ?? []).map((row) => ({
-      id: row.id,
+  const polls = [];
+  for (const row of result.results ?? []) {
+    const expected = await ownerHash(userId, Number(row.id), env.IP_HASH_KEY);
+    if (!expected || expected !== row.owner_hash) continue;
+    polls.push({
+      id: Number(row.id),
       title: row.title,
       description: row.description,
-      mode: pollModeLabel(row.mode),
-      status: pollStatusLabel(row.status),
+      mode: pollModeLabel(Number(row.mode)),
+      status: pollStatusLabel(Number(row.status)),
       startAt: toIso(row.start_at),
       endAt: toIso(row.end_at),
       createdAt: toIso(row.created_at)
-    })),
-    page: currentPage,
-    pageSize,
-    total,
-    totalPages
-  });
-}
+    });
+  }
 
-async function listUserComments(url: URL, env: UserEnv, userId: number): Promise<Response> {
-  const pagination = parsePagination(url);
-  if (!pagination) return noStoreJson({ message: 'invalid pagination parameters' }, 400);
-  const { page, pageSize } = pagination;
-
-  const countRow = await env.DB.prepare(
-    'SELECT COUNT(*) AS total FROM comments WHERE user_id = ?'
-  ).bind(userId).first<{ total: number }>();
-  const total = Number(countRow?.total ?? 0);
-  const totalPages = Math.max(1, Math.ceil(total / pageSize));
-  const currentPage = Math.min(page, totalPages);
-  const offset = (currentPage - 1) * pageSize;
-
-  const result = await env.DB.prepare(
-    `SELECT c.id, c.poll_id, c.comment, c.created_at, i.title AS poll_title
-     FROM comments c
-     LEFT JOIN polls i ON i.id = c.poll_id
-     WHERE c.user_id = ?
-     ORDER BY c.created_at DESC, c.id DESC LIMIT ? OFFSET ?`
-  ).bind(userId, pageSize, offset).all<{
-    id: number;
-    poll_id: number;
-    comment: string;
-    created_at: number;
-    poll_title: string | null;
-  }>();
-
-  return noStoreJson({
-    comments: (result.results ?? []).map((row) => ({
-      id: row.id,
-      pollId: row.poll_id,
-      pollTitle: row.poll_title,
-      comment: row.comment,
-      createdAt: toIso(row.created_at)
-    })),
-    page: currentPage,
-    pageSize,
-    total,
-    totalPages
-  });
+  return noStoreJson({ polls });
 }
 
 async function closeUserPoll(env: UserEnv, userId: number, pollId: number): Promise<Response> {
-  const poll = await env.DB.prepare(
-    'SELECT id, status FROM polls WHERE id = ? AND user_id = ?'
-  ).bind(pollId, userId).first<{ id: number; status: number }>();
+  const poll = await findOwnedPoll(env, userId, pollId);
   if (!poll) return noStoreJson({ message: 'poll not found' }, 404);
 
   await env.DB.prepare(
-    'UPDATE polls SET status = 2, updated_at = unixepoch() WHERE id = ? AND user_id = ?'
-  ).bind(pollId, userId).run();
+    `UPDATE polls SET status = 2, closed_at = unixepoch(), updated_at = unixepoch()
+     WHERE id = ? AND owner_hash = ?`
+  ).bind(pollId, poll.owner_hash).run();
   return noStoreJson({ ok: true, pollId, status: 'closed' });
 }
 
 async function deleteUserPoll(env: UserEnv, userId: number, pollId: number): Promise<Response> {
-  const poll = await env.DB.prepare(
-    'SELECT id, status FROM polls WHERE id = ? AND user_id = ?'
-  ).bind(pollId, userId).first<{ id: number; status: number }>();
+  const poll = await findOwnedPoll(env, userId, pollId);
   if (!poll) return noStoreJson({ message: 'poll not found' }, 404);
   // Only polls that have not been reviewed yet can be withdrawn.
-  if (poll.status !== 4) {
+  if (Number(poll.status) !== 4) {
     return noStoreJson({ message: 'only polls still under review can be withdrawn' }, 409);
   }
 
-  await env.DB.batch([
-    env.DB.prepare('DELETE FROM votes WHERE poll_id = ?').bind(pollId),
-    env.DB.prepare('DELETE FROM comments WHERE poll_id = ?').bind(pollId),
-    env.DB.prepare('DELETE FROM polls WHERE id = ? AND user_id = ?').bind(pollId, userId)
-  ]);
+  // votes and comments cascade with the poll (ON DELETE CASCADE).
+  await env.DB.prepare('DELETE FROM polls WHERE id = ? AND owner_hash = ?')
+    .bind(pollId, poll.owner_hash).run();
   return noStoreJson({ ok: true, pollId, deleted: true });
-}
-
-async function deleteUserComment(env: UserEnv, userId: number, commentId: number): Promise<Response> {
-  const comment = await env.DB.prepare(
-    'SELECT id FROM comments WHERE id = ? AND user_id = ?'
-  ).bind(commentId, userId).first<{ id: number }>();
-  if (!comment) return noStoreJson({ message: 'comment not found' }, 404);
-
-  await env.DB.prepare('DELETE FROM comments WHERE id = ? AND user_id = ?').bind(commentId, userId).run();
-  return noStoreJson({ ok: true, commentId, deleted: true });
 }
 
 // Reports whether the account currently has an active recovery code.
@@ -261,8 +209,8 @@ async function regenerateRecoveryCode(request: Request, env: UserEnv, userId: nu
 }
 
 // Deletes the account after confirming the password. Sessions are revoked and
-// the user's polls and comments are detached (user_id set to NULL) so the public
-// content stays but is no longer linked to an account.
+// the account row is removed. Submitted polls and comments stay public but carry
+// no account link (poll ownership is a one-way hash).
 async function deleteAccount(request: Request, env: UserEnv, userId: number): Promise<Response> {
   let body: unknown;
   try {
@@ -286,8 +234,6 @@ async function deleteAccount(request: Request, env: UserEnv, userId: number): Pr
 
   await env.DB.batch([
     env.DB.prepare('DELETE FROM user_sessions WHERE user_id = ?').bind(userId),
-    env.DB.prepare('UPDATE polls SET user_id = NULL WHERE user_id = ?').bind(userId),
-    env.DB.prepare('UPDATE comments SET user_id = NULL WHERE user_id = ?').bind(userId),
     env.DB.prepare('DELETE FROM users WHERE id = ?').bind(userId)
   ]);
 

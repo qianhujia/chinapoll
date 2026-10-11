@@ -182,6 +182,39 @@ export function createToken(): string {
   return token;
 }
 
+// Poll ids the browser submitted, so the account page can list "my polls" even
+// though the server stores only a one-way owner hash.
+const MY_POLLS_KEY = 'chinapoll.my-polls';
+const MAX_MY_POLLS = 100;
+
+export function rememberMyPoll(pollId: number): void {
+  const ids = getMyPollIds();
+  if (!ids.includes(pollId)) ids.push(pollId);
+  try {
+    localStorage.setItem(MY_POLLS_KEY, JSON.stringify(ids.slice(-MAX_MY_POLLS)));
+  } catch {
+    // Ignore storage failures (for example a full or blocked localStorage).
+  }
+}
+
+export function getMyPollIds(): number[] {
+  try {
+    const parsed: unknown = JSON.parse(localStorage.getItem(MY_POLLS_KEY) ?? '[]');
+    return Array.isArray(parsed) ? parsed.filter((value): value is number => typeof value === 'number') : [];
+  } catch {
+    return [];
+  }
+}
+
+export function forgetMyPoll(pollId: number): void {
+  const ids = getMyPollIds().filter((id) => id !== pollId);
+  try {
+    localStorage.setItem(MY_POLLS_KEY, JSON.stringify(ids));
+  } catch {
+    // Ignore storage failures.
+  }
+}
+
 export async function hashToken(value: string): Promise<string> {
   const encoder = new TextEncoder();
   const data = encoder.encode(value);

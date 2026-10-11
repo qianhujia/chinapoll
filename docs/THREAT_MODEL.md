@@ -63,3 +63,19 @@ the schema or the network handling changes.
 
 - Initial version covering the user-account release and the anonymized bucket
   migration.
+- Poll ownership moved to a one-way owner hash; comments carry no owner; the
+  account-cap hash rotates per calendar month and is linkable within a month.
+
+## Known trade-offs
+
+- **Account-cap hash.** The per-network account cap uses a keyed hash of the
+  network bucket rotated per calendar month. Two accounts created from the same
+  network in the same month share a hash (linkable within that month).
+- **Browser token rotation.** The browser vote token rotates after 30 days. When
+  it rotates, local "already voted" markers are re-keyed per poll, so a returning
+  browser may vote again on an *evergreen* poll. This is a deliberate trade-off
+  between linkability and the strength of one-token-per-device; polls with a
+  deadline are unaffected once they close.
+- **Undocumented host settings.** Cloudflare-side logging (Logpush, Web
+  Analytics, Bot Analytics), Managed Transforms "Remove visitor IP headers", and
+  Onion Routing are recorded in the configuration log above.

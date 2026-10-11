@@ -11,6 +11,7 @@ import {
   submitVote
 } from '../lib/poll';
 import { getCurrentUser } from '../lib/session';
+import { renderTurnstile, resetTurnstile, turnstileSiteKey, turnstileToken } from '../lib/turnstile';
 import {
   getCommentsPerPage,
   escapeHtml,
@@ -110,6 +111,8 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
             <p class="mt-6 mb-0 text-center text-sm text-muted">${t('resultsHidden').replace('{n}', String(stats.threshold))}</p>
           ` : ''}
 
+          ${turnstileSiteKey() ? '<div class="mx-auto mt-4 flex justify-center" data-turnstile-vote></div>' : ''}
+
           ${poll.mode === 'deadline' && poll.end_at
     ? `<p class="mt-3 mb-0 text-center text-xs text-muted" data-countdown data-end="${escapeHtml(poll.end_at)}"></p>`
     : ''}
@@ -190,7 +193,8 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
         result = await submitVote({
           pollId: poll.id,
           tokenHash: hash,
-          option
+          option,
+          turnstileToken: turnstileToken('vote')
         });
       } catch (error) {
         let statusMessage = `${t('submitFailed')}: ${getErrorMessage(error)}`;
@@ -217,8 +221,10 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
           if (status) status.textContent = statusMessage;
         }
         showToast(statusMessage, hasVoted ? 'success' : 'error');
+        resetTurnstile('vote');
         return;
       }
+      resetTurnstile('vote');
 
       const statusText = option === 'approve' ? t('approve') : option === 'oppose' ? t('oppose') : t('neutral');
       const message = `${t('voteRecord')}: ${statusText}`;
@@ -257,6 +263,10 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
     const timer = setInterval(renderCountdown, 60_000);
     renderCountdown();
   }
+
+  // Render the Turnstile widget on the vote area when a site key is configured.
+  const voteWidget = document.querySelector<HTMLElement>('[data-turnstile-vote]');
+  if (voteWidget) await renderTurnstile('vote', voteWidget);
 
   bindNavigation();
 }

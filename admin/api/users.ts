@@ -8,7 +8,7 @@
 
 import type { AdminActor, AdminEnv } from '../auth';
 import { logAudit } from '../lib/audit';
-import { noStoreJson, readJsonBody, readString } from '../lib/http';
+import { noStoreJson, readJsonBody, readString } from '../../shared/http';
 import { USER_STATUS_ACTIVE, USER_STATUS_DISABLED, userStatusCode, userStatusLabel } from '../../worker/services/users';
 
 const MAX_PAGE_SIZE = 100;
@@ -24,8 +24,6 @@ interface UserRow {
   last_login_at: number | null;
   created_at: number;
   updated_at: number;
-  poll_count: number;
-  comment_count: number;
 }
 
 export async function handleUsersRequest(
@@ -105,9 +103,7 @@ async function listUsers(url: URL, env: AdminEnv): Promise<Response> {
 
   const result = await env.DB.prepare(
     `SELECT u.id, u.username, u.status, u.failed_attempts, u.locked_until, u.last_login_at,
-            u.created_at, u.updated_at,
-            (SELECT COUNT(*) FROM polls p WHERE p.user_id = u.id) AS poll_count,
-            (SELECT COUNT(*) FROM comments c WHERE c.user_id = u.id) AS comment_count
+            u.created_at, u.updated_at
      FROM users u
      ${where}
      ORDER BY u.created_at DESC, u.id DESC
@@ -189,31 +185,21 @@ async function deleteUser(userId: number, env: AdminEnv, actor: AdminActor): Pro
   const user = await findUser(env, userId);
   if (!user) return noStoreJson({ message: `user ${userId} was not found` }, 404);
 
-  const counts = await env.DB.prepare(
-    `SELECT (SELECT COUNT(*) FROM polls WHERE user_id = ?) AS polls,
-            (SELECT COUNT(*) FROM comments WHERE user_id = ?) AS comments`
-  ).bind(userId, userId).first<{ polls: number; comments: number }>();
-
+  // Sessions cascade with the account row. Submitted polls and comments stay
+  // public but carry no account link (poll ownership is a one-way hash).
   await env.DB.batch([
     env.DB.prepare('DELETE FROM user_sessions WHERE user_id = ?').bind(userId),
-    // Keep the public content but detach it from the removed account.
-    env.DB.prepare('UPDATE polls SET user_id = NULL WHERE user_id = ?').bind(userId),
-    env.DB.prepare('UPDATE comments SET user_id = NULL WHERE user_id = ?').bind(userId),
     env.DB.prepare('DELETE FROM users WHERE id = ?').bind(userId)
   ]);
 
   await logAudit(env, {
     actor, action: 'user.delete', targetType: 'user', targetId: userId,
-    details: {
-      username: user.username,
-      detachedPolls: Number(counts?.polls ?? 0),
-      detachedComments: Number(counts?.comments ?? 0)
-    }
+    details: { username: user.username }
   });
 
   return noStoreJson({
     ok: true,
-    message: `Deleted ${user.username}. Their polls and comments were kept but detached from the account.`
+    message: `Deleted ${user.username}. Their polls and comments were kept but are no longer linked to the account.`
   });
 }
 
@@ -228,8 +214,6 @@ function serializeUser(row: UserRow) {
     isLocked: row.locked_until !== null && row.locked_until > now,
     lastLoginAt: row.last_login_at ? new Date(row.last_login_at * 1000).toISOString() : null,
     createdAt: new Date(row.created_at * 1000).toISOString(),
-    updatedAt: new Date(row.updated_at * 1000).toISOString(),
-    pollCount: Number(row.poll_count),
-    commentCount: Number(row.comment_count)
+    updatedAt: new Date(row.updated_at * 1000).toISOString()
   };
 }
