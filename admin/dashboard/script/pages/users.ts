@@ -28,11 +28,8 @@ export const scriptUsers = `  function renderUsers() {
           var unlockButton = (item.isLocked || item.failedAttempts)
             ? '<button data-action="unlock-user" data-id="' + item.id + '">Reset lock</button>'
             : '';
-          var network = item.networkBucket === null || item.networkBucket === undefined
-            ? ''
-            : '<div class="small muted">network bucket ' + esc(item.networkBucket) + '</div>';
           return '<tr><td>' + esc(item.id) + '</td>' +
-            '<td><strong>' + esc(item.username) + '</strong><div class="small muted">registered ' + esc(formatDate(item.createdAt)) + '</div>' + network + '</td>' +
+            '<td><strong>' + esc(item.username) + '</strong><div class="small muted">registered ' + esc(formatDate(item.createdAt)) + '</div></td>' +
             '<td><span class="badge ' + esc(item.status) + '">' + esc(item.status) + '</span><div class="small muted">' + lock + '</div></td>' +
             '<td class="small">' + esc(item.pollCount) + ' polls<div class="muted">' + esc(item.commentCount) + ' comments</div></td>' +
             '<td class="small">' + esc(formatDate(item.lastLoginAt)) + '</td>' +

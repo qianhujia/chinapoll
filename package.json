@@ -5,16 +5,19 @@
   "type": "module",
   "scripts": {
     "db:migrate": "npx wrangler d1 migrations apply chinapoll-local --local --persist-to .wrangler",
+    "db:reset": "node -e \"require('fs').rmSync('.wrangler',{recursive:true,force:true})\" && npm run db:migrate",
     "admin:worker:dev": "npx wrangler dev --config admin/wrangler.toml --port 8788 --local --persist-to .wrangler --live-reload=false",
     "admin:worker:deploy": "npx wrangler deploy --config admin/wrangler.toml",
     "admin:worker:dry-run": "npx wrangler deploy --config admin/wrangler.toml --dry-run",
-    "dev": "npm run db:migrate && npm run build && (vite preview --host 0.0.0.0 --port 5173 & npx wrangler dev worker/index.ts --local --persist-to .wrangler --port 8787 --live-reload=false & wait)",
-    "dev:web": "npm run build && vite preview --host 0.0.0.0 --port 5173",
+    "dev": "npm run db:migrate && npm run build && (npm run dev:web:serve & npx wrangler dev worker/index.ts --local --persist-to .wrangler --port 8787 --live-reload=false & wait)",
+    "dev:web": "npm run build && npm run dev:web:serve",
+    "dev:web:serve": "vite preview --host 0.0.0.0 --port 5173",
     "dev:worker": "npm run db:migrate && npx wrangler dev worker/index.ts --local --persist-to .wrangler --port 8787 --live-reload=false",
-    "build": "tsc -b && vite build",
+    "build": "tsc --noEmit && vite build",
     "build:worker": "npx wrangler deploy --dry-run --outdir dist/worker",
     "preview": "vite preview --host 0.0.0.0 --port 4173",
     "lint": "tsc --noEmit",
+    "test": "vitest run",
     "worker:dev": "npm run dev:worker"
   },
   "devDependencies": {
@@ -25,6 +28,7 @@
     "tailwindcss": "^4.3.3",
     "typescript": "^5.5.4",
     "vite": "^5.4.10",
+    "vitest": "^2.1.9",
     "wrangler": "^4.149.0"
   }
 }

@@ -2,6 +2,23 @@ name = "chinapoll-worker"
 main = "worker/index.ts"
 compatibility_date = "2026-10-08"
 
+[triggers]
+crons = ["0 * * * *"]
+
+[durable_objects]
+bindings = [{ name = "RATE_LIMITER", class_name = "RateLimiter" }]
+
+# Durable Object migration list. This is unrelated to the D1 migrations_table
+# setting below, which names the D1 tracking table.
+[[migrations]]
+tag = "v1"
+new_classes = ["RateLimiter"]
+
+[assets]
+directory = "./dist/web"
+not_found_handling = "single-page-application"
+run_worker_first = ["/api/*"]
+
 [vars]
 
 [[d1_databases]]

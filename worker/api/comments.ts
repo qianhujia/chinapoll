@@ -1,7 +1,17 @@
-import { RATE_LIMIT_PATTERN } from './settings';
-import { ipBucket } from '../services/ip';
+// Comment listing and submission.
+//
+// Comments require a signed-in account for the waiting-period gate, but the
+// public API never exposes a username. Public identifiers are random so the
+// global insertion order is not revealed. Rate limiting is per account and lives
+// in the RateLimiter Durable Object.
+
+import type { HandlerEnv } from '../index';
+import { toHex } from '../../shared/crypto';
+import { checkRateLimit } from '../services/rateLimit';
+import { enforceSameOrigin } from '../services/csrf';
 import { requireUser } from '../services/session';
 import { checkAccountAge } from '../services/users';
+import { PollMode, PollStatus } from '../enums';
 
 const MAX_PAGE_SIZE = 100;
 const MIN_COMMENT_LENGTH = 5;
@@ -9,33 +19,11 @@ const MAX_COMMENT_LENGTH = 140;
 const DEFAULT_COMMENT_RATE_LIMIT = '3/h';
 const DEFAULT_COMMENT_DELAY_HOURS = 24;
 
-function parseRateLimit(rateLimitStr: string): { count: number; windowMs: number } {
-  const match = rateLimitStr.match(RATE_LIMIT_PATTERN);
-  if (!match) return { count: 3, windowMs: 3_600_000 };
-  const count = Number(match[1]);
-  const unit = match[2];
-  const unitMs: Record<string, number> = {
-    w: 7 * 24 * 60 * 60 * 1000,
-    d: 24 * 60 * 60 * 1000,
-    h: 60 * 60 * 1000,
-    m: 60 * 1000,
-    s: 1000
-  };
-  return { count, windowMs: unitMs[unit] || 3_600_000 };
+function publicId(): string {
+  return toHex(crypto.getRandomValues(new Uint8Array(8)));
 }
 
-async function getCommentRateLimit(db: any): Promise<{ count: number; windowMs: number }> {
-  const row = await db.prepare(
-    'SELECT value FROM settings WHERE key = ?'
-  ).bind('comment_rate_limit').first();
-
-  if (row?.value && typeof row.value === 'string') {
-    return parseRateLimit(row.value);
-  }
-  return parseRateLimit(DEFAULT_COMMENT_RATE_LIMIT);
-}
-
-export async function handleCommentsRequest(request: Request, url: URL, env: any): Promise<Response> {
+export async function handleCommentsRequest(request: Request, url: URL, env: HandlerEnv): Promise<Response> {
   if (request.method === 'POST') {
     return handleCommentSubmission(request, env);
   }
@@ -60,22 +48,24 @@ export async function handleCommentsRequest(request: Request, url: URL, env: any
   }
 
   const countResult = await env.DB.prepare(
-    `SELECT COUNT(*) AS total FROM comments WHERE poll_id = ?`
+    'SELECT COUNT(*) AS total FROM comments WHERE poll_id = ?'
   ).bind(pollId).first();
 
+  // Ordering by created_at then the random public id keeps the order within an
+  // hour from matching insertion order.
   const commentResult = await env.DB.prepare(
-    `SELECT id, comment, created_at FROM comments
+    `SELECT public_id, comment, created_at FROM comments
      WHERE poll_id = ?
-     ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?`
-  ).bind(pollId, pageSize, offset).all();
+     ORDER BY created_at DESC, public_id DESC LIMIT ? OFFSET ?`
+  ).bind(pollId, pageSize, offset).all<{ public_id: string | null; comment: string; created_at: number }>();
 
   return Response.json({
     pollId,
     page,
     pageSize,
     total: Number(countResult?.total ?? 0),
-    comments: (commentResult.results ?? []).map((row: { id: number; comment: string; created_at: number }) => ({
-      id: row.id,
+    comments: (commentResult.results ?? []).map((row) => ({
+      id: row.public_id,
       comment: row.comment,
       createdAt: new Date(row.created_at * 1000).toISOString()
     }))
@@ -83,10 +73,16 @@ export async function handleCommentsRequest(request: Request, url: URL, env: any
     headers: { 'cache-control': 'no-store' }
   });
 }
+async function handleCommentSubmission(request: Request, env: HandlerEnv): Promise<Response> {
+  if (request.method !== 'POST') {
+    return Response.json({ message: 'method not allowed' }, { status: 405 });
+  }
 
-async function handleCommentSubmission(request: Request, env: any): Promise<Response> {
   const auth = await requireUser(request, env);
   if (!auth.ok) return auth.response;
+
+  const csrf = enforceSameOrigin(request, { viaCookie: true });
+  if (csrf) return csrf;
 
   const delayHours = Number(env.user_comment_delay_hours ?? DEFAULT_COMMENT_DELAY_HOURS);
   const accountAge = checkAccountAge(auth.user.createdAt, delayHours);
@@ -117,24 +113,32 @@ async function handleCommentSubmission(request: Request, env: any): Promise<Resp
     return Response.json({ message: 'comment must be between 5 and 140 characters' }, { status: 400 });
   }
 
-  const { count: commentRateLimit, windowMs: commentWindowMs } = await getCommentRateLimit(env.DB);
-  const now = Date.now();
-  const bucketStart = now - (now % commentWindowMs);
+  const poll = await env.DB.prepare(
+    'SELECT status, mode, start_at, end_at FROM polls WHERE id = ?'
+  ).bind(pollId).first<{ status: number; mode: number; start_at: number | null; end_at: number | null }>();
+  if (!poll) {
+    return Response.json({ message: 'poll not found' }, { status: 404 });
+  }
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  const withinDeadline = poll.mode !== PollMode.Deadline
+    || ((poll.start_at === null || poll.start_at <= nowSeconds)
+      && (poll.end_at === null || nowSeconds <= poll.end_at));
+  if (poll.status !== PollStatus.Open || !withinDeadline) {
+    return Response.json({ message: 'poll is not open' }, { status: 409 });
+  }
 
-  const remoteIp = request.headers.get('cf-connecting-ip') ?? '127.0.0.1';
-  const ipPrefix = ipBucket(remoteIp);
-
-  const rateLimitResult: any = await env.DB.prepare(
-    `SELECT COUNT(*) as count FROM comments WHERE ip_prefix = ? AND ts_bucket = ?`
-  ).bind(ipPrefix, bucketStart).first();
-
-  if ((Number(rateLimitResult?.count ?? 0)) >= commentRateLimit) {
+  const limited = await checkRateLimit(env, 'comment', `user:${auth.user.id}`, env.comment_rate_limit, DEFAULT_COMMENT_RATE_LIMIT);
+  if (!limited.allowed) {
     return Response.json({ message: 'comment rate limit reached' }, { status: 429 });
   }
 
-  const result = await env.DB.prepare(
-    'INSERT INTO comments (poll_id, comment, ip_prefix, ts_bucket, user_id) VALUES (?, ?, ?, ?, ?)'
-  ).bind(pollId, comment, ipPrefix, bucketStart, auth.user.id).run();
+  // Coarsen the timestamp to the hour so it cannot be correlated with a session
+  // or edge-log timestamp.
+  const coarseNow = nowSeconds - (nowSeconds % 3600);
+  const id = publicId();
+  await env.DB.prepare(
+    'INSERT INTO comments (poll_id, comment, created_at, public_id) VALUES (?, ?, ?, ?)'
+  ).bind(pollId, comment, coarseNow, id).run();
 
-  return Response.json({ ok: true, id: result.meta.last_row_id }, { status: 201 });
+  return Response.json({ ok: true, id }, { status: 201 });
 }

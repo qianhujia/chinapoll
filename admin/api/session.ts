@@ -20,8 +20,23 @@ import {
 } from '../lib/admins';
 import { logAudit } from '../lib/audit';
 import { noStoreJson, readJsonBody, readString } from '../lib/http';
-import { hashPassword, validatePassword, verifyPassword } from '../lib/password';
+import { PBKDF2_ITERATIONS, hashPassword, passwordIterations, validatePassword, verifyPassword } from '../lib/password';
 import { getTurnstileConfig, verifyTurnstile } from '../services/turnstile';
+import { checkRateLimit } from '../../worker/services/rateLimit';
+
+// Admin login and setup are rate limited through the shared RateLimiter Durable
+// Object. No address is stored; the keys are fixed strings.
+const LOGIN_GLOBAL_LIMIT = '30/m';
+const LOGIN_USER_LIMIT = '10/m';
+const SETUP_LIMIT = '3/m';
+
+async function enforceLoginRateLimit(env: AdminEnv, username: string): Promise<Response | null> {
+  const global = await checkRateLimit(env, 'admin-login-global', 'global:login', LOGIN_GLOBAL_LIMIT, LOGIN_GLOBAL_LIMIT);
+  if (!global.allowed) return noStoreJson({ message: 'too many login attempts; try again later' }, 429);
+  const perUser = await checkRateLimit(env, 'admin-login-user', `user:${username}`, LOGIN_USER_LIMIT, LOGIN_USER_LIMIT);
+  if (!perUser.allowed) return noStoreJson({ message: 'too many login attempts; try again later' }, 429);
+  return null;
+}
 
 interface AdminUserRow {
   id: number;
@@ -94,36 +109,28 @@ async function login(request: Request, env: AdminEnv): Promise<Response> {
     }
   }
 
+  const rateLimited = await enforceLoginRateLimit(env, username);
+  if (rateLimited) return rateLimited;
+
   const user = await env.DB.prepare(
     `SELECT id, username, password_hash, status, failed_attempts, locked_until, role
      FROM admin_users WHERE username = ?`
   ).bind(username).first<AdminUserRow>();
 
-  if (!user) {
-    await logAudit(env, { action: 'login.failed', actorUsername: username, details: { reason: 'unknown_user' } });
+  // Every failure mode returns the same generic message so the endpoint cannot
+  // confirm whether a username exists, is disabled, or is locked.
+  if (!user || user.status !== ADMIN_STATUS_ACTIVE) {
+    await logAudit(env, { action: 'login.failed', actorUsername: username, details: { reason: user ? 'unavailable' : 'unknown_user' } });
     return noStoreJson({ message: 'invalid username or password' }, 401);
-  }
-
-  if (user.status !== ADMIN_STATUS_ACTIVE) {
-    await logAudit(env, {
-      action: 'login.failed', actorUsername: username,
-      targetType: 'admin_user', targetId: user.id, details: { reason: 'disabled' }
-    });
-    return noStoreJson({ message: 'account disabled' }, 403);
   }
 
   const now = Math.floor(Date.now() / 1000);
   if (user.locked_until && user.locked_until > now) {
-    const retryAfter = user.locked_until - now;
     await logAudit(env, {
       action: 'login.locked', actorUsername: username,
-      targetType: 'admin_user', targetId: user.id, details: { retryAfter }
+      targetType: 'admin_user', targetId: user.id
     });
-    return noStoreJson({
-      message: `account locked; try again in ${Math.ceil(retryAfter / 60)} minute(s)`,
-      locked: true,
-      retryAfter
-    }, 423);
+    return noStoreJson({ message: 'invalid username or password' }, 401);
   }
 
   if (!await verifyPassword(password, user.password_hash)) {
@@ -138,11 +145,7 @@ async function login(request: Request, env: AdminEnv): Promise<Response> {
         targetType: 'admin_user', targetId: user.id,
         details: { reason: 'too_many_attempts', lockedUntil: new Date(lockedUntil * 1000).toISOString() }
       });
-      return noStoreJson({
-        message: `too many failed attempts; account locked for ${LOCK_DURATION_SECONDS / 60} minutes`,
-        locked: true,
-        retryAfter: LOCK_DURATION_SECONDS
-      }, 423);
+      return noStoreJson({ message: 'invalid username or password' }, 401);
     }
 
     await env.DB.prepare(
@@ -151,19 +154,23 @@ async function login(request: Request, env: AdminEnv): Promise<Response> {
     await logAudit(env, {
       action: 'login.failed', actorUsername: username,
       targetType: 'admin_user', targetId: user.id,
-      details: { attempts, remaining: MAX_FAILED_ATTEMPTS - attempts }
+      details: { attempts }
     });
-    return noStoreJson({
-      message: 'invalid username or password',
-      remainingAttempts: MAX_FAILED_ATTEMPTS - attempts
-    }, 401);
+    return noStoreJson({ message: 'invalid username or password' }, 401);
   }
+
+  // Rehash with the current iteration count when the stored hash predates it.
+  const storedIterations = passwordIterations(user.password_hash);
+  const nextHash = storedIterations !== null && storedIterations < PBKDF2_ITERATIONS
+    ? await hashPassword(password)
+    : null;
 
   await env.DB.prepare(
     `UPDATE admin_users
-     SET failed_attempts = 0, locked_until = NULL, last_login_at = unixepoch(), updated_at = unixepoch()
+     SET failed_attempts = 0, locked_until = NULL, last_login_at = unixepoch(), updated_at = unixepoch(),
+         password_hash = COALESCE(?, password_hash)
      WHERE id = ?`
-  ).bind(user.id).run();
+  ).bind(nextHash, user.id).run();
 
   const token = await createSession(env, user.id);
   const actor: AdminActor = { id: user.id, username: user.username, role: adminRoleLabel(user.role) };
@@ -177,6 +184,11 @@ async function login(request: Request, env: AdminEnv): Promise<Response> {
 // Creates the very first admin user as a super admin. Disabled once any admin
 // user exists.
 async function setup(request: Request, env: AdminEnv): Promise<Response> {
+  const setupLimit = await checkRateLimit(env, 'admin-setup', 'global:setup', SETUP_LIMIT, SETUP_LIMIT);
+  if (!setupLimit.allowed) {
+    return noStoreJson({ message: 'too many setup attempts; try again later' }, 429);
+  }
+
   const body = await readJsonBody(request);
   if (!body) return noStoreJson({ message: 'invalid JSON' }, 400);
 

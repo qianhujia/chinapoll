@@ -38,7 +38,7 @@
   "aboutTitle": "About ChinaPoll",
   "aboutBody": "ChinaPoll combines continuous voting, anonymous participation, and public auditability into a practical public-opinion platform.",
   "aboutPointOne": "One device, one vote via a random client token and server-side uniqueness checks.",
-  "aboutPointTwo": "No login or personal data collection.",
+  "aboutPointTwo": "Accounts are required only to submit a poll or comment; voting stays anonymous.",
   "aboutPointThree": "Public snapshots and hashable records for verification.",
   "proposalTitle": "Proposal",
   "proposalBody": "To add a new public poll, it should meet these minimum checks:",
@@ -146,7 +146,7 @@
   "password": "Password",
   "confirmPassword": "Confirm password",
   "passwordMismatch": "The two passwords do not match.",
-  "passwordInvalid": "Password must be at least 8 characters.",
+  "passwordInvalid": "Password must be at least 12 characters.",
   "accountTitle": "My account",
   "accountSignedInAs": "Signed in as",
   "accountCreatedAt": "Member since",
@@ -168,5 +168,14 @@
   "statusOpen": "Open",
   "statusClosed": "Closed",
   "statusArchived": "Archived",
-  "statusPending": "Under review"
+  "statusPending": "Under review",
+  "resultsHidden": "Results appear after {n} votes.",
+  "timeRemaining": "Time remaining",
+  "pollEnded": "Voting has ended.",
+  "accountDeleteTitle": "Delete account",
+  "accountDeleteBody": "Deleting your account removes it and signs you out everywhere. Your polls and comments are kept but detached from you.",
+  "accountDeleteAction": "Delete my account",
+  "accountDeleteConfirm": "Delete your account permanently?",
+  "accountDeleted": "Account deleted.",
+  "accountPasswordPrompt": "Enter your current password to continue"
 }

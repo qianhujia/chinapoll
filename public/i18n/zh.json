@@ -146,7 +146,7 @@
   "password": "密码",
   "confirmPassword": "确认密码",
   "passwordMismatch": "两次输入的密码不一致。",
-  "passwordInvalid": "密码至少需要 8 个字符。",
+  "passwordInvalid": "密码至少需要 12 个字符。",
   "accountTitle": "我的账号",
   "accountSignedInAs": "当前登录",
   "accountCreatedAt": "注册时间",
@@ -168,5 +168,14 @@
   "statusOpen": "进行中",
   "statusClosed": "已结束",
   "statusArchived": "已归档",
-  "statusPending": "审核中"
+  "statusPending": "审核中",
+  "resultsHidden": "达到 {n} 票后显示结果。",
+  "timeRemaining": "剩余时间",
+  "pollEnded": "投票已结束。",
+  "accountDeleteTitle": "删除账号",
+  "accountDeleteBody": "删除账号会移除该账号并在所有设备退出登录。你提交的投票和评论会保留，但会与账号解除关联。",
+  "accountDeleteAction": "删除我的账号",
+  "accountDeleteConfirm": "确定要永久删除账号吗？",
+  "accountDeleted": "账号已删除。",
+  "accountPasswordPrompt": "请输入当前密码以继续"
 }

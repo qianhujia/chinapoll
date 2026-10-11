@@ -1,7 +1,10 @@
 // Self-service endpoints for the signed-in account: list and manage the polls
 // and comments that belong to it.
 
-import { requireUser, type SessionEnv } from '../services/session';
+import type { HandlerEnv } from '../index';
+import { requireUser } from '../services/session';
+import { enforceSameOrigin } from '../services/csrf';
+import { verifyPassword } from '../services/password';
 import { generateRecoveryCode } from '../services/recovery';
 
 const MAX_PAGE_SIZE = 100;
@@ -19,7 +22,7 @@ function pollModeLabel(mode: number): string {
   return mode === 2 ? 'evergreen' : 'deadline';
 }
 
-interface UserEnv extends SessionEnv {}
+type UserEnv = HandlerEnv;
 
 function noStoreJson(data: unknown, status = 200): Response {
   return Response.json(data, {
@@ -31,6 +34,15 @@ function noStoreJson(data: unknown, status = 200): Response {
 export async function handleUserRequest(request: Request, url: URL, env: UserEnv): Promise<Response> {
   const auth = await requireUser(request, env);
   if (!auth.ok) return auth.response;
+
+  // Every cookie-authenticated mutation must come from the site itself.
+  const csrf = enforceSameOrigin(request, { viaCookie: true });
+  if (csrf) return csrf;
+
+  if (url.pathname === '/api/user/account') {
+    if (request.method !== 'DELETE') return noStoreJson({ message: 'method not allowed' }, 405);
+    return deleteAccount(request, env, auth.user.id);
+  }
 
   if (url.pathname === '/api/user/polls') {
     if (request.method !== 'GET') return noStoreJson({ message: 'method not allowed' }, 405);
@@ -44,7 +56,7 @@ export async function handleUserRequest(request: Request, url: URL, env: UserEnv
 
   if (url.pathname === '/api/user/recovery-code') {
     if (request.method === 'GET') return recoveryCodeStatus(env, auth.user.id);
-    if (request.method === 'POST') return regenerateRecoveryCode(env, auth.user.id);
+    if (request.method === 'POST') return regenerateRecoveryCode(request, env, auth.user.id);
     return noStoreJson({ message: 'method not allowed' }, 405);
   }
 
@@ -217,13 +229,69 @@ async function recoveryCodeStatus(env: UserEnv, userId: number): Promise<Respons
   return noStoreJson({ configured: Number(row?.configured ?? 0) === 1 });
 }
 
-// Replaces the recovery code and returns the new plaintext code once.
-async function regenerateRecoveryCode(env: UserEnv, userId: number): Promise<Response> {
+// Replaces the recovery code and returns the new plaintext code once. The
+// current password must be supplied so a hijacked session cannot lock the real
+// owner out of recovery.
+async function regenerateRecoveryCode(request: Request, env: UserEnv, userId: number): Promise<Response> {
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return noStoreJson({ message: 'invalid JSON' }, 400);
+  }
+  const currentPassword = typeof body === 'object' && body !== null
+    ? String((body as Record<string, unknown>).currentPassword ?? '')
+    : '';
+  if (!currentPassword) {
+    return noStoreJson({ message: 'current password is required' }, 400);
+  }
+
+  const user = await env.DB.prepare(
+    'SELECT password_hash FROM users WHERE id = ?'
+  ).bind(userId).first<{ password_hash: string }>();
+  if (!user || !await verifyPassword(currentPassword, user.password_hash)) {
+    return noStoreJson({ message: 'current password is incorrect' }, 403);
+  }
+
   const recoveryCode = await generateRecoveryCode();
   await env.DB.prepare(
     'UPDATE users SET recovery_code_hash = ?, recovery_code_updated_at = unixepoch(), updated_at = unixepoch() WHERE id = ?'
   ).bind(recoveryCode.hash, userId).run();
   return noStoreJson({ ok: true, recoveryCode: recoveryCode.code });
+}
+
+// Deletes the account after confirming the password. Sessions are revoked and
+// the user's polls and comments are detached (user_id set to NULL) so the public
+// content stays but is no longer linked to an account.
+async function deleteAccount(request: Request, env: UserEnv, userId: number): Promise<Response> {
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return noStoreJson({ message: 'invalid JSON' }, 400);
+  }
+  const currentPassword = typeof body === 'object' && body !== null
+    ? String((body as Record<string, unknown>).currentPassword ?? '')
+    : '';
+  if (!currentPassword) {
+    return noStoreJson({ message: 'current password is required' }, 400);
+  }
+
+  const user = await env.DB.prepare(
+    'SELECT password_hash FROM users WHERE id = ?'
+  ).bind(userId).first<{ password_hash: string }>();
+  if (!user || !await verifyPassword(currentPassword, user.password_hash)) {
+    return noStoreJson({ message: 'current password is incorrect' }, 403);
+  }
+
+  await env.DB.batch([
+    env.DB.prepare('DELETE FROM user_sessions WHERE user_id = ?').bind(userId),
+    env.DB.prepare('UPDATE polls SET user_id = NULL WHERE user_id = ?').bind(userId),
+    env.DB.prepare('UPDATE comments SET user_id = NULL WHERE user_id = ?').bind(userId),
+    env.DB.prepare('DELETE FROM users WHERE id = ?').bind(userId)
+  ]);
+
+  return noStoreJson({ ok: true, deleted: true });
 }
 
 function toIso(unixSeconds: number | null): string | null {

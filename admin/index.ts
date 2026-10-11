@@ -24,6 +24,9 @@ import { renderDashboard } from './ui';
 
 export interface Env extends AdminEnv {}
 
+// Durable Object class referenced by the RATE_LIMITER binding in wrangler.toml.
+export { RateLimiter } from '../worker/services/rateLimiter';
+
 const TURNSTILE_ORIGIN = 'https://challenges.cloudflare.com';
 
 // The dashboard is a single page with a dedicated URL per view. Every known

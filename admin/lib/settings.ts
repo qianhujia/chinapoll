@@ -28,7 +28,7 @@ export function validateSettingValue(key: string, value: string): SettingValidat
 
   switch (key) {
     case 'default_locale':
-      if (value !== 'en' && value !== 'zh-CN') return { ok: false, error: 'default_locale must be "en" or "zh-CN".' };
+      if (value !== 'en' && value !== 'zh-CN' && value !== 'zh-TW') return { ok: false, error: 'default_locale must be "en", "zh-CN", or "zh-TW".' };
       break;
     case 'site_name':
       if (!value.trim() || value.length > 100) return { ok: false, error: 'site_name must contain 1 to 100 characters.' };
@@ -98,6 +98,14 @@ export function validateSettingValue(key: string, value: string): SettingValidat
     case 'login_badge_enable':
     case 'auto_approve_polls':
       if (value !== 'true' && value !== 'false') return { ok: false, error: `${key} must be "true" or "false".` };
+      break;
+    case 'min_votes_to_display':
+      if (!/^\d+$/.test(value) || Number(value) > 1000) {
+        return { ok: false, error: 'min_votes_to_display must be an integer from 0 to 1000.' };
+      }
+      break;
+    case 'turnstile_site_key':
+      if (value.length > 100) return { ok: false, error: 'turnstile_site_key must not exceed 100 characters.' };
       break;
     case 'turnstile_secret_key':
       if (value && !/^[0-9a-f]{64}$/i.test(value)) {

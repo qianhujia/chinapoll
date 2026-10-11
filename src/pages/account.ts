@@ -1,5 +1,6 @@
 import {
   closeUserPoll,
+  deleteAccount,
   deleteUserComment,
   deleteUserPoll,
   getCurrentUser,
@@ -123,6 +124,14 @@ export async function mountAccountPage(
           <div data-recovery-output></div>
         </section>
 
+        <section class="grid gap-3 rounded-[22px] border border-[#e2a9a9] bg-panel p-6 shadow-card">
+          <h2 class="m-0 text-xl font-bold">${t('accountDeleteTitle')}</h2>
+          <p class="m-0 text-muted">${t('accountDeleteBody')}</p>
+          <div>
+            <button class="cursor-pointer rounded-full border border-[#d95b5b] bg-panel px-3.5 py-2 text-sm text-[#d95b5b] hover:bg-[#faeaea]" type="button" data-delete-account>${t('accountDeleteAction')}</button>
+          </div>
+        </section>
+
         <section class="rounded-[22px] border border-border bg-panel p-6 shadow-card">
           <h2 class="mb-3.5 text-xl font-bold">${t('accountPollsTitle')}</h2>
           ${loadError ? `<p class="m-0 text-muted">${escapeHtml(t('accountLoadFailed'))} ${escapeHtml(loadError)}</p>`
@@ -146,15 +155,33 @@ export async function mountAccountPage(
 
   document.querySelector('[data-regenerate-recovery]')?.addEventListener('click', async (event) => {
     const button = event.currentTarget as HTMLButtonElement;
+    const currentPassword = window.prompt(t('accountPasswordPrompt')) ?? '';
+    if (!currentPassword) return;
     button.disabled = true;
     try {
-      const code = await regenerateRecoveryCode();
+      const code = await regenerateRecoveryCode(currentPassword);
       const output = document.querySelector<HTMLElement>('[data-recovery-output]');
       if (output) output.innerHTML = renderRecoveryCode(code);
       showToast(t('recoveryCodeRegenerated'));
     } catch (error) {
       showToast(`${t('accountActionFailed')} ${getErrorMessage(error)}`, 'error');
     } finally {
+      button.disabled = false;
+    }
+  });
+
+  document.querySelector('[data-delete-account]')?.addEventListener('click', async (event) => {
+    const button = event.currentTarget as HTMLButtonElement;
+    if (!window.confirm(t('accountDeleteConfirm'))) return;
+    const currentPassword = window.prompt(t('accountPasswordPrompt')) ?? '';
+    if (!currentPassword) return;
+    button.disabled = true;
+    try {
+      await deleteAccount(currentPassword);
+      showToast(t('accountDeleted'));
+      navigate('/');
+    } catch (error) {
+      showToast(`${t('accountActionFailed')} ${getErrorMessage(error)}`, 'error');
       button.disabled = false;
     }
   });

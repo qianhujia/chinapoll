@@ -1,6 +1,5 @@
-interface SettingsEnv {
-  DB: D1Database;
-}
+// Public application settings: defaults, validation, and the single loader used
+// by both the request router and the public settings endpoint.
 
 interface SettingRow {
   key: string;
@@ -8,7 +7,8 @@ interface SettingRow {
 }
 
 // Rate limits use the "<count>/<unit>" format where unit is one of w, d, h, m, s.
-export const RATE_LIMIT_PATTERN = /^\d+\/[wdhms]$/;
+// The capture groups are required by parseRateLimit.
+export const RATE_LIMIT_PATTERN = /^(\d+)\/([wdhms])$/;
 
 // Hero background accepts a CSS color (hex, rgb/a, hsl/a, named) or a CSS gradient.
 export const HERO_BACKGROUND_COLOR_PATTERN =
@@ -25,11 +25,12 @@ export const DEFAULT_PUBLIC_SETTINGS = {
   vote_rate_limit: '5/h',
   comment_rate_limit: '3/h',
   proposal_rate_limit: '1/d',
-  hero_title: 'Continuous polls · Fully anonymous · Openly auditable',
-  hero_subtitle: 'No login required to vote yes/no/neutral on open polls.',
+  hero_title: 'Continuous polls · Anonymously cast · Openly auditable',
+  hero_subtitle: 'Sign in to submit a poll or comment; votes stay anonymous.',
   hero_background_color: '',
   read_only_mode: false,
   turnstile_secret_key: '',
+  turnstile_site_key: '',
   turnstile_enable: false,
   // Shows an "optional" badge next to the login link in the site navigation when
   // true, making clear that signing in is not required.
@@ -45,162 +46,34 @@ export const DEFAULT_PUBLIC_SETTINGS = {
   login_max_failed_attempts: 5,
   login_lock_minutes: 15,
   login_rate_limit: '10/h',
-  register_rate_limit: '5/d'
+  register_rate_limit: '5/d',
+  // Vote totals below this number are hidden until the poll gathers more votes.
+  min_votes_to_display: 10
 };
 
-const publicSettingKeys = Object.keys(DEFAULT_PUBLIC_SETTINGS);
+export type PublicSettings = typeof DEFAULT_PUBLIC_SETTINGS;
 
-export async function handlePublicSettingsRequest(request: Request, env: SettingsEnv): Promise<Response> {
-  if (request.method !== 'GET') {
-    return Response.json({ message: 'method not allowed' }, { status: 405 });
+const publicSettingKeys = Object.keys(DEFAULT_PUBLIC_SETTINGS) as Array<keyof PublicSettings>;
+
+// Raised when a stored setting fails validation. The public endpoint reports it
+// as a 500; the request router falls back to the built-in defaults.
+export class SettingsValidationError extends Error {
+  constructor(public readonly key: string, message: string) {
+    super(message);
+    this.name = 'SettingsValidationError';
   }
-
-  const placeholders = publicSettingKeys.map(() => '?').join(', ');
-  const result = await env.DB.prepare(
-    `SELECT key, value FROM settings WHERE key IN (${placeholders})`
-  ).bind(...publicSettingKeys).all<SettingRow>();
-
-  const settings = { ...DEFAULT_PUBLIC_SETTINGS };
-  for (const row of result.results ?? []) {
-    if (row.value === null) {
-      return Response.json({ message: `setting "${row.key}" must have a value` }, { status: 500 });
-    }
-
-    switch (row.key) {
-      case 'default_locale':
-        if (row.value !== 'en' && row.value !== 'zh-CN') {
-          return Response.json({ message: 'setting "default_locale" must be "en" or "zh-CN"' }, { status: 500 });
-        }
-        settings.default_locale = row.value;
-        break;
-      case 'site_name':
-        if (!row.value.trim() || row.value.length > 100) {
-          return Response.json({ message: 'setting "site_name" must contain 1 to 100 characters' }, { status: 500 });
-        }
-        settings.site_name = row.value;
-        break;
-      case 'site_slogan':
-        if (row.value.length > 300) {
-          return Response.json({ message: 'setting "site_slogan" must not exceed 300 characters' }, { status: 500 });
-        }
-        settings.site_slogan = row.value;
-        break;
-      case 'data_repository_url':
-        if (row.value && !isHttpsUrl(row.value)) {
-          return Response.json({ message: 'setting "data_repository_url" must be an HTTPS URL or empty' }, { status: 500 });
-        }
-        settings.data_repository_url = row.value;
-        break;
-      case 'polls_per_page':
-      case 'comments_per_page':
-        if (!/^\d+$/.test(row.value) || Number(row.value) < 1 || Number(row.value) > 100) {
-          return Response.json({ message: `setting "${row.key}" must be an integer from 1 to 100` }, { status: 500 });
-        }
-        settings[row.key] = Number(row.value);
-        break;
-      case 'page_max_width_px':
-        if (!/^\d+$/.test(row.value) || Number(row.value) < 100 || Number(row.value) > 9999) {
-          return Response.json({ message: 'setting "page_max_width_px" must be an integer from 100 to 9999' }, { status: 500 });
-        }
-        settings.page_max_width_px = Number(row.value);
-        break;
-      case 'vote_rate_limit':
-      case 'comment_rate_limit':
-      case 'proposal_rate_limit':
-      case 'login_rate_limit':
-      case 'register_rate_limit': {
-        const normalized = row.value.trim().toLowerCase();
-        // An invalid value falls back to the default so one bad setting cannot break the public endpoint.
-        if (RATE_LIMIT_PATTERN.test(normalized)) {
-          settings[row.key] = normalized;
-        }
-        break;
-      }
-      case 'user_poll_delay_hours':
-      case 'user_comment_delay_hours':
-        if (!/^\d+$/.test(row.value) || Number(row.value) > 8760) {
-          return Response.json({ message: `setting \"${row.key}\" must be an integer from 0 to 8760` }, { status: 500 });
-        }
-        settings[row.key] = Number(row.value);
-        break;
-      case 'max_accounts_per_ip':
-        if (!/^\d+$/.test(row.value) || Number(row.value) < 1 || Number(row.value) > 1000) {
-          return Response.json({ message: 'setting \"max_accounts_per_ip\" must be an integer from 1 to 1000' }, { status: 500 });
-        }
-        settings.max_accounts_per_ip = Number(row.value);
-        break;
-      case 'login_max_failed_attempts':
-        if (!/^\d+$/.test(row.value) || Number(row.value) < 1 || Number(row.value) > 100) {
-          return Response.json({ message: 'setting \"login_max_failed_attempts\" must be an integer from 1 to 100' }, { status: 500 });
-        }
-        settings.login_max_failed_attempts = Number(row.value);
-        break;
-      case 'login_lock_minutes':
-        if (!/^\d+$/.test(row.value) || Number(row.value) < 1 || Number(row.value) > 1440) {
-          return Response.json({ message: 'setting \"login_lock_minutes\" must be an integer from 1 to 1440' }, { status: 500 });
-        }
-        settings.login_lock_minutes = Number(row.value);
-        break;
-      case 'hero_title':
-        if (!row.value.trim() || row.value.length > 200) {
-          return Response.json({ message: 'setting "hero_title" must contain 1 to 200 characters' }, { status: 500 });
-        }
-        settings.hero_title = row.value;
-        break;
-      case 'hero_subtitle':
-        if (row.value.length > 500) {
-          return Response.json({ message: 'setting "hero_subtitle" must not exceed 500 characters' }, { status: 500 });
-        }
-        settings.hero_subtitle = row.value;
-        break;
-      case 'hero_background_color':
-        if (row.value && !HERO_BACKGROUND_COLOR_PATTERN.test(row.value)) {
-          return Response.json({ message: 'setting "hero_background_color" must be a CSS color (hex, rgb/a, hsl/a, or named) or a CSS gradient' }, { status: 500 });
-        }
-        settings.hero_background_color = row.value;
-        break;
-      case 'login_badge_enable':
-        if (row.value !== 'true' && row.value !== 'false') {
-          return Response.json({ message: 'setting login_badge_enable must be "true" or "false"' }, { status: 500 });
-        }
-        settings.login_badge_enable = row.value === 'true';
-        break;
-      case 'auto_approve_polls':
-        if (row.value !== 'true' && row.value !== 'false') {
-          return Response.json({ message: 'setting auto_approve_polls must be "true" or "false"' }, { status: 500 });
-        }
-        settings.auto_approve_polls = row.value === 'true';
-        break;
-      case 'read_only_mode':
-        if (row.value !== 'true' && row.value !== 'false') {
-          return Response.json({ message: 'setting "read_only_mode" must be "true" or "false"' }, { status: 500 });
-        }
-        settings.read_only_mode = row.value === 'true';
-        break;
-      case 'turnstile_secret_key':
-        if (row.value && !/^[0-9a-f]{64}$/i.test(row.value)) {
-          return Response.json({ message: 'setting "turnstile_secret_key" must be a 64-character hex string' }, { status: 500 });
-        }
-        settings.turnstile_secret_key = row.value;
-        break;
-      case 'turnstile_enable':
-        if (row.value !== 'true' && row.value !== 'false') {
-          return Response.json({ message: 'setting "turnstile_enable" must be "true" or "false"' }, { status: 500 });
-        }
-        settings.turnstile_enable = row.value === 'true';
-        break;
-    }
-  }
-
-  return Response.json(stripPrivateSettings(settings), {
-    headers: { 'cache-control': 'no-store' }
-  });
 }
 
-// Secrets such as the Turnstile key stay in the database for the Worker only; they are never served publicly.
-function stripPrivateSettings(settings: typeof DEFAULT_PUBLIC_SETTINGS): Record<string, unknown> {
-  const { turnstile_secret_key: _secretKey, ...publicSettings } = settings;
-  return publicSettings;
+function invalid(key: string, requirement: string): never {
+  throw new SettingsValidationError(key, `setting "${key}" ${requirement}`);
+}
+
+function isLocale(value: string): value is 'en' | 'zh-CN' | 'zh-TW' {
+  return value === 'en' || value === 'zh-CN' || value === 'zh-TW';
+}
+
+function isInteger(value: string, min: number, max: number): boolean {
+  return /^\d+$/.test(value) && Number(value) >= min && Number(value) <= max;
 }
 
 function isHttpsUrl(value: string): boolean {
@@ -208,5 +81,136 @@ function isHttpsUrl(value: string): boolean {
     return new URL(value).protocol === 'https:';
   } catch {
     return false;
+  }
+}
+// Loads and validates every public setting in one pass. Missing rows keep their
+// default; a malformed stored value raises SettingsValidationError.
+export async function loadPublicSettings(db: D1Database): Promise<PublicSettings> {
+  const placeholders = publicSettingKeys.map(() => '?').join(', ');
+  const result = await db.prepare(
+    `SELECT key, value FROM settings WHERE key IN (${placeholders})`
+  ).bind(...publicSettingKeys).all<SettingRow>();
+
+  const settings: PublicSettings = { ...DEFAULT_PUBLIC_SETTINGS };
+
+  for (const row of result.results ?? []) {
+    if (!(row.key in DEFAULT_PUBLIC_SETTINGS)) continue;
+    if (row.value === null) invalid(row.key, 'must have a value');
+    const value = row.value;
+
+    switch (row.key as keyof PublicSettings) {
+      case 'default_locale':
+        if (!isLocale(value)) invalid(row.key, 'must be "en", "zh-CN", or "zh-TW"');
+        settings.default_locale = value;
+        break;
+      case 'site_name':
+        if (!value.trim() || value.length > 100) invalid(row.key, 'must contain 1 to 100 characters');
+        settings.site_name = value;
+        break;
+      case 'site_slogan':
+        if (value.length > 300) invalid(row.key, 'must not exceed 300 characters');
+        settings.site_slogan = value;
+        break;
+      case 'data_repository_url':
+        if (value && !isHttpsUrl(value)) invalid(row.key, 'must be an HTTPS URL or empty');
+        settings.data_repository_url = value;
+        break;
+      case 'polls_per_page':
+      case 'comments_per_page':
+        if (!isInteger(value, 1, 100)) invalid(row.key, 'must be an integer from 1 to 100');
+        (settings as Record<string, unknown>)[row.key] = Number(value);
+        break;
+      case 'page_max_width_px':
+        if (!isInteger(value, 100, 9999)) invalid(row.key, 'must be an integer from 100 to 9999');
+        settings.page_max_width_px = Number(value);
+        break;
+      case 'user_poll_delay_hours':
+      case 'user_comment_delay_hours':
+        if (!isInteger(value, 0, 8760)) invalid(row.key, 'must be an integer from 0 to 8760');
+        (settings as Record<string, unknown>)[row.key] = Number(value);
+        break;
+      case 'max_accounts_per_ip':
+        if (!isInteger(value, 1, 1000)) invalid(row.key, 'must be an integer from 1 to 1000');
+        settings.max_accounts_per_ip = Number(value);
+        break;
+      case 'login_max_failed_attempts':
+        if (!isInteger(value, 1, 100)) invalid(row.key, 'must be an integer from 1 to 100');
+        settings.login_max_failed_attempts = Number(value);
+        break;
+      case 'login_lock_minutes':
+        if (!isInteger(value, 1, 1440)) invalid(row.key, 'must be an integer from 1 to 1440');
+        settings.login_lock_minutes = Number(value);
+        break;
+      case 'min_votes_to_display':
+        if (!isInteger(value, 0, 1000)) invalid(row.key, 'must be an integer from 0 to 1000');
+        settings.min_votes_to_display = Number(value);
+        break;
+      case 'vote_rate_limit':
+      case 'comment_rate_limit':
+      case 'proposal_rate_limit':
+      case 'login_rate_limit':
+      case 'register_rate_limit': {
+        const normalized = value.trim().toLowerCase();
+        if (!RATE_LIMIT_PATTERN.test(normalized)) invalid(row.key, 'must be in format "N/w|d|h|m|s"');
+        (settings as Record<string, unknown>)[row.key] = normalized;
+        break;
+      }
+      case 'hero_title':
+        if (!value.trim() || value.length > 200) invalid(row.key, 'must contain 1 to 200 characters');
+        settings.hero_title = value;
+        break;
+      case 'hero_subtitle':
+        if (value.length > 500) invalid(row.key, 'must not exceed 500 characters');
+        settings.hero_subtitle = value;
+        break;
+      case 'hero_background_color':
+        if (value && !HERO_BACKGROUND_COLOR_PATTERN.test(value)) {
+          invalid(row.key, 'must be a CSS color (hex, rgb/a, hsl/a, or named) or a CSS gradient');
+        }
+        settings.hero_background_color = value;
+        break;
+      case 'login_badge_enable':
+      case 'auto_approve_polls':
+      case 'read_only_mode':
+      case 'turnstile_enable':
+        if (value !== 'true' && value !== 'false') invalid(row.key, 'must be "true" or "false"');
+        (settings as Record<string, unknown>)[row.key] = value === 'true';
+        break;
+      case 'turnstile_secret_key':
+        if (value && !/^[0-9a-f]{64}$/i.test(value)) invalid(row.key, 'must be a 64-character hex string');
+        settings.turnstile_secret_key = value;
+        break;
+      case 'turnstile_site_key':
+        if (value.length > 100) invalid(row.key, 'must not exceed 100 characters');
+        settings.turnstile_site_key = value;
+        break;
+    }
+  }
+
+  return settings;
+}
+
+// Secrets such as the Turnstile secret key stay in the database for the Worker
+// only; they are never served publicly. The site key is public by design.
+function stripPrivateSettings(settings: PublicSettings): Record<string, unknown> {
+  const { turnstile_secret_key: _secretKey, ...publicSettings } = settings;
+  return publicSettings;
+}
+
+export async function handlePublicSettingsRequest(request: Request, env: { DB: D1Database }): Promise<Response> {
+  if (request.method !== 'GET') {
+    return Response.json({ message: 'method not allowed' }, { status: 405 });
+  }
+
+  try {
+    const settings = await loadPublicSettings(env.DB);
+    return Response.json(stripPrivateSettings(settings), {
+      headers: { 'cache-control': 'no-store' }
+    });
+  } catch (error) {
+    if (error instanceof SettingsValidationError) {
+      return Response.json({ message: error.message }, { status: 500 });
+    }
+    throw error;
   }
 }

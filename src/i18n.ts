@@ -1,7 +1,10 @@
-export type Locale = 'en' | 'zh-CN';
+export type Locale = 'en' | 'zh-CN' | 'zh-TW';
 
 export function resolveLocale(value?: string | null): Locale {
   const normalized = (value ?? '').trim().toLowerCase();
+  if (normalized === 'zh-tw' || normalized === 'zh_tw' || normalized === 'zh-hant') {
+    return 'zh-TW';
+  }
   if (normalized === 'zh' || normalized === 'zh-cn' || normalized === 'zh_cn' || normalized === 'cn') {
     return 'zh-CN';
   }
@@ -16,8 +19,14 @@ export function setDefaultLocale(value: Locale): void {
 
 const translations: Partial<Record<Locale, Record<string, string>>> = {};
 
+const LOCALE_FILES: Record<Locale, string> = {
+  en: '/i18n/en.json',
+  'zh-CN': '/i18n/zh.json',
+  'zh-TW': '/i18n/zh-TW.json'
+};
+
 export async function loadTranslations(locale: Locale): Promise<void> {
-  const path = locale === 'zh-CN' ? '/i18n/zh.json' : '/i18n/en.json';
+  const path = LOCALE_FILES[locale];
   const response = await fetch(path);
   if (!response.ok) {
     throw new Error(`Could not load translations (${response.status})`);

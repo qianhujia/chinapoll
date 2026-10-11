@@ -28,3 +28,12 @@ migrations_table = "migrations"
 # Optional: allow cookie-authenticated mutations from an additional origin.
 # ADMIN_ORIGIN = "https://admin.chinapoll.org"
 
+# Shared rate limiter used for admin login and setup throttling. This is a
+# separate Durable Object namespace from the public Worker's.
+[durable_objects]
+bindings = [{ name = "RATE_LIMITER", class_name = "RateLimiter" }]
+
+[[migrations]]
+tag = "v1"
+new_classes = ["RateLimiter"]
+

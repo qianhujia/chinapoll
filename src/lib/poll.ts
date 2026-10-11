@@ -12,13 +12,21 @@ export interface PollSummary {
 
 export interface PollWithStats {
   poll: PollSummary;
-  stats: { pollId: number; counts: Record<VoteOption, number>; voted: boolean };
+  stats: {
+    pollId: number;
+    counts: Record<VoteOption, number> | null;
+    hidden: boolean;
+    threshold: number;
+    voted: boolean;
+  };
 }
 
 export interface VoteResponse {
   ok: boolean;
   message: string;
-  counts: Record<VoteOption, number>;
+  counts: Record<VoteOption, number> | null;
+  hidden?: boolean;
+  threshold?: number;
   voted: boolean;
   alreadyVoted?: boolean;
 }
@@ -34,7 +42,7 @@ export interface CommentsResponse {
   page: number;
   pageSize: number;
   total: number;
-  comments: Array<{ id: number; comment: string; createdAt: string }>;
+  comments: Array<{ id: string | null; comment: string; createdAt: string }>;
 }
 
 export async function fetchJson<T>(input: string, init?: RequestInit): Promise<T> {
@@ -66,7 +74,13 @@ export async function fetchJson<T>(input: string, init?: RequestInit): Promise<T
   return response.json() as Promise<T>;
 }
 
-export async function getStats(pollId: number): Promise<{ pollId: number; counts: Record<VoteOption, number>; voted: boolean }> {
+export async function getStats(pollId: number): Promise<{
+  pollId: number;
+  counts: Record<VoteOption, number> | null;
+  hidden: boolean;
+  threshold: number;
+  voted: boolean;
+}> {
   return fetchJson(`/api/stats/${pollId}`);
 }
 
@@ -105,7 +119,7 @@ export async function submitVote(payload: {
   pollId: number;
   tokenHash: string;
   option: VoteOption;
-  ipBucket?: string;
+  turnstileToken?: string;
 }): Promise<VoteResponse> {
   return fetchJson('/api/vote', {
     method: 'POST',
@@ -134,20 +148,37 @@ export async function submitProposal(payload: {
   mode: 'deadline' | 'evergreen';
   startAt?: string;
   endAt?: string;
-}): Promise<{ ok: boolean; message: string; pollId: number; status?: 'open' | 'pending'; submitter?: string }> {
+}): Promise<{ ok: boolean; message: string; pollId: number; status?: 'open' | 'pending' }> {
   return fetchJson('/api/proposal', {
     method: 'POST',
     body: JSON.stringify(payload)
   });
 }
 
+// The base vote token identifies a browser. It is stored together with a
+// creation time and rotated after 30 days so it cannot be used as a long-term
+// identifier.
+const TOKEN_STORAGE_KEY = 'chinapoll.vote-token';
+const TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
 export function createToken(): string {
-  const storageKey = 'chinapoll.vote-token';
-  const storedToken = localStorage.getItem(storageKey);
-  if (storedToken) return storedToken;
+  const stored = localStorage.getItem(TOKEN_STORAGE_KEY);
+  if (stored) {
+    try {
+      const parsed: unknown = JSON.parse(stored);
+      if (typeof parsed === 'object' && parsed !== null
+        && typeof (parsed as { token?: unknown }).token === 'string'
+        && typeof (parsed as { createdAt?: unknown }).createdAt === 'number') {
+        const { token, createdAt } = parsed as { token: string; createdAt: number };
+        if (Date.now() - createdAt < TOKEN_TTL_MS) return token;
+      }
+    } catch {
+      // Fall through and mint a fresh token when the stored value is unusable.
+    }
+  }
 
   const token = crypto.randomUUID();
-  localStorage.setItem(storageKey, token);
+  localStorage.setItem(TOKEN_STORAGE_KEY, JSON.stringify({ token, createdAt: Date.now() }));
   return token;
 }
 

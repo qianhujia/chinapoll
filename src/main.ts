@@ -97,7 +97,7 @@ async function render() {
   }
 
   if (route.startsWith('/poll/')) {
-    const pollId = Number(route.split('/').pop() ?? '11');
+    const pollId = Number(route.split('/').pop() ?? '0');
     await mountVotePage(Number.isSafeInteger(pollId) && pollId > 0 ? pollId : 0, app!, bindNavigation);
     return;
   }
@@ -112,6 +112,7 @@ async function start(): Promise<void> {
   try {
     const settings = await loadPublicSettings();
     setDefaultLocale(settings.default_locale);
+    document.documentElement.lang = DEFAULT_LOCALE;
     document.documentElement.style.setProperty('--page-width', `${getPublicSettings().page_max_width_px}px`);
     await loadTranslations(DEFAULT_LOCALE);
     await loadSession();

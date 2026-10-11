@@ -1,13 +1,23 @@
 // Public account endpoints: register, login, logout, and session status.
 //
-// Users sign up with a username and password only. There is no email or recovery
-// flow, so the client must keep its credentials safe. Failed logins lock the
-// account after a configurable number of attempts, per-IP account creation is
-// capped, and both register and login are rate limited.
+// Users sign up with a username and password only. There is no email recovery
+// channel; a single recovery code is the only way back in. The per-network
+// account cap is enforced from `auth_attempts`, which stores a keyed,
+// daily-rotated hash rather than an address. Rate limiting uses the RateLimiter
+// Durable Object. Login responses are deliberately generic so they never
+// confirm whether a username exists.
 
-import { parseRateLimit, currentBucketStart } from '../services/rateLimit';
-import { ipBucket } from '../services/ip';
-import { hashPassword, verifyPassword } from '../services/password';
+import type { HandlerEnv } from '../index';
+import { checkRateLimit } from '../services/rateLimit';
+import { clientAddress, hashedNetworkBucket } from '../services/ip';
+import { verifyTurnstile } from '../services/turnstile';
+import { enforceSameOrigin } from '../services/csrf';
+import {
+  PBKDF2_ITERATIONS,
+  hashPassword,
+  passwordIterations,
+  verifyPassword
+} from '../services/password';
 import { generateRecoveryCode, hashRecoveryCode, normalizeRecoveryCode } from '../services/recovery';
 import {
   USER_STATUS_ACTIVE,
@@ -27,20 +37,15 @@ import {
   type UserActor
 } from '../services/session';
 
-interface AuthEnv {
-  DB: D1Database;
-  login_rate_limit?: string;
-  register_rate_limit?: string;
-  max_accounts_per_ip?: number;
-  login_max_failed_attempts?: number;
-  login_lock_minutes?: number;
-}
-
 const DEFAULT_LOGIN_RATE_LIMIT = '10/h';
 const DEFAULT_REGISTER_RATE_LIMIT = '5/d';
 const DEFAULT_MAX_ACCOUNTS_PER_IP = 4;
 const DEFAULT_MAX_FAILED_ATTEMPTS = 5;
 const DEFAULT_LOCK_MINUTES = 15;
+// One network bucket may create at most `max_accounts_per_ip` accounts in any
+// rolling thirty-day window.
+const ACCOUNT_CAP_WINDOW_SECONDS = 30 * 24 * 60 * 60;
+const GENERIC_LOGIN_ERROR = 'invalid username or password';
 
 interface UserRow {
   id: number;
@@ -74,11 +79,6 @@ function readString(body: Record<string, unknown> | null, key: string): string {
   return typeof value === 'string' ? value : '';
 }
 
-function bucketPrefix(request: Request): number {
-  const remoteIp = request.headers.get('cf-connecting-ip') ?? '127.0.0.1';
-  return ipBucket(remoteIp);
-}
-
 function publicUser(user: UserActor): { id: number; username: string; createdAt: string } {
   return {
     id: user.id,
@@ -87,25 +87,32 @@ function publicUser(user: UserActor): { id: number; username: string; createdAt:
   };
 }
 
-async function countAttempts(db: D1Database, ipPrefix: number, kind: string, bucketStart: number): Promise<number> {
+async function countAccounts(db: D1Database, ipHash: string): Promise<number> {
   const row = await db.prepare(
-    'SELECT COUNT(*) AS total FROM auth_attempts WHERE ip_prefix = ? AND kind = ? AND ts_bucket = ?'
-  ).bind(ipPrefix, kind, bucketStart).first<{ total: number }>();
+    `SELECT COUNT(*) AS total FROM auth_attempts
+     WHERE ip_hash = ? AND kind = 'account' AND created_at >= unixepoch() - ?`
+  ).bind(ipHash, ACCOUNT_CAP_WINDOW_SECONDS).first<{ total: number }>();
   return Number(row?.total ?? 0);
 }
 
-const ATTEMPT_RETENTION_SECONDS = 7 * 24 * 60 * 60;
-
-async function recordAttempt(db: D1Database, ipPrefix: number, kind: string, bucketStart: number): Promise<void> {
-  // Drop attempts outside the retention window so the table stays bounded.
+async function recordAccount(db: D1Database, ipHash: string): Promise<void> {
   await db.batch([
-    db.prepare('DELETE FROM auth_attempts WHERE created_at < unixepoch() - ?').bind(ATTEMPT_RETENTION_SECONDS),
-    db.prepare('INSERT INTO auth_attempts (ip_prefix, kind, ts_bucket) VALUES (?, ?, ?)')
-      .bind(ipPrefix, kind, bucketStart)
+    db.prepare('DELETE FROM auth_attempts WHERE created_at < unixepoch() - ?').bind(ACCOUNT_CAP_WINDOW_SECONDS),
+    db.prepare("INSERT INTO auth_attempts (ip_hash, kind) VALUES (?, 'account')").bind(ipHash)
   ]);
 }
 
-export async function handleAuthRequest(request: Request, url: URL, env: AuthEnv): Promise<Response> {
+// Verifies the Turnstile token when the feature is enabled and configured.
+async function turnstileGate(env: HandlerEnv, body: Record<string, unknown> | null): Promise<Response | null> {
+  if (!env.turnstile_enable || !env.turnstile_secret_key) return null;
+  const token = readString(body, 'turnstileToken');
+  if (!token || !await verifyTurnstile(env, token)) {
+    return noStoreJson({ message: 'turnstile verification failed' }, 403);
+  }
+  return null;
+}
+
+export async function handleAuthRequest(request: Request, url: URL, env: HandlerEnv): Promise<Response> {
   if (url.pathname === '/api/auth/session') {
     return sessionStatus(request, env);
   }
@@ -128,7 +135,7 @@ export async function handleAuthRequest(request: Request, url: URL, env: AuthEnv
   return noStoreJson({ message: 'not found' }, 404);
 }
 
-async function sessionStatus(request: Request, env: AuthEnv): Promise<Response> {
+async function sessionStatus(request: Request, env: HandlerEnv): Promise<Response> {
   if (request.method !== 'GET') return noStoreJson({ message: 'method not allowed' }, 405);
   const user = await getUserActor(request, env);
   return noStoreJson({
@@ -136,8 +143,7 @@ async function sessionStatus(request: Request, env: AuthEnv): Promise<Response> 
     user: user ? publicUser(user) : null
   });
 }
-
-async function register(request: Request, env: AuthEnv): Promise<Response> {
+async function register(request: Request, env: HandlerEnv): Promise<Response> {
   const body = await readJsonBody(request);
   if (!body) return noStoreJson({ message: 'invalid JSON' }, 400);
 
@@ -145,27 +151,26 @@ async function register(request: Request, env: AuthEnv): Promise<Response> {
   if (!usernameResult.ok) return noStoreJson({ message: usernameResult.error }, 422);
 
   const password = readString(body, 'password');
-  const passwordResult = validateUserPassword(password);
+  const passwordResult = validateUserPassword(password, usernameResult.value);
   if (!passwordResult.ok) return noStoreJson({ message: passwordResult.error }, 422);
 
-  const ipPrefix = bucketPrefix(request);
+  const turnstileError = await turnstileGate(env, body);
+  if (turnstileError) return turnstileError;
 
-  // Per-IP account cap: one network bucket may only register a configurable
-  // number of accounts.
+  const ipHash = await hashedNetworkBucket(clientAddress(request), env.IP_HASH_KEY);
+  if (!ipHash) return noStoreJson({ message: 'ip hash key is not configured' }, 503);
+
+  // Per-network account cap: one bucket may only register a configurable number
+  // of accounts within the rolling window.
   const maxAccounts = Number(env.max_accounts_per_ip ?? DEFAULT_MAX_ACCOUNTS_PER_IP);
-  const accountRow = await env.DB.prepare(
-    'SELECT COUNT(*) AS total FROM users WHERE ip_prefix = ?'
-  ).bind(ipPrefix).first<{ total: number }>();
-  if (Number(accountRow?.total ?? 0) >= maxAccounts) {
+  if (await countAccounts(env.DB, ipHash) >= maxAccounts) {
     return noStoreJson({ message: 'too many accounts have been registered from this network' }, 429);
   }
 
-  const { count: registerLimit, windowMs } = parseRateLimit(env.register_rate_limit, DEFAULT_REGISTER_RATE_LIMIT);
-  const bucketStart = currentBucketStart(windowMs);
-  if (await countAttempts(env.DB, ipPrefix, 'register', bucketStart) >= registerLimit) {
+  const limited = await checkRateLimit(env, 'register', ipHash, env.register_rate_limit, DEFAULT_REGISTER_RATE_LIMIT);
+  if (!limited.allowed) {
     return noStoreJson({ message: 'registration rate limit reached' }, 429);
   }
-  await recordAttempt(env.DB, ipPrefix, 'register', bucketStart);
 
   const passwordHash = await hashPassword(password);
   // Issue the first recovery code. The plaintext code is returned here only; the
@@ -174,13 +179,15 @@ async function register(request: Request, env: AuthEnv): Promise<Response> {
   let userId: number;
   try {
     const result = await env.DB.prepare(
-      `INSERT INTO users (username, password_hash, status, ip_prefix, recovery_code_hash, recovery_code_updated_at)
-       VALUES (?, ?, ?, ?, ?, unixepoch())`
-    ).bind(usernameResult.value, passwordHash, USER_STATUS_ACTIVE, ipPrefix, recoveryCode.hash).run();
+      `INSERT INTO users (username, password_hash, status, recovery_code_hash, recovery_code_updated_at)
+       VALUES (?, ?, ?, ?, unixepoch())`
+    ).bind(usernameResult.value, passwordHash, USER_STATUS_ACTIVE, recoveryCode.hash).run();
     userId = Number(result.meta.last_row_id);
   } catch {
     return noStoreJson({ message: 'username is already taken' }, 409);
   }
+
+  await recordAccount(env.DB, ipHash);
 
   const token = await createSession(env, userId);
   return noStoreJson({
@@ -190,7 +197,7 @@ async function register(request: Request, env: AuthEnv): Promise<Response> {
   }, 201, { 'set-cookie': buildSessionCookie(token, isSecureRequest(request)) });
 }
 
-async function login(request: Request, env: AuthEnv): Promise<Response> {
+async function login(request: Request, env: HandlerEnv): Promise<Response> {
   const body = await readJsonBody(request);
   if (!body) return noStoreJson({ message: 'invalid JSON' }, 400);
 
@@ -200,15 +207,16 @@ async function login(request: Request, env: AuthEnv): Promise<Response> {
     return noStoreJson({ message: 'username and password are required' }, 400);
   }
 
-  const ipPrefix = bucketPrefix(request);
+  const turnstileError = await turnstileGate(env, body);
+  if (turnstileError) return turnstileError;
 
-  // Login rate limit per network bucket.
-  const { count: loginLimit, windowMs } = parseRateLimit(env.login_rate_limit, DEFAULT_LOGIN_RATE_LIMIT);
-  const bucketStart = currentBucketStart(windowMs);
-  if (await countAttempts(env.DB, ipPrefix, 'login', bucketStart) >= loginLimit) {
+  const ipHash = await hashedNetworkBucket(clientAddress(request), env.IP_HASH_KEY);
+  if (!ipHash) return noStoreJson({ message: 'ip hash key is not configured' }, 503);
+
+  const limited = await checkRateLimit(env, 'login', ipHash, env.login_rate_limit, DEFAULT_LOGIN_RATE_LIMIT);
+  if (!limited.allowed) {
     return noStoreJson({ message: 'too many login attempts; try again later' }, 429);
   }
-  await recordAttempt(env.DB, ipPrefix, 'login', bucketStart);
 
   const user = await env.DB.prepare(
     `SELECT id, username, password_hash, status, failed_attempts, locked_until, created_at
@@ -219,18 +227,10 @@ async function login(request: Request, env: AuthEnv): Promise<Response> {
   const lockMinutes = Number(env.login_lock_minutes ?? DEFAULT_LOCK_MINUTES);
   const now = Math.floor(Date.now() / 1000);
 
-  if (!user) {
-    return noStoreJson({ message: 'invalid username or password' }, 401);
-  }
-  if (user.status !== USER_STATUS_ACTIVE) {
-    return noStoreJson({ message: 'this account is disabled' }, 403);
-  }
-  if (user.locked_until && user.locked_until > now) {
-    return noStoreJson({
-      message: 'account temporarily locked after too many failed attempts',
-      locked: true,
-      retryAfter: user.locked_until - now
-    }, 423);
+  // Every failure mode returns the same generic message so the endpoint cannot
+  // confirm whether a username exists or is disabled or locked.
+  if (!user || user.status !== USER_STATUS_ACTIVE || (user.locked_until !== null && user.locked_until > now)) {
+    return noStoreJson({ message: GENERIC_LOGIN_ERROR }, 401);
   }
 
   if (!await verifyPassword(password, user.password_hash)) {
@@ -240,24 +240,28 @@ async function login(request: Request, env: AuthEnv): Promise<Response> {
       await env.DB.prepare(
         'UPDATE users SET failed_attempts = 0, locked_until = ?, updated_at = unixepoch() WHERE id = ?'
       ).bind(lockedUntil, user.id).run();
-      return noStoreJson({
-        message: `too many failed attempts; account locked for ${lockMinutes} minutes`,
-        locked: true,
-        retryAfter: lockedUntil - now
-      }, 423);
+    } else {
+      await env.DB.prepare(
+        'UPDATE users SET failed_attempts = ?, updated_at = unixepoch() WHERE id = ?'
+      ).bind(attempts, user.id).run();
     }
-    await env.DB.prepare(
-      'UPDATE users SET failed_attempts = ?, updated_at = unixepoch() WHERE id = ?'
-    ).bind(attempts, user.id).run();
-    return noStoreJson({
-      message: 'invalid username or password',
-      remainingAttempts: maxFailed - attempts
-    }, 401);
+    return noStoreJson({ message: GENERIC_LOGIN_ERROR }, 401);
   }
 
+  // Rehash with the current iteration count when the stored hash predates it.
+  const storedIterations = passwordIterations(user.password_hash);
+  const nextHash = storedIterations !== null && storedIterations < PBKDF2_ITERATIONS
+    ? await hashPassword(password)
+    : null;
+
+  // last_login_at is rounded to the day so it cannot be joined against precise
+  // activity timestamps.
+  const dayStart = now - (now % 86400);
   await env.DB.prepare(
-    'UPDATE users SET failed_attempts = 0, locked_until = NULL, last_login_at = unixepoch(), updated_at = unixepoch() WHERE id = ?'
-  ).bind(user.id).run();
+    `UPDATE users SET failed_attempts = 0, locked_until = NULL, last_login_at = ?, updated_at = unixepoch(),
+       password_hash = COALESCE(?, password_hash)
+     WHERE id = ?`
+  ).bind(dayStart, nextHash, user.id).run();
 
   const token = await createSession(env, user.id);
   const actor: UserActor = { id: user.id, username: user.username, createdAt: Number(user.created_at) };
@@ -265,17 +269,21 @@ async function login(request: Request, env: AuthEnv): Promise<Response> {
     'set-cookie': buildSessionCookie(token, isSecureRequest(request))
   });
 }
+async function logout(request: Request, env: HandlerEnv): Promise<Response> {
+  // Logout is cookie-authenticated, so it needs the same-origin check.
+  const csrf = enforceSameOrigin(request, { viaCookie: true });
+  if (csrf) return csrf;
 
-async function logout(request: Request, env: AuthEnv): Promise<Response> {
   const token = readCookie(request, USER_SESSION_COOKIE);
   if (token) await destroySession(env, token);
   return noStoreJson({ ok: true }, 200, {
     'set-cookie': buildClearSessionCookie(isSecureRequest(request))
   });
 }
+
 // Self-service password recovery with a single-use recovery code. The response
 // is deliberately generic so it does not reveal whether a username exists.
-async function recover(request: Request, env: AuthEnv): Promise<Response> {
+async function recover(request: Request, env: HandlerEnv): Promise<Response> {
   const body = await readJsonBody(request);
   if (!body) return noStoreJson({ message: 'invalid JSON' }, 400);
 
@@ -285,21 +293,20 @@ async function recover(request: Request, env: AuthEnv): Promise<Response> {
   if (!usernameResult.ok) return invalid;
 
   const newPassword = readString(body, 'newPassword');
-  const passwordResult = validateUserPassword(newPassword);
+  const passwordResult = validateUserPassword(newPassword, usernameResult.value);
   if (!passwordResult.ok) return noStoreJson({ message: passwordResult.error }, 422);
 
   const code = normalizeRecoveryCode(readString(body, 'code'));
   if (!code) return invalid;
 
-  // Recovery attempts share the login rate limit so a network bucket cannot
-  // hammer the endpoint.
-  const ipPrefix = bucketPrefix(request);
-  const { count: recoverLimit, windowMs } = parseRateLimit(env.login_rate_limit, DEFAULT_LOGIN_RATE_LIMIT);
-  const bucketStart = currentBucketStart(windowMs);
-  if (await countAttempts(env.DB, ipPrefix, 'recover', bucketStart) >= recoverLimit) {
+  const ipHash = await hashedNetworkBucket(clientAddress(request), env.IP_HASH_KEY);
+  if (!ipHash) return noStoreJson({ message: 'ip hash key is not configured' }, 503);
+
+  // Recovery attempts share the login rate limit.
+  const limited = await checkRateLimit(env, 'recover', ipHash, env.login_rate_limit, DEFAULT_LOGIN_RATE_LIMIT);
+  if (!limited.allowed) {
     return noStoreJson({ message: 'too many recovery attempts; try again later' }, 429);
   }
-  await recordAttempt(env.DB, ipPrefix, 'recover', bucketStart);
 
   const user = await env.DB.prepare(
     'SELECT id, status, recovery_code_hash FROM users WHERE username = ?'

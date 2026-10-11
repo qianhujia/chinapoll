@@ -47,7 +47,10 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
   }
 
   const token = createToken();
-  const hash = await hashToken(token);
+  // The base token identifies the browser; mixing in the poll id means the
+  // server only ever sees a per-poll value, so votes on different polls cannot
+  // be linked through the stored hash.
+  const hash = await hashToken(`${token}:${poll.id}`);
   let hasVoted = hasVotedLocally(poll.id, hash);
   let voteStatusError = '';
   let stats: Awaited<ReturnType<typeof getStats>> | null = null;
@@ -103,7 +106,13 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
             <div class="mx-auto mt-6 flex w-full max-w-[300px] overflow-hidden rounded-xl border border-border" role="group" aria-label="${t('vote')}" data-vote-group="${poll.id}" title="${hasVoted ? t('alreadyVoted') : ''}">
               ${voteButtons}
             </div>
+          ` : stats?.hidden ? `
+            <p class="mt-6 mb-0 text-center text-sm text-muted">${t('resultsHidden').replace('{n}', String(stats.threshold))}</p>
           ` : ''}
+
+          ${poll.mode === 'deadline' && poll.end_at
+    ? `<p class="mt-3 mb-0 text-center text-xs text-muted" data-countdown data-end="${escapeHtml(poll.end_at)}"></p>`
+    : ''}
 
           <p class="vote-status m-0 text-center text-muted" role="status">${voteStatusError
     ? `${t('voteStatusFailed')} ${voteStatusError}`
@@ -215,7 +224,7 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
       const message = `${t('voteRecord')}: ${statusText}`;
       if (result.ok) {
         const voteGroup = document.querySelector<HTMLElement>(`[data-vote-group="${poll.id}"]`);
-        if (voteGroup) updateVoteGroup(voteGroup, result.counts);
+        if (voteGroup && result.counts) updateVoteGroup(voteGroup, result.counts);
         hasVoted = true;
         markVotedLocally(poll.id, hash);
         document.querySelectorAll<HTMLButtonElement>('[data-vote-group] [data-option]').forEach((voteButton) => {
@@ -227,6 +236,27 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
       showToast(message, result.ok ? 'success' : 'error');
     });
   });
+
+  // Countdown for deadline polls, refreshed once a minute.
+  const countdown = document.querySelector<HTMLElement>('[data-countdown]');
+  if (countdown) {
+    const end = Date.parse(countdown.dataset.end ?? '');
+    const renderCountdown = () => {
+      if (!Number.isFinite(end)) return;
+      const remaining = end - Date.now();
+      if (remaining <= 0) {
+        countdown.textContent = t('pollEnded');
+        clearInterval(timer);
+        return;
+      }
+      const days = Math.floor(remaining / 86_400_000);
+      const hours = Math.floor((remaining % 86_400_000) / 3_600_000);
+      const minutes = Math.floor((remaining % 3_600_000) / 60_000);
+      countdown.textContent = `${t('timeRemaining')}: ${days}d ${hours}h ${minutes}m`;
+    };
+    const timer = setInterval(renderCountdown, 60_000);
+    renderCountdown();
+  }
 
   bindNavigation();
 }

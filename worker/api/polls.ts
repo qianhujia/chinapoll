@@ -12,6 +12,7 @@ const MAX_QUERY_LENGTH = 100;
 
 interface PollsEnv {
   DB: D1Database;
+  min_votes_to_display?: number;
 }
 
 interface PollRow {
@@ -25,6 +26,17 @@ interface PollRow {
   approve: number;
   neutral: number;
   oppose: number;
+}
+
+// Builds the LIKE parameters and the WHERE fragment for a title/description
+// search. The column prefix keeps the fragment valid inside the joined query.
+function buildSearch(query: string, prefix = ''): { clause: string; pattern: string | null } {
+  if (!query) return { clause: '', pattern: null };
+  const pattern = `%${query.replace(/[\\%_]/g, (character) => `\\${character}`)}%`;
+  return {
+    clause: ` AND (${prefix}title LIKE ? ESCAPE '\\' OR ${prefix}description LIKE ? ESCAPE '\\')`,
+    pattern
+  };
 }
 
 export async function handlePollsRequest(request: Request, url: URL, env: PollsEnv): Promise<Response> {
@@ -45,17 +57,17 @@ export async function handlePollsRequest(request: Request, url: URL, env: PollsE
   }
 
   const query = (url.searchParams.get('q') ?? '').trim().slice(0, MAX_QUERY_LENGTH);
-  const likePattern = query ? `%${query.replace(/[\\%_]/g, (character) => `\\${character}`)}%` : '';
-  const searchClause = query ? " AND title LIKE ? ESCAPE '\\'" : '';
+  const search = buildSearch(query);
+  const searchBinds = search.pattern ? [search.pattern, search.pattern] : [];
 
   const countResult = await env.DB.prepare(
     `SELECT COUNT(*) AS total
      FROM polls
      WHERE status = ? AND title IS NOT NULL AND TRIM(title) != ''
-       AND mode IN (?, ?)${searchClause}`
+       AND mode IN (?, ?)${search.clause}`
   ).bind(
     PollStatus.Open, PollMode.Deadline, PollMode.Evergreen,
-    ...(query ? [likePattern] : [])
+    ...searchBinds
   ).first<{ total: number }>();
 
   const allPollsResult = await env.DB.prepare(
@@ -73,6 +85,7 @@ export async function handlePollsRequest(request: Request, url: URL, env: PollsE
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const currentPage = Math.min(page, totalPages);
   const offset = (currentPage - 1) * pageSize;
+  const joinedSearch = buildSearch(query, 'i.');
   const result = await env.DB.prepare(
     `SELECT i.id, i.title, i.description, i.mode, i.start_at, i.end_at, i.status,
        COALESCE(SUM(CASE WHEN v.option = ? THEN 1 ELSE 0 END), 0) AS approve,
@@ -81,37 +94,47 @@ export async function handlePollsRequest(request: Request, url: URL, env: PollsE
      FROM polls i
      LEFT JOIN votes v ON v.poll_id = i.id
      WHERE i.status = ? AND i.title IS NOT NULL AND TRIM(i.title) != ''
-       AND i.mode IN (?, ?)${searchClause ? searchClause.replace('title', 'i.title') : ''}
+       AND i.mode IN (?, ?)${joinedSearch.clause}
      GROUP BY i.id
      ORDER BY i.created_at DESC, i.id DESC
      LIMIT ? OFFSET ?`
   ).bind(
     VoteOption.Approve, VoteOption.Neutral, VoteOption.Oppose,
     PollStatus.Open, PollMode.Deadline, PollMode.Evergreen,
-    ...(query ? [likePattern] : []),
+...(joinedSearch.pattern ? [joinedSearch.pattern, joinedSearch.pattern] : []),
     pageSize, offset
   ).all<PollRow>();
 
-  const polls = (result.results ?? []).map((row) => ({
-    poll: {
-      id: row.id,
-      title: row.title,
-      description: row.description,
-      mode: getPollModeLabel(row.mode),
-      start_at: toIsoDate(row.start_at),
-      end_at: toIsoDate(row.end_at),
-      status: getPollStatusLabel(row.status)
-    },
-    stats: {
-      pollId: row.id,
-      counts: {
-        approve: Number(row.approve),
-        neutral: Number(row.neutral),
-        oppose: Number(row.oppose)
+  // Vote totals below the threshold are withheld so a small sample cannot reveal
+  // how an individual voted.
+  const threshold = Number(env.min_votes_to_display ?? 0);
+  const polls = (result.results ?? []).map((row) => {
+    const counts = {
+      approve: Number(row.approve),
+      neutral: Number(row.neutral),
+      oppose: Number(row.oppose)
+    };
+    const voteTotal = counts.approve + counts.neutral + counts.oppose;
+    const hidden = threshold > 0 && voteTotal < threshold;
+    return {
+      poll: {
+        id: row.id,
+        title: row.title,
+        description: row.description,
+        mode: getPollModeLabel(row.mode),
+        start_at: toIsoDate(row.start_at),
+        end_at: toIsoDate(row.end_at),
+        status: getPollStatusLabel(row.status)
       },
-      voted: false
-    }
-  }));
+      stats: {
+        pollId: row.id,
+        counts: hidden ? null : counts,
+        hidden,
+        threshold,
+        voted: false
+      }
+    };
+  });
 
   return Response.json({
     polls,

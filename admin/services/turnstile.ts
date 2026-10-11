@@ -1,53 +1,19 @@
-// Turnstile verification for the admin login form.
+// Turnstile verification for the admin Worker.
 //
-// The admin Worker reuses the public application's `turnstile_enable` and
-// `turnstile_secret_key` settings for server-side verification and reads the
-// public site key from the TURNSTILE_SITE_KEY variable. Verification is enforced
-// only when the feature is enabled and fully configured, which keeps local
-// development usable when the keys are absent.
+// Server-side verification lives in the public Worker (worker/services/turnstile.ts)
+// and is imported here; the admin Worker never sends the client address. The
+// public site key comes from the TURNSTILE_SITE_KEY variable.
 
 import type { AdminEnv } from '../auth';
+import { getTurnstileConfig as loadConfig, verifyTurnstile } from '../../worker/services/turnstile';
 
 export interface TurnstileConfig {
   enabled: boolean;
   siteKey: string;
 }
 
-async function getSettingValue(env: AdminEnv, key: string): Promise<string> {
-  const row = await env.DB.prepare(
-    'SELECT value FROM settings WHERE key = ?'
-  ).bind(key).first<{ value: string | null }>();
-  return row?.value ?? '';
+export function getTurnstileConfig(env: AdminEnv): Promise<TurnstileConfig> {
+  return loadConfig(env, env.TURNSTILE_SITE_KEY ?? '');
 }
 
-export async function getTurnstileConfig(env: AdminEnv): Promise<TurnstileConfig> {
-  const [enableValue, secret, siteKey] = await Promise.all([
-    getSettingValue(env, 'turnstile_enable'),
-    getSettingValue(env, 'turnstile_secret_key'),
-    Promise.resolve(env.TURNSTILE_SITE_KEY ?? '')
-  ]);
-  const enabled = enableValue === 'true' && Boolean(secret) && Boolean(siteKey);
-  return { enabled, siteKey };
-}
-
-export async function verifyTurnstile(env: AdminEnv, token: string): Promise<boolean> {
-  if (!token) return false;
-  const secret = await getSettingValue(env, 'turnstile_secret_key');
-  if (!secret) return false;
-
-  const form = new FormData();
-  form.append('secret', secret);
-  form.append('response', token);
-
-  try {
-    const response = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
-      method: 'POST',
-      body: form
-    });
-    if (!response.ok) return false;
-    const data = await response.json() as { success?: boolean };
-    return data.success === true;
-  } catch {
-    return false;
-  }
-}
+export { verifyTurnstile };

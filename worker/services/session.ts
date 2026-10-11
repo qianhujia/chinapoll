@@ -1,10 +1,11 @@
 // Session handling for public user accounts.
 //
 // A successful sign-in creates a server-side session with a 30-day sliding
-// expiry; the random session token is stored in an HttpOnly, SameSite=Lax cookie
-// and only its SHA-256 hash is kept in the database.
+// expiry; the random session token is stored in an HttpOnly, SameSite=Strict
+// cookie and only its SHA-256 hash is kept in the database.
 
-import { sha256 } from './hashchain';
+import { buildCookie, readCookie } from '../../shared/cookies';
+import { sha256Hex, toHex } from '../../shared/crypto';
 import { USER_STATUS_ACTIVE } from './users';
 
 export const USER_SESSION_COOKIE = 'chinapoll_user_session';
@@ -22,37 +23,19 @@ export interface SessionEnv {
   DB: D1Database;
 }
 
-export function toHex(bytes: Uint8Array): string {
-  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
-}
-
-function cookieAttributes(value: string, secure: boolean, maxAge: number): string {
-  const attributes = [value, 'Path=/', 'HttpOnly', 'SameSite=Lax', `Max-Age=${maxAge}`];
-  if (secure) attributes.push('Secure');
-  return attributes.join('; ');
-}
-
 export function buildSessionCookie(token: string, secure: boolean): string {
-  return cookieAttributes(`${USER_SESSION_COOKIE}=${encodeURIComponent(token)}`, secure, USER_SESSION_TTL_SECONDS);
+  return buildCookie(USER_SESSION_COOKIE, token, {
+    secure,
+    maxAge: USER_SESSION_TTL_SECONDS,
+    sameSite: 'Strict'
+  });
 }
 
 export function buildClearSessionCookie(secure: boolean): string {
-  return cookieAttributes(`${USER_SESSION_COOKIE}=`, secure, 0);
+  return buildCookie(USER_SESSION_COOKIE, '', { secure, maxAge: 0, sameSite: 'Strict' });
 }
 
-export function readCookie(request: Request, name: string): string | null {
-  const header = request.headers.get('cookie');
-  if (!header) return null;
-  for (const part of header.split(';')) {
-    const separator = part.indexOf('=');
-    if (separator === -1) continue;
-    const key = part.slice(0, separator).trim();
-    if (key === name) {
-      return decodeURIComponent(part.slice(separator + 1).trim());
-    }
-  }
-  return null;
-}
+export { readCookie };
 
 export function isSecureRequest(request: Request): boolean {
   return new URL(request.url).protocol === 'https:';
@@ -60,7 +43,7 @@ export function isSecureRequest(request: Request): boolean {
 
 export async function createSession(env: SessionEnv, userId: number): Promise<string> {
   const token = toHex(crypto.getRandomValues(new Uint8Array(32)));
-  const tokenHash = await sha256(token);
+  const tokenHash = await sha256Hex(token);
   const now = Math.floor(Date.now() / 1000);
   await env.DB.batch([
     env.DB.prepare('DELETE FROM user_sessions WHERE expires_at <= ?').bind(now),
@@ -72,7 +55,7 @@ export async function createSession(env: SessionEnv, userId: number): Promise<st
 }
 
 export async function destroySession(env: SessionEnv, token: string): Promise<void> {
-  const tokenHash = await sha256(token);
+  const tokenHash = await sha256Hex(token);
   await env.DB.prepare('DELETE FROM user_sessions WHERE token_hash = ?').bind(tokenHash).run();
 }
 
@@ -87,7 +70,7 @@ interface SessionRow {
 export async function getUserActor(request: Request, env: SessionEnv): Promise<UserActor | null> {
   const token = readCookie(request, USER_SESSION_COOKIE);
   if (!token) return null;
-  const tokenHash = await sha256(token);
+  const tokenHash = await sha256Hex(token);
   const now = Math.floor(Date.now() / 1000);
   const row = await env.DB.prepare(
     `SELECT s.expires_at, u.id AS user_id, u.username, u.status, u.created_at

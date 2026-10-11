@@ -1,7 +1,7 @@
 import { fetchJson } from './lib/poll';
 
 export interface PublicSettings {
-  default_locale: 'en' | 'zh-CN';
+  default_locale: 'en' | 'zh-CN' | 'zh-TW';
   site_name: string;
   site_slogan: string;
   data_repository_url: string;
@@ -13,6 +13,7 @@ export interface PublicSettings {
   hero_background_color: string;
   read_only_mode: boolean;
   turnstile_enable: boolean;
+  turnstile_site_key: string;
   login_badge_enable: boolean;
   auto_approve_polls: boolean;
   user_poll_delay_hours: number;
@@ -22,13 +23,14 @@ export interface PublicSettings {
   login_lock_minutes: number;
   login_rate_limit: string;
   register_rate_limit: string;
+  min_votes_to_display: number;
 }
 
 const defaultSettings: PublicSettings = {
   default_locale: 'en',
   site_name: 'ChinaPoll',
   site_slogan: 'Public opinion made visible',
-  data_repository_url: 'https://github.com/qianhujia/chinapoll-data',
+  data_repository_url: '',
   polls_per_page: 15,
   comments_per_page: 30,
   page_max_width_px: 960,
@@ -37,6 +39,7 @@ const defaultSettings: PublicSettings = {
   hero_background_color: '',
   read_only_mode: false,
   turnstile_enable: false,
+  turnstile_site_key: '',
   login_badge_enable: false,
   auto_approve_polls: false,
   user_poll_delay_hours: 48,
@@ -45,14 +48,15 @@ const defaultSettings: PublicSettings = {
   login_max_failed_attempts: 5,
   login_lock_minutes: 15,
   login_rate_limit: '10/h',
-  register_rate_limit: '5/d'
+  register_rate_limit: '5/d',
+  min_votes_to_display: 10
 };
 
 let publicSettings = defaultSettings;
 
 export async function loadPublicSettings(): Promise<PublicSettings> {
   const result = await fetchJson<PublicSettings>('/api/settings/public');
-  if (result.default_locale !== 'en' && result.default_locale !== 'zh-CN'
+  if ((result.default_locale !== 'en' && result.default_locale !== 'zh-CN' && result.default_locale !== 'zh-TW')
     || typeof result.site_name !== 'string'
     || typeof result.site_slogan !== 'string'
     || typeof result.data_repository_url !== 'string'
@@ -64,6 +68,7 @@ export async function loadPublicSettings(): Promise<PublicSettings> {
     || typeof result.hero_background_color !== 'string'
     || typeof result.read_only_mode !== 'boolean'
     || typeof result.turnstile_enable !== 'boolean'
+    || typeof result.turnstile_site_key !== 'string'
     || typeof result.login_badge_enable !== 'boolean'
     || typeof result.auto_approve_polls !== 'boolean'
     || !Number.isSafeInteger(result.user_poll_delay_hours) || result.user_poll_delay_hours < 0
@@ -72,7 +77,8 @@ export async function loadPublicSettings(): Promise<PublicSettings> {
     || !Number.isSafeInteger(result.login_max_failed_attempts) || result.login_max_failed_attempts < 1
     || !Number.isSafeInteger(result.login_lock_minutes) || result.login_lock_minutes < 1
     || typeof result.login_rate_limit !== 'string'
-    || typeof result.register_rate_limit !== 'string') {
+    || typeof result.register_rate_limit !== 'string'
+    || !Number.isSafeInteger(result.min_votes_to_display) || result.min_votes_to_display < 0) {
     throw new Error('Invalid public settings response.');
   }
   publicSettings = result;

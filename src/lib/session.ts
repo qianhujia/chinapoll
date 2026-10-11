@@ -92,12 +92,24 @@ export async function getRecoveryCodeStatus(): Promise<boolean> {
   return result.configured === true;
 }
 
-// Generates a fresh recovery code and returns the plaintext code once.
-export async function regenerateRecoveryCode(): Promise<string> {
+// Generates a fresh recovery code and returns the plaintext code once. The
+// current password is required so a hijacked session cannot lock the owner out.
+export async function regenerateRecoveryCode(currentPassword: string): Promise<string> {
   const result = await fetchJson<{ ok: boolean; recoveryCode: string }>('/api/user/recovery-code', {
-    method: 'POST'
+    method: 'POST',
+    body: JSON.stringify({ currentPassword })
   });
   return result.recoveryCode ?? '';
+}
+
+// Deletes the account after confirming the password. Content stays but is
+// detached from the removed account.
+export async function deleteAccount(currentPassword: string): Promise<void> {
+  await fetchJson<{ ok: boolean }>('/api/user/account', {
+    method: 'DELETE',
+    body: JSON.stringify({ currentPassword })
+  });
+  currentUser = null;
 }
 
 export async function loginUser(username: string, password: string): Promise<UserPublic> {

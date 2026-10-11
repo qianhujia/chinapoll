@@ -1,14 +1,20 @@
-// Anonymized network bucket used for rate limiting and the per-network account
-// cap.
+// Anonymized network bucket and keyed, daily-rotated hashing.
 //
-// The bucket is a 32-bit unsigned integer. A dotted IPv4 address is reduced to
-// its /24 network (for example 203.0.113.10 -> 203.0.113.0 = 3405803776). Any
-// other value (IPv6 or an unparseable address) is folded with FNV-1a so a full
-// address is never stored while different sources still map to different
-// buckets. SQLite has no unsigned type, so the value is stored in an INTEGER
-// column and is always kept in the 0..4294967295 range.
+// `ipBucket()` reduces an address to a small, stable bucket that is used for the
+// per-network account cap. A dotted IPv4 address becomes its /24 network as a
+// 32-bit unsigned integer (203.0.113.10 -> 203.0.113.0 = 3405803776); any other
+// value (IPv6 or unparseable) is folded with FNV-1a so a full address is never
+// kept while different sources still map to different buckets.
+//
+// `hashedNetworkBucket()` turns that bucket into a keyed HMAC that is rotated
+// once per day. There are only about 16 million /24 prefixes, so an unkeyed hash
+// is reversible with a lookup table; a secret key removes that risk, and the
+// daily rotation means the stored value cannot be correlated across days.
+
+import { fromHex, hmacSha256, hmacSha256Hex } from '../../shared/crypto';
 
 const IPV4_PATTERN = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})(?:\.\d{1,3})?$/;
+const IP_HASH_KEY_PATTERN = /^[0-9a-f]{64}$/i;
 
 function fnv1a(value: string): number {
   let hash = 0x811c9dc5;
@@ -30,4 +36,26 @@ export function ipBucket(address: string): number {
     }
   }
   return fnv1a(address ?? '');
+}
+
+export function isValidIpHashKey(keyHex: string | undefined | null): keyHex is string {
+  return typeof keyHex === 'string' && IP_HASH_KEY_PATTERN.test(keyHex);
+}
+
+// Returns the keyed, day-rotated hash of the network bucket for an address, or
+// null when the configured key is missing or malformed.
+export async function hashedNetworkBucket(
+  address: string,
+  keyHex: string | undefined | null,
+  date: Date = new Date()
+): Promise<string | null> {
+  if (!isValidIpHashKey(keyHex)) return null;
+  const dayKey = await hmacSha256(fromHex(keyHex), date.toISOString().slice(0, 10));
+  return hmacSha256Hex(dayKey, String(ipBucket(address)));
+}
+
+// Reads the client address from the request headers. Callers still hash the
+// value; this never stores or logs the raw address.
+export function clientAddress(request: Request): string {
+  return request.headers.get('cf-connecting-ip') ?? '127.0.0.1';
 }

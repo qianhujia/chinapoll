@@ -7,6 +7,7 @@
 
 import { ADMIN_STATUS_ACTIVE, adminRoleLabel, type AdminRole } from './lib/admins';
 import { sha256Hex, toHex } from './lib/crypto';
+import { enforceSameOrigin as enforceSameOriginShared } from '../worker/services/csrf';
 
 export const SESSION_COOKIE_NAME = 'chinapoll_admin_session';
 export const SESSION_TTL_SECONDS = 30 * 60;
@@ -15,6 +16,8 @@ const SESSION_SLIDE_THRESHOLD_SECONDS = 60;
 
 export interface AdminEnv {
   DB: D1Database;
+  /** Bound RateLimiter Durable Object used for login and setup throttling. */
+  RATE_LIMITER: DurableObjectNamespace;
   /** Public Turnstile site key rendered by the login form. */
   TURNSTILE_SITE_KEY?: string;
   /** Optional extra origin allowed for cookie-authenticated mutations. */
@@ -141,30 +144,15 @@ export async function authenticate(request: Request, env: AdminEnv): Promise<Aut
 }
 
 // Cookie-authenticated mutations must originate from the Worker itself (or the
-// configured ADMIN_ORIGIN) to block cross-site request forgery.
+// configured ADMIN_ORIGIN) to block cross-site request forgery. The shared
+// helper in worker/services/csrf.ts backs the public Worker as well.
 export function enforceSameOrigin(
   request: Request,
   env: AdminEnv,
   context: AuthenticatedContext
 ): Response | null {
-  if (!context.viaCookie) return null;
-  const method = request.method.toUpperCase();
-  if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') return null;
-
-  const origin = request.headers.get('origin');
-  const requestOrigin = new URL(request.url).origin;
-  const allowed = new Set([requestOrigin]);
-  if (env.ADMIN_ORIGIN) {
-    try {
-      allowed.add(new URL(env.ADMIN_ORIGIN).origin);
-    } catch {
-      // Ignore a malformed ADMIN_ORIGIN value.
-    }
-  }
-
-  if (!origin || !allowed.has(origin)) {
-    return Response.json({ message: 'cross-origin request rejected' }, { status: 403 });
-  }
-
-  return null;
+  return enforceSameOriginShared(request, {
+    viaCookie: context.viaCookie,
+    extraOrigin: env.ADMIN_ORIGIN
+  });
 }

@@ -21,7 +21,7 @@ export const USERNAME_MIN_LENGTH = 3;
 export const USERNAME_MAX_LENGTH = 32;
 export const USERNAME_PATTERN = /^[a-z0-9][a-z0-9._-]{2,31}$/;
 
-export const USER_PASSWORD_MIN_LENGTH = 8;
+export const USER_PASSWORD_MIN_LENGTH = 12;
 export const USER_PASSWORD_MAX_LENGTH = 200;
 
 export type UsernameValidation = { ok: true; value: string } | { ok: false; error: string };
@@ -42,12 +42,16 @@ export function validateUsername(value: string): UsernameValidation {
   return { ok: true, value: normalized };
 }
 
-export function validateUserPassword(password: string): PasswordValidation {
+export function validateUserPassword(password: string, username = ''): PasswordValidation {
   if (password.length < USER_PASSWORD_MIN_LENGTH) {
     return { ok: false, error: `password must be at least ${USER_PASSWORD_MIN_LENGTH} characters` };
   }
   if (password.length > USER_PASSWORD_MAX_LENGTH) {
     return { ok: false, error: `password must not exceed ${USER_PASSWORD_MAX_LENGTH} characters` };
+  }
+  // A password that equals the username is trivially guessable.
+  if (username && password.toLowerCase() === username.toLowerCase()) {
+    return { ok: false, error: 'password must not be the same as the username' };
   }
   return { ok: true };
 }

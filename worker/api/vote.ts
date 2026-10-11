@@ -1,9 +1,19 @@
-import { sha256 } from '../services/hashchain';
-import { D1Database } from '@cloudflare/workers-types';
-import { RATE_LIMIT_PATTERN } from './settings';
+// Voting endpoints.
+//
+// Votes are anonymous: the only identifier stored is the SHA-256 hash of a
+// per-poll token the browser derives locally. Rate limiting uses a keyed,
+// daily-rotated hash of the network bucket (never a raw address) and lives in
+// the RateLimiter Durable Object, so no IP-derived value is written to D1.
+
+import type { HandlerEnv } from '../index';
+import { checkRateLimit } from '../services/rateLimit';
+import { clientAddress, hashedNetworkBucket } from '../services/ip';
+import { verifyTurnstile } from '../services/turnstile';
 import {
   getVoteOptionCode,
   getVoteOptionLabel,
+  PollMode,
+  PollStatus,
   VoteOption as VoteOptionCode,
   type VoteOptionLabel
 } from '../enums';
@@ -11,35 +21,22 @@ import {
 export type VoteOption = VoteOptionLabel;
 
 const DEFAULT_VOTE_RATE_LIMIT = '5/h';
-const VOTE_SALT = 'chinapoll-local-dev-salt';
+const TOKEN_HASH_PATTERN = /^[0-9a-f]{64}$/i;
 
-function parseRateLimit(rateLimitStr: string): { count: number; windowMs: number } {
-  const match = rateLimitStr.match(RATE_LIMIT_PATTERN);
-  if (!match) return { count: 5, windowMs: 3_600_000 };
-  const count = Number(match[1]);
-  const unit = match[2];
-  const unitMs: Record<string, number> = {
-    w: 7 * 24 * 60 * 60 * 1000,
-    d: 24 * 60 * 60 * 1000,
-    h: 60 * 60 * 1000,
-    m: 60 * 1000,
-    s: 1000
-  };
-  return { count, windowMs: unitMs[unit] || 3_600_000 };
-}
-
-async function getVoteRateLimit(db: D1Database): Promise<{ count: number; windowMs: number }> {
-  const row = await db.prepare(
-    'SELECT value FROM settings WHERE key = ?'
-  ).bind('vote_rate_limit').first();
-
-  if (row?.value && typeof row.value === 'string') {
-    return parseRateLimit(row.value);
+// Counts below the configured threshold are withheld so a tiny sample cannot be
+// used to infer how one person voted.
+function buildCounts(
+  counts: Record<VoteOption, number>,
+  threshold: number
+): { counts: Record<VoteOption, number> | null; hidden: boolean; threshold: number } {
+  const total = counts.approve + counts.oppose + counts.neutral;
+  if (threshold > 0 && total < threshold) {
+    return { counts: null, hidden: true, threshold };
   }
-  return parseRateLimit(DEFAULT_VOTE_RATE_LIMIT);
+  return { counts, hidden: false, threshold };
 }
 
-export async function handleVoteStatusRequest(request: Request, env: any): Promise<Response> {
+export async function handleVoteStatusRequest(request: Request, env: HandlerEnv): Promise<Response> {
   if (request.method !== 'POST') {
     return Response.json({ message: 'POST only' }, { status: 405 });
   }
@@ -53,7 +50,7 @@ export async function handleVoteStatusRequest(request: Request, env: any): Promi
 
   const pollId = Number(body.pollId ?? 0);
   const tokenHash = typeof body.tokenHash === 'string' ? body.tokenHash : '';
-  if (!Number.isSafeInteger(pollId) || pollId < 1 || !/^[0-9a-f]{64}$/i.test(tokenHash)) {
+  if (!Number.isSafeInteger(pollId) || pollId < 1 || !TOKEN_HASH_PATTERN.test(tokenHash)) {
     return Response.json({ message: 'bad request' }, { status: 400 });
   }
 
@@ -69,34 +66,19 @@ export async function handleVoteStatusRequest(request: Request, env: any): Promi
     headers: { 'cache-control': 'no-store' }
   });
 }
-
-export async function handleVoteRequest(request: Request, env: any): Promise<Response> {
-  const { count: voteRateLimit, windowMs: voteWindowMs } = await getVoteRateLimit(env.DB);
-  const now = Date.now();
-  const bucketStart = now - (now % voteWindowMs);
-
+export async function handleVoteRequest(request: Request, env: HandlerEnv): Promise<Response> {
   if (env.read_only_mode === true) {
-    return new Response(JSON.stringify({ ok: false, message: 'readonly mode enabled' }), {
-      status: 503,
-      headers: { 'content-type': 'application/json' }
-    });
+    return Response.json({ ok: false, message: 'readonly mode enabled' }, { status: 503 });
   }
-
   if (request.method !== 'POST') {
-    return new Response(JSON.stringify({ ok: false, message: 'POST only' }), {
-      status: 405,
-      headers: { 'content-type': 'application/json' }
-    });
+    return Response.json({ ok: false, message: 'POST only' }, { status: 405 });
   }
 
   let body: any;
   try {
     body = await request.json();
   } catch {
-    return new Response(JSON.stringify({ ok: false, message: 'invalid JSON' }), {
-      status: 400,
-      headers: { 'content-type': 'application/json' }
-    });
+    return Response.json({ ok: false, message: 'invalid JSON' }, { status: 400 });
   }
 
   const pollId = Number(body.pollId ?? 0);
@@ -104,76 +86,78 @@ export async function handleVoteRequest(request: Request, env: any): Promise<Res
   const tokenHash = String(body.tokenHash ?? '');
   const turnstileResponse = String(body.turnstileToken ?? '');
 
-  if (!Number.isSafeInteger(pollId) || pollId < 1 || option === null || !tokenHash) {
-    return new Response(JSON.stringify({ ok: false, message: 'bad request' }), {
-      status: 400,
-      headers: { 'content-type': 'application/json' }
-    });
+  if (!Number.isSafeInteger(pollId) || pollId < 1 || option === null || !TOKEN_HASH_PATTERN.test(tokenHash)) {
+    return Response.json({ ok: false, message: 'bad request' }, { status: 400 });
   }
 
-  const localSkipTurnstile = !env.turnstile_enable || !env.turnstile_secret_key;
-  if (!localSkipTurnstile && !turnstileResponse) {
-    return new Response(JSON.stringify({ ok: false, message: 'turnstile verification required' }), {
-      status: 403,
-      headers: { 'content-type': 'application/json' }
-    });
+  // Turnstile is enforced only when it is enabled and fully configured.
+  if (env.turnstile_enable && env.turnstile_secret_key) {
+    if (!turnstileResponse || !await verifyTurnstile(env, turnstileResponse)) {
+      return Response.json({ ok: false, message: 'turnstile verification failed' }, { status: 403 });
+    }
   }
 
-  const remoteIp = request.headers.get('cf-connecting-ip') ?? '127.0.0.1';
-  const ipPrefixHash = await sha256(`${VOTE_SALT}:${remoteIp.split('.').slice(0, 3).join('.')}`);
-  const tsBucket = bucketStart;
+  const poll = await env.DB.prepare(
+    'SELECT status, mode, start_at, end_at FROM polls WHERE id = ?'
+  ).bind(pollId).first<{ status: number; mode: number; start_at: number | null; end_at: number | null }>();
+  if (!poll) {
+    return Response.json({ ok: false, message: 'poll not found' }, { status: 404 });
+  }
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  const withinDeadline = poll.mode !== PollMode.Deadline
+    || ((poll.start_at === null || poll.start_at <= nowSeconds)
+      && (poll.end_at === null || nowSeconds <= poll.end_at));
+  if (poll.status !== PollStatus.Open || !withinDeadline) {
+    return Response.json({ ok: false, message: 'poll is not open' }, { status: 409 });
+  }
+
+  const ipHash = await hashedNetworkBucket(clientAddress(request), env.IP_HASH_KEY);
+  if (!ipHash) {
+    return Response.json({ ok: false, message: 'ip hash key is not configured' }, { status: 503 });
+  }
+
+  const limited = await checkRateLimit(env, 'vote', ipHash, env.vote_rate_limit, DEFAULT_VOTE_RATE_LIMIT);
+  if (!limited.allowed) {
+    return Response.json({ ok: false, message: 'rate limit reached' }, { status: 429 });
+  }
 
   const existingVote: any = await env.DB.prepare(
     'SELECT id FROM votes WHERE poll_id = ? AND voter_token_hash = ? LIMIT 1'
   ).bind(pollId, tokenHash).first();
-
   if (existingVote) {
-    return new Response(JSON.stringify({ ok: false, message: 'duplicate vote' }), {
-      status: 409,
-      headers: { 'content-type': 'application/json' }
-    });
+    return Response.json({ ok: false, message: 'duplicate vote' }, { status: 409 });
   }
 
-  const rateLimitResult: any = await env.DB.prepare(
-    `SELECT COUNT(*) as count FROM votes WHERE ip_prefix_hash = ? AND ts_bucket = ?`
-  ).bind(ipPrefixHash, tsBucket).first();
-
-  if ((Number(rateLimitResult?.count ?? 0)) >= voteRateLimit) {
-    return new Response(JSON.stringify({ ok: false, message: 'rate limit reached' }), {
-      status: 429,
-      headers: { 'content-type': 'application/json' }
-    });
-  }
-
+  // Timestamps are coarsened to the hour so a vote cannot be correlated with
+  // edge logs or with another row created at the same second.
+  const coarseNow = nowSeconds - (nowSeconds % 3600);
   const insertResult = await env.DB.prepare(
-    `INSERT INTO votes (poll_id, voter_token_hash, ip_prefix_hash, option, ts_bucket)
-     VALUES (?, ?, ?, ?, ?)
+    `INSERT INTO votes (poll_id, voter_token_hash, option, created_at)
+     VALUES (?, ?, ?, ?)
      ON CONFLICT(poll_id, voter_token_hash) DO NOTHING`
-  ).bind(pollId, tokenHash, ipPrefixHash, option, tsBucket).run();
+  ).bind(pollId, tokenHash, option, coarseNow).run();
 
   if (!insertResult.meta.changes) {
-    return new Response(JSON.stringify({ ok: false, message: 'duplicate vote' }), {
-      status: 409,
-      headers: { 'content-type': 'application/json' }
-    });
+    return Response.json({ ok: false, message: 'duplicate vote' }, { status: 409 });
   }
 
   const countsResult: any = await env.DB.prepare(
-    `SELECT option, COUNT(*) as count FROM votes WHERE poll_id = ? GROUP BY option`
+    'SELECT option, COUNT(*) as count FROM votes WHERE poll_id = ? GROUP BY option'
   ).bind(pollId).all();
 
   const counts: Record<VoteOption, number> = { approve: 0, oppose: 0, neutral: 0 };
   for (const row of countsResult.results ?? []) {
-    const key = getVoteOptionLabel(Number(row.option));
-    counts[key] = Number(row.count ?? 0);
+    counts[getVoteOptionLabel(Number(row.option))] = Number(row.count ?? 0);
   }
 
-  return new Response(JSON.stringify({
+  const threshold = Number(env.min_votes_to_display ?? 0);
+  const visible = buildCounts(counts, threshold);
+  return Response.json({
     ok: true,
     message: 'vote accepted',
-    counts,
+    counts: visible.counts,
+    hidden: visible.hidden,
+    threshold: visible.threshold,
     voted: true
-  }), {
-    headers: { 'content-type': 'application/json' }
   });
 }

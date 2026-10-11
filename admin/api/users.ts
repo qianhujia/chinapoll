@@ -24,7 +24,6 @@ interface UserRow {
   last_login_at: number | null;
   created_at: number;
   updated_at: number;
-  ip_prefix: number | null;
   poll_count: number;
   comment_count: number;
 }
@@ -106,7 +105,7 @@ async function listUsers(url: URL, env: AdminEnv): Promise<Response> {
 
   const result = await env.DB.prepare(
     `SELECT u.id, u.username, u.status, u.failed_attempts, u.locked_until, u.last_login_at,
-            u.created_at, u.updated_at, u.ip_prefix,
+            u.created_at, u.updated_at,
             (SELECT COUNT(*) FROM polls p WHERE p.user_id = u.id) AS poll_count,
             (SELECT COUNT(*) FROM comments c WHERE c.user_id = u.id) AS comment_count
      FROM users u
@@ -230,8 +229,6 @@ function serializeUser(row: UserRow) {
     lastLoginAt: row.last_login_at ? new Date(row.last_login_at * 1000).toISOString() : null,
     createdAt: new Date(row.created_at * 1000).toISOString(),
     updatedAt: new Date(row.updated_at * 1000).toISOString(),
-    // The stored network bucket is an anonymized 32-bit integer (never a full IP).
-    networkBucket: row.ip_prefix === null ? null : Number(row.ip_prefix),
     pollCount: Number(row.poll_count),
     commentCount: Number(row.comment_count)
   };

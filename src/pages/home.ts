@@ -126,9 +126,10 @@ export async function mountHome(app: HTMLElement, page: number, bindNavigation: 
           ${pollStats.length === 0
     ? `<p class="py-6 text-center text-muted">${searchQuery ? t('searchNoResults') : t('noPolls')}</p>`
     : pollStats.map(({ poll, stats }) => {
-            const total = stats.counts.approve + stats.counts.oppose + stats.counts.neutral;
+            const counts = stats.counts;
+            const total = counts ? counts.approve + counts.oppose + counts.neutral : 0;
             const voteState = pollVoteStates.get(poll.id) ?? { voted: false, error: '' };
-            const voteDisabled = voteState.voted || Boolean(voteState.error);
+            const voteDisabled = stats.hidden || voteState.voted || Boolean(voteState.error);
             return `
               <article class="grid grid-cols-[minmax(0,1fr)_minmax(190px,240px)] items-center gap-x-8 border-b border-border py-[22px] max-[700px]:grid-cols-1 max-[700px]:gap-y-3" data-poll-row="${poll.id}">
                 <div class="col-start-1 flex items-start justify-between gap-[18px]">
@@ -140,17 +141,19 @@ export async function mountHome(app: HTMLElement, page: number, bindNavigation: 
                 </div>
 
                 <div class="col-start-2 row-start-1 flex items-center justify-center gap-5 max-[700px]:col-start-1">
-                  <span class="shrink-0 whitespace-nowrap text-xs leading-[1.2] text-muted" data-home-total="${poll.id}">${total} ${t('votes')}</span>
-                  <div class="flex w-full max-w-[300px] overflow-hidden rounded-xl border border-border max-[700px]:col-start-1" role="group" aria-label="${t('vote')}" data-vote-group="${poll.id}">
+                  <span class="shrink-0 whitespace-nowrap text-xs leading-[1.2] text-muted" data-home-total="${poll.id}">${stats.hidden ? '' : `${total} ${t('votes')}`}</span>
+                  ${stats.hidden
+                    ? `<p class="m-0 max-w-[300px] text-center text-xs text-muted">${t('resultsHidden').replace('{n}', String(stats.threshold))}</p>`
+                    : `<div class="flex w-full max-w-[300px] overflow-hidden rounded-xl border border-border max-[700px]:col-start-1" role="group" aria-label="${t('vote')}" data-vote-group="${poll.id}">
                     ${(['approve', 'neutral', 'oppose'] as const).map((option) => renderVoteButton(
                       option,
-                      stats.counts[option],
+                      counts![option],
                       total,
                       voteDisabled,
                       voteState.voted ? t('alreadyVoted') : voteState.error || t(option),
                       poll.id
                     )).join('')}
-                  </div>
+                  </div>`}
                 </div>
               </article>
             `;
@@ -185,14 +188,15 @@ export async function mountHome(app: HTMLElement, page: number, bindNavigation: 
         pollStatsEntry.stats.counts = result.counts;
         state.voted = true;
         markVotedLocally(pollId, tokenHash);
-        const pollTotal = result.counts.approve + result.counts.oppose + result.counts.neutral;
+        const counts = result.counts;
+        const pollTotal = counts ? counts.approve + counts.oppose + counts.neutral : 0;
         totalVotes += 1;
         const totalVotesElement = document.querySelector('[data-total-votes]');
         if (totalVotesElement) totalVotesElement.textContent = String(totalVotes);
         const pollTotalElement = document.querySelector(`[data-home-total="${pollId}"]`);
-        if (pollTotalElement) pollTotalElement.textContent = `${pollTotal} ${t('votes')}`;
+        if (pollTotalElement) pollTotalElement.textContent = counts ? `${pollTotal} ${t('votes')}` : '';
         const voteGroup = document.querySelector<HTMLElement>(`[data-vote-group="${pollId}"]`);
-        if (voteGroup) updateVoteGroup(voteGroup, result.counts);
+        if (voteGroup && counts) updateVoteGroup(voteGroup, counts);
         showToast(`${t('voteRecord')}: ${t(option)}`);
       } catch (error) {
         let alreadyVoted = false;

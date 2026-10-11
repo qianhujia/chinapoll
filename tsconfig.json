@@ -12,12 +12,10 @@
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
     "strict": true,
-    "noEmit": false,
-    "rootDir": ".",
-    "outDir": "./dist",
+    "noEmit": true,
     "jsx": "preserve",
     "types": ["vite/client", "node", "@cloudflare/workers-types"],
     "baseUrl": "."
   },
-  "include": ["src/**/*.ts", "worker/**/*.ts", "admin/**/*.ts"]
+  "include": ["src/**/*.ts", "worker/**/*.ts", "admin/**/*.ts", "shared/**/*.ts", "tests/**/*.ts", "vitest.config.ts"]
 }

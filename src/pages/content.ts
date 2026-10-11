@@ -135,7 +135,7 @@ export function mountProposePage(app: HTMLElement, bindNavigation: () => void): 
       if (result.status === 'open') {
         showToast(`${t('proposalPublished')}: ${result.pollId}`);
       } else {
-        showToast(`${t('proposalSubmitted')}: ${result.pollId} · ${result.submitter ?? ''}`);
+        showToast(`${t('proposalSubmitted')}: ${result.pollId}`);
       }
       proposalForm.reset();
       updateProposalSchedule(false);
