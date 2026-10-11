@@ -4,8 +4,48 @@ import { ipBucket, hashedNetworkBucket, isValidIpHashKey } from '../worker/servi
 import { makeSnapshot, verifySnapshotHash } from '../worker/services/snapshot';
 import { normalizeRecoveryCode } from '../worker/services/recovery';
 import { checkAccountAge, validateUserPassword } from '../worker/services/users';
+import { enforceSameOrigin } from '../worker/services/csrf';
 
 const KEY = '1f2e3d4c5b6a798807162534435261708f9e0d1c2b3a495867758493a2b1c0d1';
+
+describe('enforceSameOrigin', () => {
+  const mutate = (url: string, headers: Record<string, string> = {}) =>
+    new Request(url, { method: 'POST', headers });
+
+  it('allows a mutation whose Origin matches the request origin', () => {
+    const request = mutate('http://127.0.0.1:8787/api/proposal', { origin: 'http://127.0.0.1:8787' });
+    expect(enforceSameOrigin(request, { viaCookie: true })).toBeNull();
+  });
+
+  it('rejects a cross-origin mutation', () => {
+    // The Vite dev proxy must keep the browser Host so this stays a same-origin
+    // request; a rewritten Host reproduces the rejected 403 case below.
+    const rewrittenHost = mutate('http://127.0.0.1:8787/api/proposal', { origin: 'http://localhost:5173' });
+    const response = enforceSameOrigin(rewrittenHost, { viaCookie: true });
+    expect(response?.status).toBe(403);
+
+    const preservedHost = mutate('http://localhost:5173/api/proposal', { origin: 'http://localhost:5173' });
+    expect(enforceSameOrigin(preservedHost, { viaCookie: true })).toBeNull();
+  });
+
+  it('rejects a mutation with no Origin header', () => {
+    const response = enforceSameOrigin(mutate('http://127.0.0.1:8787/api/proposal'), { viaCookie: true });
+    expect(response?.status).toBe(403);
+  });
+
+  it('allows a configured extra origin', () => {
+    const request = mutate('http://127.0.0.1:8788/api/admin/settings', { origin: 'https://admin.chinapoll.org' });
+    expect(enforceSameOrigin(request, { viaCookie: true, extraOrigin: 'https://admin.chinapoll.org' })).toBeNull();
+  });
+
+  it('skips the check for safe methods and header-authenticated requests', () => {
+    const get = new Request('http://127.0.0.1:8787/api/proposal', { headers: { origin: 'http://evil.example' } });
+    expect(enforceSameOrigin(get, { viaCookie: true })).toBeNull();
+
+    const headerAuth = mutate('http://127.0.0.1:8787/api/proposal', { origin: 'http://evil.example' });
+    expect(enforceSameOrigin(headerAuth, { viaCookie: false })).toBeNull();
+  });
+});
 
 describe('parseRateLimit', () => {
   it('parses count and unit', () => {
