@@ -18,7 +18,9 @@ new_classes = ["RateLimiter"]
 directory = "./dist/web"
 binding = "ASSETS"
 not_found_handling = "single-page-application"
-run_worker_first = ["/", "/index.html", "/api/*"]
+# Every request goes through the Worker so the HTML document receives its Content
+# Security Policy on every route, including deep links such as /poll/12.
+run_worker_first = true
 
 [vars]
 
@@ -28,3 +30,27 @@ database_name = "chinapoll-local"
 database_id = "local"
 migrations_dir = "./migrations"
 migrations_table = "migrations"
+
+# Production environment targeted by the deploy workflow with `--env production`.
+# The deploy step applies migrations to the "chinapoll" database and publishes the
+# production Worker. Replace database_id with the real database UUID before the
+# first production deploy.
+[env.production]
+
+[[env.production.d1_databases]]
+binding = "DB"
+database_name = "chinapoll"
+database_id = "REPLACE_WITH_PRODUCTION_DATABASE_ID"
+migrations_dir = "./migrations"
+migrations_table = "migrations"
+
+# vars and durable_objects are not inherited from the top level, so they are
+# repeated here. The Durable Object migration list is per environment.
+[env.production.vars]
+
+[env.production.durable_objects]
+bindings = [{ name = "RATE_LIMITER", class_name = "RateLimiter" }]
+
+[[env.production.migrations]]
+tag = "v1"
+new_classes = ["RateLimiter"]

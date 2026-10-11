@@ -41,7 +41,6 @@ CREATE TABLE IF NOT EXISTS polls (
 
 CREATE INDEX IF NOT EXISTS idx_polls_status_created
   ON polls(status, created_at DESC, id DESC);
-CREATE INDEX IF NOT EXISTS idx_polls_owner ON polls(owner_hash);
 
 -- Anonymous votes. Only the hash of a per-poll browser token identifies a voter.
 CREATE TABLE IF NOT EXISTS votes (

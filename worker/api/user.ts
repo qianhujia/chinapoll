@@ -11,6 +11,7 @@ import { enforceSameOrigin } from '../services/csrf';
 import { verifyPassword } from '../../shared/password';
 import { generateRecoveryCode } from '../services/recovery';
 import { ownerHash } from '../services/owner';
+import { serverHmacKey } from '../services/ip';
 import { currentHour, writeSnapshotForPoll } from '../services/maintenance';
 
 const MAX_IDS = 100;
@@ -108,7 +109,7 @@ async function findOwnedPoll(env: UserEnv, userId: number, pollId: number): Prom
      FROM polls WHERE id = ?`
   ).bind(pollId).first<OwnedPollRow>();
   if (!row) return null;
-  const expected = await ownerHash(userId, pollId, env.IP_HASH_KEY);
+  const expected = await ownerHash(userId, pollId, serverHmacKey(env));
   if (!expected || expected !== row.owner_hash) return null;
   return row;
 }
@@ -128,7 +129,7 @@ async function listUserPolls(url: URL, env: UserEnv, userId: number): Promise<Re
 
   const polls = [];
   for (const row of result.results ?? []) {
-    const expected = await ownerHash(userId, Number(row.id), env.IP_HASH_KEY);
+    const expected = await ownerHash(userId, Number(row.id), serverHmacKey(env));
     if (!expected || expected !== row.owner_hash) continue;
     polls.push({
       id: Number(row.id),

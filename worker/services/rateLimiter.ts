@@ -3,8 +3,9 @@
 // Counters are persisted in the Durable Object's private storage so an idle
 // object that gets evicted does not lose its state; an attacker cannot reset a
 // quota by pausing. Storage keys are keyed hashes or `user:<id>` and never leave
-// the platform. The read-modify-write runs inside `blockConcurrencyWhile` so
-// concurrent requests for the same key cannot interleave. An alarm evicts
+// the platform. The read-modify-write runs inside a storage transaction so
+// concurrent requests for the same key cannot interleave, without stalling the
+// whole object for callers that touch other keys. An alarm evicts
 // expired keys and is only re-armed when a new reset time is earlier than the
 // one already scheduled (tracked in memory).
 
@@ -41,9 +42,9 @@ export class RateLimiter {
       return Response.json({ message: 'invalid rate limit request' }, { status: 400 });
     }
 
-    const result = await this.state.blockConcurrencyWhile(async () => {
+    const result = await this.state.storage.transaction(async (txn) => {
       const now = Date.now();
-      const stored = await this.state.storage.get<Bucket>(key);
+      const stored = await txn.get<Bucket>(key);
       const bucket: Bucket = stored && stored.resetAt > now ? stored : { count: 0, resetAt: now + windowMs };
 
       if (bucket.count >= limit) {
@@ -51,7 +52,7 @@ export class RateLimiter {
       }
 
       bucket.count += 1;
-      await this.state.storage.put(key, bucket);
+      await txn.put(key, bucket);
       return { allowed: true, remaining: Math.max(0, limit - bucket.count), resetAt: bucket.resetAt };
     });
 

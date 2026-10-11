@@ -9,7 +9,7 @@ import {
   regenerateRecoveryCode,
   type UserPoll
 } from '../lib/session';
-import { forgetMyPoll, getMyPollIds } from '../lib/poll';
+import { forgetMyPoll, getMyPollIds, rememberMyPoll } from '../lib/poll';
 import { escapeHtml, getErrorMessage, renderFooter, renderHeader, renderRecoveryCode, renderToast, showToast, t } from '../ui';
 
 function statusLabel(status: UserPoll['status']): string {
@@ -115,10 +115,15 @@ export async function mountAccountPage(
 
         <section class="rounded-[22px] border border-border bg-panel p-6 shadow-card">
           <h2 class="mb-3.5 text-xl font-bold">${t('accountPollsTitle')}</h2>
+          <p class="m-0 mb-4 text-sm text-muted">${t('accountPollsBrowserNote')}</p>
           ${loadError ? `<p class="m-0 text-muted">${escapeHtml(t('accountLoadFailed'))} ${escapeHtml(loadError)}</p>`
             : polls.length
               ? `<ul class="m-0 grid list-none gap-0 p-0">${polls.map(pollCardMarkup).join('')}</ul>`
               : `<p class="m-0 text-muted">${t('accountNoPolls')}</p>`}
+          <form class="mt-4 flex flex-wrap items-center gap-2" data-remember-poll-form>
+            <input class="w-40 rounded-full border border-border bg-panel px-3 py-1.5 text-sm text-ink outline-none focus:border-primary" type="text" inputmode="numeric" autocomplete="off" data-remember-poll-input placeholder="${t('accountAddPollPlaceholder')}" aria-label="${t('accountAddPollLabel')}" />
+            <button class="cursor-pointer rounded-full border border-primary bg-primary px-3 py-1.5 text-sm text-white" type="submit">${t('accountAddPollAction')}</button>
+          </form>
         </section>
       </main>
       ${renderToast()}
@@ -197,6 +202,29 @@ export async function mountAccountPage(
         button.disabled = false;
       }
     });
+  });
+
+  document.querySelector<HTMLFormElement>('[data-remember-poll-form]')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const input = document.querySelector<HTMLInputElement>('[data-remember-poll-input]');
+    const pollId = Number((input?.value ?? '').trim());
+    if (!Number.isSafeInteger(pollId) || pollId < 1) {
+      showToast(t('accountAddPollInvalid'), 'error');
+      return;
+    }
+    try {
+      // The server confirms ownership before the id is remembered locally.
+      const owned = await getUserPolls([pollId]);
+      if (owned.length === 0) {
+        showToast(t('accountAddPollNotFound'), 'error');
+        return;
+      }
+      rememberMyPoll(pollId);
+      showToast(t('accountAddPollSuccess'));
+      await mountAccountPage(app, bindNavigation, navigate);
+    } catch (error) {
+      showToast(`${t('accountActionFailed')} ${getErrorMessage(error)}`, 'error');
+    }
   });
 
   bindNavigation();

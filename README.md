@@ -25,7 +25,7 @@ User-account settings are also stored in the `settings` table and served by the 
 
 Settings are managed from the standalone admin Worker dashboard (see [Admin Worker](#admin-worker)). Values are validated before they are written, and the Settings tab can insert any missing defaults.
 
-Keep secrets out of `.env` and `wrangler.toml`: use the ignored `.dev.vars` file for local Worker secrets and `wrangler secret put <NAME>` for production secrets. The Turnstile secret key lives in the `settings` table (64-character hex when set); the Worker only verifies tokens when `turnstile_enable` is `true` and a secret key is present, and the public `turnstile_site_key` setting is rendered by the vote and auth forms. The public Worker also needs an `IP_HASH_KEY` secret (a 64-character hex value) for keyed, daily-rotated network hashing; without it, voting and account creation return `503`.
+Keep secrets out of `.env` and `wrangler.toml`: use the ignored `.dev.vars` file for local Worker secrets and `wrangler secret put <NAME>` for production secrets. The Turnstile secret key lives in the `settings` table (64-character hex when set); the Worker only verifies tokens when `turnstile_enable` is `true` and a secret key is present, and the public `turnstile_site_key` setting is rendered by the vote and auth forms. The public Worker also needs a `SERVER_HMAC_KEY` secret (a 64-character hex value) for keyed, daily-rotated network hashing and for owner hashing; the legacy `IP_HASH_KEY` name is still read as a fallback for one release but should be renamed. Without either secret, voting and account creation return `503`.
 
 The homepage lists open polls stored in the local D1 `polls` table. An empty database shows no polls; the repository does not bundle poll seed or demo records.
 
@@ -92,16 +92,29 @@ records admin actions without client IP addresses. Deploy with
 
 ## Testing and CI
 
-Unit tests run with Vitest:
+`npm test` runs two Vitest projects:
+
+- Node unit tests (`vitest.config.ts`) for pure functions.
+- Workers-runtime integration tests (`vitest.workers.config.ts`, backed by
+  `@cloudflare/vitest-pool-workers`) that run inside a real workerd instance with
+  D1 and the RateLimiter Durable Object. They cover the vote path, threshold
+  hiding, rate-limit exhaustion and reset, the account comment delay, CSRF
+  rejection, the cron snapshot chain including the close-hour terminal snapshot,
+  the Content Security Policy on a deep link, and a full `verify` of a chain
+  longer than one API page. The migration is applied to the isolated test database
+  from `migrations/0001_initial.sql`.
 
 ```bash
-npm test
+npm test              # unit + integration
+npm run test:unit
+npm run test:workers
 ```
 
-`.github/workflows/ci.yml` runs `npm run lint`, `npm test`, `npm run build`,
+`.github/workflows/ci.yml` runs `npm run lint`, `npm run build`, `npm test`,
 `npm run build:worker`, and `npm run admin:worker:dry-run` on every push and pull
 request, fails if the built SPA references any external origin other than
-`challenges.cloudflare.com`, and deploys both Workers on a `v*` tag.
+`challenges.cloudflare.com`, and deploys both Workers with `--env production` on a
+`v*` tag.
 
 ## Privacy documentation
 
@@ -136,9 +149,12 @@ Dashboard missing-default settings are inserted from the Settings tab.
 
 The SPA and the public API share **one hostname**: the public Worker serves the
 built assets from `dist/web` and handles `/api/*`. The admin Worker uses a
-**separate hostname** and a separate dashboard. Set production `database_id`
-values in `wrangler.toml` and `admin/wrangler.toml`, then deploy with
-`npx wrangler deploy` and `npm run admin:worker:deploy`.
+**separate hostname** and a separate dashboard. Both `wrangler.toml` files define
+an `[env.production]` environment that binds the production `chinapoll` database;
+replace the placeholder `database_id` with the real database UUID. Deploy with
+`npx wrangler deploy --env production` and
+`npx wrangler deploy --config admin/wrangler.toml --env production`, as described
+in `docs/RUNBOOK.md`.
 
 ## Build check
 

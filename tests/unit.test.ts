@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { parseRateLimit } from '../worker/services/rateLimit';
-import { ipBucket, hashedNetworkBucket, isValidIpHashKey } from '../worker/services/ip';
+import { ipBucket, hashedNetworkBucket, isValidServerKey } from '../worker/services/ip';
 import { makeSnapshot, verifySnapshotHash } from '../worker/services/snapshot';
 import { normalizeRecoveryCode } from '../worker/services/recovery';
 import { checkAccountAge, validateUserPassword } from '../worker/services/users';
 import { enforceSameOrigin } from '../worker/services/csrf';
+import { validateProposal } from '../worker/api/proposal';
 
 const KEY = '1f2e3d4c5b6a798807162534435261708f9e0d1c2b3a495867758493a2b1c0d1';
 
@@ -72,7 +73,7 @@ describe('ipBucket', () => {
 
 describe('hashedNetworkBucket', () => {
   it('rejects a malformed key', async () => {
-    expect(isValidIpHashKey('short')).toBe(false);
+    expect(isValidServerKey('short')).toBe(false);
     expect(await hashedNetworkBucket('203.0.113.10', 'short')).toBeNull();
   });
 
@@ -142,5 +143,51 @@ describe('checkAccountAge', () => {
     const result = checkAccountAge(now, 24, now);
     expect(result.allowed).toBe(false);
     expect(result.remainingHours).toBe(24);
+  });
+});
+
+describe('validateProposal', () => {
+  it('accepts a title with no description because the description is optional', () => {
+    const result = validateProposal({ title: 'Public transit funding', mode: 'evergreen' });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.input.description).toBeNull();
+  });
+
+  it('keeps a substantive description', () => {
+    const description = 'A sufficiently long description of the proposal.';
+    const result = validateProposal({ title: 'Public transit funding', mode: 'evergreen', description });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.input.description).toBe(description);
+  });
+
+  it('rejects a short non-empty description', () => {
+    const result = validateProposal({ title: 'Public transit funding', mode: 'evergreen', description: 'too short' });
+    expect(result.ok).toBe(false);
+  });
+
+  it('rejects a blank title', () => {
+    expect(validateProposal({ title: '   ', mode: 'evergreen' }).ok).toBe(false);
+  });
+
+  it('rejects a deadline poll whose start is not in the future', () => {
+    const now = Date.parse('2026-10-11T00:00:00Z');
+    const result = validateProposal({
+      title: 'Deadline poll',
+      mode: 'deadline',
+      startAt: '2026-10-10T00:00:00Z',
+      endAt: '2026-10-12T00:00:00Z'
+    }, now);
+    expect(result.ok).toBe(false);
+  });
+
+  it('accepts a deadline poll with a valid future window', () => {
+    const now = Date.parse('2026-10-11T00:00:00Z');
+    const result = validateProposal({
+      title: 'Deadline poll',
+      mode: 'deadline',
+      startAt: '2026-10-12T00:00:00Z',
+      endAt: '2026-10-19T00:00:00Z'
+    }, now);
+    expect(result.ok).toBe(true);
   });
 });

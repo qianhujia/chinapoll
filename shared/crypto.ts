@@ -47,6 +47,14 @@ export async function hmacSha256Hex(key: Uint8Array | string, message: string): 
   return toHex(await hmacSha256(key, message));
 }
 
+// Derives a purpose-specific sub-key from a master key: HMAC(master, purpose).
+// Distinct purposes keep one derived value from helping with another, so a
+// network hash can never be turned into an owner hash. `masterHex` must be a
+// 64-character hex string; the result is also 64 hex characters.
+export async function deriveKey(masterHex: string, purpose: string): Promise<string> {
+  return hmacSha256Hex(fromHex(masterHex), purpose);
+}
+
 // Compares two strings without leaking their content through timing differences.
 export function constantTimeEqual(left: string, right: string): boolean {
   if (left.length !== right.length) return false;

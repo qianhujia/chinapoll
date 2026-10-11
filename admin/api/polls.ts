@@ -146,12 +146,19 @@ async function updatePollStatus(pollId: number, request: Request, env: AdminEnv,
   }
 
   const poll = await env.DB.prepare(
-    'SELECT id, title, mode, status FROM polls WHERE id = ?'
-  ).bind(pollId).first<{ id: number; title: string | null; mode: number; status: number }>();
+    'SELECT id, title, mode, status, start_at FROM polls WHERE id = ?'
+  ).bind(pollId).first<{ id: number; title: string | null; mode: number; status: number; start_at: number | null }>();
 
   if (!poll) {
     return Response.json({ message: `poll ${pollId} was not found` }, { status: 404 });
   }
+
+  const now = Math.floor(Date.now() / 1000);
+  // Approving a deadline poll whose start time is still in the future keeps it
+  // pending (with reviewed_at set) so the hourly task opens it on schedule,
+  // instead of listing a poll that cannot be voted on yet as open.
+  let storedStatus = POLL_STATUS_VALUES[nextStatus];
+  let scheduled = false;
   if (nextStatus === 'open') {
     if (!poll.title?.trim()) {
       return Response.json({ message: `poll ${pollId} has no title and cannot be published` }, { status: 422 });
@@ -159,14 +166,18 @@ async function updatePollStatus(pollId: number, request: Request, env: AdminEnv,
     if (poll.mode !== PollMode.Deadline && poll.mode !== PollMode.Evergreen) {
       return Response.json({ message: `poll ${pollId} has an unsupported mode` }, { status: 422 });
     }
+    if (poll.mode === PollMode.Deadline && poll.start_at !== null && poll.start_at > now) {
+      storedStatus = PollStatus.Pending;
+      scheduled = true;
+    }
   }
 
   const update = await env.DB.prepare(
     `UPDATE polls
      SET status = ?, updated_at = unixepoch(),
-         reviewed_at = CASE WHEN ? = ? THEN unixepoch() ELSE reviewed_at END
+         reviewed_at = CASE WHEN ? = 1 THEN unixepoch() ELSE reviewed_at END
      WHERE id = ?`
-  ).bind(POLL_STATUS_VALUES[nextStatus], POLL_STATUS_VALUES[nextStatus], PollStatus.Open, pollId).run();
+  ).bind(storedStatus, nextStatus === 'open' ? 1 : 0, pollId).run();
 
   if (update.meta.changes !== 1) {
     return Response.json({ message: `poll ${pollId} could not be updated` }, { status: 409 });
@@ -185,14 +196,20 @@ async function updatePollStatus(pollId: number, request: Request, env: AdminEnv,
 
   await logAudit(env, {
     actor, action: 'poll.status', targetType: 'poll', targetId: pollId,
-    details: { status: nextStatus, previousStatus: pollStatusLabel(poll.status) }
+    details: {
+      status: scheduled ? 'pending' : nextStatus,
+      previousStatus: pollStatusLabel(poll.status),
+      scheduled
+    }
   });
 
   return Response.json({
     ok: true,
     pollId,
-    status: nextStatus,
-    message: `Poll ${pollId} status set to ${nextStatus}.`
+    status: scheduled ? 'scheduled' : nextStatus,
+    message: scheduled
+      ? `Poll ${pollId} is scheduled to open at its start time.`
+      : `Poll ${pollId} status set to ${nextStatus}.`
   });
 }
 

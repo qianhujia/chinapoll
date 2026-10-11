@@ -99,5 +99,5 @@ IP address. Read only by the admin Worker.
   author link can be recovered from the tables alone. Contributions are not
   linked to votes and carry no network value.
 - Per-network account-cap counters only as keyed hashes; the raw address cannot
-  be recovered without `IP_HASH_KEY`. Because the cap hash rotates per calendar
+  be recovered without `SERVER_HMAC_KEY`. Because the cap hash rotates per calendar
   month, rows sharing a hash are linkable within one month.

@@ -7,7 +7,7 @@
 
 import type { HandlerEnv } from '../index';
 import { checkRateLimit } from '../services/rateLimit';
-import { clientAddress, hashedNetworkBucket } from '../services/ip';
+import { clientAddress, hashedNetworkBucket, serverHmacKey } from '../services/ip';
 import { verifyTurnstile } from '../services/turnstile';
 import {
   getVoteOptionCode,
@@ -111,9 +111,9 @@ export async function handleVoteRequest(request: Request, env: HandlerEnv): Prom
     return Response.json({ ok: false, message: 'poll is not open' }, { status: 409 });
   }
 
-  const ipHash = await hashedNetworkBucket(clientAddress(request), env.IP_HASH_KEY);
+  const ipHash = await hashedNetworkBucket(clientAddress(request), serverHmacKey(env));
   if (!ipHash) {
-    return Response.json({ ok: false, message: 'ip hash key is not configured' }, { status: 503 });
+    return Response.json({ ok: false, message: 'server key is not configured' }, { status: 503 });
   }
 
   const limited = await checkRateLimit(env, 'vote', ipHash, env.vote_rate_limit, DEFAULT_VOTE_RATE_LIMIT);

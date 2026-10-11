@@ -9,7 +9,7 @@
 
 import type { HandlerEnv } from '../index';
 import { checkRateLimit } from '../services/rateLimit';
-import { clientAddress, hashedNetworkBucket } from '../services/ip';
+import { clientAddress, hashedNetworkBucket, serverHmacKey } from '../services/ip';
 import { verifyTurnstile } from '../services/turnstile';
 import { enforceSameOrigin } from '../services/csrf';
 import {
@@ -162,9 +162,9 @@ async function register(request: Request, env: HandlerEnv): Promise<Response> {
 
   // Rate limiting uses the daily hash; the account cap uses the monthly hash so
   // it stays effective across the whole calendar month.
-  const dayHash = await hashedNetworkBucket(clientAddress(request), env.IP_HASH_KEY, new Date(), 'day');
-  const monthHash = await hashedNetworkBucket(clientAddress(request), env.IP_HASH_KEY, new Date(), 'month');
-  if (!dayHash || !monthHash) return noStoreJson({ message: 'ip hash key is not configured' }, 503);
+  const dayHash = await hashedNetworkBucket(clientAddress(request), serverHmacKey(env), new Date(), 'day');
+  const monthHash = await hashedNetworkBucket(clientAddress(request), serverHmacKey(env), new Date(), 'month');
+  if (!dayHash || !monthHash) return noStoreJson({ message: 'server key is not configured' }, 503);
 
   // Per-network account cap: one bucket may only register a configurable number
   // of accounts within the rolling window.
@@ -216,8 +216,8 @@ async function login(request: Request, env: HandlerEnv): Promise<Response> {
   const turnstileError = await turnstileGate(env, body);
   if (turnstileError) return turnstileError;
 
-  const ipHash = await hashedNetworkBucket(clientAddress(request), env.IP_HASH_KEY, new Date(), 'day');
-  if (!ipHash) return noStoreJson({ message: 'ip hash key is not configured' }, 503);
+  const ipHash = await hashedNetworkBucket(clientAddress(request), serverHmacKey(env), new Date(), 'day');
+  if (!ipHash) return noStoreJson({ message: 'server key is not configured' }, 503);
 
   const limited = await checkRateLimit(env, 'login', ipHash, env.login_rate_limit, DEFAULT_LOGIN_RATE_LIMIT);
   if (!limited.allowed) {
@@ -305,8 +305,8 @@ async function recover(request: Request, env: HandlerEnv): Promise<Response> {
   const code = normalizeRecoveryCode(readString(body, 'code'));
   if (!code) return invalid;
 
-  const ipHash = await hashedNetworkBucket(clientAddress(request), env.IP_HASH_KEY, new Date(), 'day');
-  if (!ipHash) return noStoreJson({ message: 'ip hash key is not configured' }, 503);
+  const ipHash = await hashedNetworkBucket(clientAddress(request), serverHmacKey(env), new Date(), 'day');
+  if (!ipHash) return noStoreJson({ message: 'server key is not configured' }, 503);
 
   // Recovery attempts share the login rate limit.
   const limited = await checkRateLimit(env, 'recover', ipHash, env.login_rate_limit, DEFAULT_LOGIN_RATE_LIMIT);

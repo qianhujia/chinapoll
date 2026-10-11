@@ -17,10 +17,13 @@
     "build:worker": "npx wrangler deploy --dry-run --outdir dist/worker",
     "preview": "vite preview --host 0.0.0.0 --port 4173",
     "lint": "tsc --noEmit",
-    "test": "vitest run",
+    "test": "vitest run && vitest run --config vitest.workers.config.ts",
+    "test:unit": "vitest run",
+    "test:workers": "vitest run --config vitest.workers.config.ts",
     "worker:dev": "npm run dev:worker"
   },
   "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.23.0",
     "@cloudflare/workers-types": "^5.20261009.1",
     "@tailwindcss/vite": "^4.3.3",
     "@types/node": "^26.6.4",
@@ -28,7 +31,7 @@
     "tailwindcss": "^4.3.3",
     "typescript": "^5.5.4",
     "vite": "^5.4.10",
-    "vitest": "^2.1.9",
+    "vitest": "^4.1.11",
     "wrangler": "^4.149.0"
   }
 }

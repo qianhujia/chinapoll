@@ -2,9 +2,10 @@
 //
 // The Worker binds to D1 for persistent data and to a RateLimiter Durable Object
 // for atomic rate limiting. It never stores a raw client address: network
-// buckets are keyed and rotated with IP_HASH_KEY (see worker/services/ip.ts).
-// The HTML shell is routed through the Worker so the document gets a Content
-// Security Policy; other static assets are served by the assets layer directly.
+// buckets are keyed and rotated with SERVER_HMAC_KEY (see worker/services/ip.ts).
+// Every request is routed through the Worker: the JSON API is answered here, and
+// other paths are served from the assets binding so the HTML document gets a
+// Content Security Policy on every route, including deep links such as /poll/12.
 
 import { handleProposalRequest } from './api/proposal';
 import { handleStatsRequest } from './api/stats';
@@ -27,6 +28,8 @@ export interface Env {
   DB: D1Database;
   RATE_LIMITER: DurableObjectNamespace;
   ASSETS: Fetcher;
+  SERVER_HMAC_KEY?: string;
+  /** Legacy name for SERVER_HMAC_KEY, accepted as a fallback for one release. */
   IP_HASH_KEY?: string;
   BUILD_SHA?: string;
 }
@@ -133,49 +136,53 @@ async function handleHealth(env: Env, settingsError: boolean): Promise<Response>
 async function route(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
 
-  // The HTML shell goes through the Worker so the document receives the CSP.
-  if (url.pathname === '/' || url.pathname === '/index.html') {
-    return withHtmlCsp(await env.ASSETS.fetch(request));
+  // The JSON API is answered by the Worker. Unknown API paths return JSON so
+  // they never fall through to the single-page application shell.
+  if (url.pathname.startsWith('/api/')) {
+    const { settings, error: settingsError } = await loadSettings(env);
+
+    if (url.pathname === '/api/health') return handleHealth(env, settingsError);
+
+    const envWithSettings: HandlerEnv = { ...env, ...settings };
+
+    if (url.pathname === '/api/settings/public') {
+      return handlePublicSettingsRequest(request, envWithSettings);
+    }
+    if (url.pathname.startsWith('/api/stats/')) {
+      return handleStatsRequest(request, url, envWithSettings);
+    }
+    if (url.pathname === '/api/polls' || url.pathname.startsWith('/api/polls/')) {
+      return handlePollsRequest(request, url, envWithSettings);
+    }
+    if (url.pathname === '/api/comments' || url.pathname.startsWith('/api/comments/')) {
+      return handleCommentsRequest(request, url, envWithSettings);
+    }
+    if (url.pathname === '/api/vote') {
+      return handleVoteRequest(request, envWithSettings);
+    }
+    if (url.pathname === '/api/vote/status') {
+      return handleVoteStatusRequest(request, envWithSettings);
+    }
+    if (url.pathname === '/api/proposal') {
+      return handleProposalRequest(request, envWithSettings);
+    }
+    if (url.pathname === '/api/snapshots' || url.pathname.startsWith('/api/snapshots/')) {
+      return handleSnapshotRequest(request, url, envWithSettings);
+    }
+    if (url.pathname === '/api/auth' || url.pathname.startsWith('/api/auth/')) {
+      return handleAuthRequest(request, url, envWithSettings);
+    }
+    if (url.pathname.startsWith('/api/user/')) {
+      return handleUserRequest(request, url, envWithSettings);
+    }
+
+    return Response.json({ message: 'not found' }, { status: 404 });
   }
 
-  const { settings, error: settingsError } = await loadSettings(env);
-
-  if (url.pathname === '/api/health') return handleHealth(env, settingsError);
-
-  const envWithSettings: HandlerEnv = { ...env, ...settings };
-
-  if (url.pathname === '/api/settings/public') {
-    return handlePublicSettingsRequest(request, envWithSettings);
-  }
-  if (url.pathname.startsWith('/api/stats/')) {
-    return handleStatsRequest(request, url, envWithSettings);
-  }
-  if (url.pathname === '/api/polls' || url.pathname.startsWith('/api/polls/')) {
-    return handlePollsRequest(request, url, envWithSettings);
-  }
-  if (url.pathname === '/api/comments' || url.pathname.startsWith('/api/comments/')) {
-    return handleCommentsRequest(request, url, envWithSettings);
-  }
-  if (url.pathname === '/api/vote') {
-    return handleVoteRequest(request, envWithSettings);
-  }
-  if (url.pathname === '/api/vote/status') {
-    return handleVoteStatusRequest(request, envWithSettings);
-  }
-  if (url.pathname === '/api/proposal') {
-    return handleProposalRequest(request, envWithSettings);
-  }
-  if (url.pathname === '/api/snapshots' || url.pathname.startsWith('/api/snapshots/')) {
-    return handleSnapshotRequest(request, url, envWithSettings);
-  }
-  if (url.pathname === '/api/auth' || url.pathname.startsWith('/api/auth/')) {
-    return handleAuthRequest(request, url, envWithSettings);
-  }
-  if (url.pathname.startsWith('/api/user/')) {
-    return handleUserRequest(request, url, envWithSettings);
-  }
-
-  return new Response('Not found', { status: 404 });
+  // Everything else, including the SPA shell and deep links such as `/poll/12`,
+  // is served from the assets binding; the HTML document receives the CSP. With
+  // `run_worker_first`, static assets still come from the assets layer.
+  return withHtmlCsp(await env.ASSETS.fetch(request));
 }
 
 export default {

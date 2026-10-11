@@ -5,7 +5,7 @@ are run from the repository root.
 
 ## Deployments
 
-1. Apply D1 migrations: `npx wrangler d1 migrations apply chinapoll --remote`.
+1. Apply D1 migrations: `npx wrangler d1 migrations apply chinapoll --env production --remote`.
    `migrations/0001_initial.sql` holds the entire schema in a single file, frozen
    on **2026-10-11** when the earlier incremental migrations were folded together
    (nothing had been deployed yet). From then on migrations are immutable: never
@@ -13,11 +13,12 @@ are run from the repository root.
    numbered file. Only a **fresh** database is supported; create the production
    database empty and apply `0001_initial.sql` (plus any later files) in order.
 2. Set the required secret before the first deploy:
-   `npx wrangler secret put IP_HASH_KEY` (a fresh 64-character hex value).
+   `npx wrangler secret put SERVER_HMAC_KEY --env production` (a fresh 64-character hex value).
 3. Build the SPA: `npm run build` (outputs to `dist/web`).
-4. Deploy the public Worker: `npx wrangler deploy`.
-5. Deploy the admin Worker: `npm run admin:worker:deploy`.
-6. Optionally set `TURNSTILE_SITE_KEY` for the admin Worker.
+4. Deploy the public Worker: `npx wrangler deploy --env production`.
+5. Deploy the admin Worker: `npx wrangler deploy --config admin/wrangler.toml --env production`.
+6. Optionally set `TURNSTILE_SITE_KEY` for the admin Worker:
+   `npx wrangler secret put TURNSTILE_SITE_KEY --config admin/wrangler.toml --env production`.
 
 ## Uptime monitoring
 
@@ -44,11 +45,13 @@ Test a restore at least quarterly against a staging database.
 3. Deploy the public and admin Workers in the standby account.
 4. Move the DNS records for the public and admin hostnames to the standby
    Workers.
-5. Set the `IP_HASH_KEY` secret in the standby account so keyed hashing keeps
+5. Set the `SERVER_HMAC_KEY` secret in the standby account so keyed hashing keeps
    working.
 
 ## Key rotation
 
-`IP_HASH_KEY` may be rotated at any time: values already in `auth_attempts` stop
+`SERVER_HMAC_KEY` may be rotated at any time: values already in `auth_attempts` stop
 matching, which only relaxes the rolling account cap for one day. Rotate the
-Turnstile secret from the dashboard and the admin Settings tab.
+Turnstile secret from the dashboard and the admin Settings tab. The legacy
+`IP_HASH_KEY` name is still read as a fallback, so a deployment can move to
+`SERVER_HMAC_KEY` without downtime.

@@ -9,6 +9,7 @@ import { getPollModeCode, PollMode, PollStatus, toUnixSeconds } from '../enums';
 import { checkRateLimit } from '../services/rateLimit';
 import { enforceSameOrigin } from '../services/csrf';
 import { ownerHash } from '../services/owner';
+import { serverHmacKey } from '../services/ip';
 import { requireUser } from '../services/session';
 import { checkAccountAge } from '../services/users';
 
@@ -44,25 +45,11 @@ export async function handleProposalRequest(request: Request, env: HandlerEnv): 
     return Response.json({ ok: false, message: 'invalid JSON' }, { status: 400 });
   }
 
-  const title = typeof body.title === 'string' ? body.title.trim() : '';
-  const description = typeof body.description === 'string' ? body.description.trim() : '';
-  const mode = getPollModeCode(body.mode);
-  const startAt = typeof body.startAt === 'string' ? body.startAt : '';
-  const endAt = typeof body.endAt === 'string' ? body.endAt : '';
-  const startTimestamp = Date.parse(startAt);
-  const endTimestamp = Date.parse(endAt);
-  if (body.description !== undefined && typeof body.description !== 'string') {
-    return Response.json({ ok: false, message: 'invalid proposal description' }, { status: 400 });
+  const validation = validateProposal(body);
+  if (!validation.ok) {
+    return Response.json({ ok: false, message: validation.message }, { status: 400 });
   }
-  if (!title || title.length > MAX_TITLE_LENGTH || !mode
-    || description.length < MIN_DESCRIPTION_LENGTH || description.length > MAX_DESCRIPTION_LENGTH
-    || (mode === PollMode.Deadline && (!Number.isFinite(startTimestamp) || !Number.isFinite(endTimestamp)
-      || startTimestamp <= Date.now() || endTimestamp <= startTimestamp))) {
-    return Response.json({
-      ok: false,
-      message: `a poll needs a title, a description of at least ${MIN_DESCRIPTION_LENGTH} characters, and a valid schedule`
-    }, { status: 400 });
-  }
+  const { title, description, mode, startAt, endAt } = validation.input;
 
   // Reject case-insensitive duplicate titles among polls that are pending or open.
   const duplicate = await env.DB.prepare(
@@ -99,7 +86,7 @@ export async function handleProposalRequest(request: Request, env: HandlerEnv): 
 
   // The owner is stored as a one-way hash computed with the poll id, so it can
   // only be written after the row exists.
-  const hash = await ownerHash(auth.user.id, pollId, env.IP_HASH_KEY);
+  const hash = await ownerHash(auth.user.id, pollId, serverHmacKey(env));
   if (hash) {
     await env.DB.prepare('UPDATE polls SET owner_hash = ? WHERE id = ?').bind(hash, pollId).run();
   }
@@ -110,6 +97,60 @@ export async function handleProposalRequest(request: Request, env: HandlerEnv): 
     pollId,
     status: autoApprove ? 'open' : 'pending'
   }, { status: 201 });
+}
+
+export interface ProposalInput {
+  title: string;
+  description: string | null;
+  mode: PollMode;
+  startAt: string;
+  endAt: string;
+}
+
+export type ProposalValidation =
+  | { ok: true; input: ProposalInput }
+  | { ok: false; message: string };
+
+// Validates a proposal payload. The description is optional: an empty or omitted
+// description is accepted and stored as NULL, while a provided description must
+// be substantive (at least MIN_DESCRIPTION_LENGTH characters). A deadline poll
+// must include a start time in the future and an end time after the start.
+export function validateProposal(body: Record<string, unknown>, now = Date.now()): ProposalValidation {
+  const title = typeof body.title === 'string' ? body.title.trim() : '';
+  if (!title || title.length > MAX_TITLE_LENGTH) {
+    return { ok: false, message: `a poll needs a title of at most ${MAX_TITLE_LENGTH} characters` };
+  }
+
+  const mode = getPollModeCode(body.mode);
+  if (!mode) {
+    return { ok: false, message: 'a poll needs a valid voting mode' };
+  }
+
+  if (body.description !== undefined && typeof body.description !== 'string') {
+    return { ok: false, message: 'invalid proposal description' };
+  }
+  const trimmedDescription = typeof body.description === 'string' ? body.description.trim() : '';
+  if (trimmedDescription.length > 0
+    && (trimmedDescription.length < MIN_DESCRIPTION_LENGTH || trimmedDescription.length > MAX_DESCRIPTION_LENGTH)) {
+    return {
+      ok: false,
+      message: `a description must be between ${MIN_DESCRIPTION_LENGTH} and ${MAX_DESCRIPTION_LENGTH} characters`
+    };
+  }
+  const description = trimmedDescription.length > 0 ? trimmedDescription : null;
+
+  const startAt = typeof body.startAt === 'string' ? body.startAt : '';
+  const endAt = typeof body.endAt === 'string' ? body.endAt : '';
+  if (mode === PollMode.Deadline) {
+    const startTimestamp = Date.parse(startAt);
+    const endTimestamp = Date.parse(endAt);
+    if (!Number.isFinite(startTimestamp) || !Number.isFinite(endTimestamp)
+      || startTimestamp <= now || endTimestamp <= startTimestamp) {
+      return { ok: false, message: 'a deadline poll needs a start time in the future and an end time after the start' };
+    }
+  }
+
+  return { ok: true, input: { title, description, mode, startAt, endAt } };
 }
 
 async function readJson(request: Request): Promise<Record<string, unknown> | null> {

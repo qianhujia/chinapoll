@@ -26,7 +26,7 @@ the schema or the network handling changes.
 - **Network observer**: served over HTTPS with HSTS; no third-party origins are
   referenced by the application build.
 - **Database attacker**: cannot reverse a vote to a person, cannot reverse a
-  keyed network hash without `IP_HASH_KEY`, and cannot use a stolen password
+  keyed network hash without `SERVER_HMAC_KEY`, and cannot use a stolen password
   hash offline faster than the 600k-iteration PBKDF2 cost allows.
 - **Spammer**: rate limiting is atomic and per-scope in a Durable Object; new
   accounts must age before they can submit; per-network account creation is

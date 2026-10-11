@@ -21,6 +21,29 @@ database_id = "local"
 migrations_dir = "../migrations"
 migrations_table = "migrations"
 
+# Production environment targeted by the deploy workflow with `--env production`.
+# Replace database_id with the real database UUID before the first production
+# deploy.
+[env.production]
+
+[[env.production.d1_databases]]
+binding = "DB"
+database_name = "chinapoll"
+database_id = "REPLACE_WITH_PRODUCTION_DATABASE_ID"
+migrations_dir = "../migrations"
+migrations_table = "migrations"
+
+# vars and durable_objects are not inherited from the top level, so they are
+# repeated here. The Durable Object migration list is per environment.
+[env.production.vars]
+
+[env.production.durable_objects]
+bindings = [{ name = "RATE_LIMITER", class_name = "RateLimiter" }]
+
+[[env.production.migrations]]
+tag = "v1"
+new_classes = ["RateLimiter"]
+
 [vars]
 # Public Turnstile site key used to render the login widget. Server-side token
 # verification reuses the turnstile_enable and turnstile_secret_key settings.

@@ -11,10 +11,10 @@
 // is reversible with a lookup table; a secret key removes that risk, and the
 // daily rotation means the stored value cannot be correlated across days.
 
-import { fromHex, hmacSha256, hmacSha256Hex } from '../../shared/crypto';
+import { deriveKey, fromHex, hmacSha256, hmacSha256Hex } from '../../shared/crypto';
 
 const IPV4_PATTERN = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})(?:\.\d{1,3})?$/;
-const IP_HASH_KEY_PATTERN = /^[0-9a-f]{64}$/i;
+const SERVER_KEY_PATTERN = /^[0-9a-f]{64}$/i;
 
 function fnv1a(value: string): number {
   let hash = 0x811c9dc5;
@@ -38,8 +38,17 @@ export function ipBucket(address: string): number {
   return fnv1a(address ?? '');
 }
 
-export function isValidIpHashKey(keyHex: string | undefined | null): keyHex is string {
-  return typeof keyHex === 'string' && IP_HASH_KEY_PATTERN.test(keyHex);
+export function isValidServerKey(keyHex: string | undefined | null): keyHex is string {
+  return typeof keyHex === 'string' && SERVER_KEY_PATTERN.test(keyHex);
+}
+
+// Returns the server HMAC master key. The current name is SERVER_HMAC_KEY;
+// IP_HASH_KEY is accepted as a fallback for one release so an existing deployment
+// keeps working until the secret is renamed.
+export function serverHmacKey(
+  env: { SERVER_HMAC_KEY?: string; IP_HASH_KEY?: string }
+): string | undefined {
+  return env.SERVER_HMAC_KEY ?? env.IP_HASH_KEY;
 }
 
 // The rotation period for the keyed hash. `month` keeps a value linkable within
@@ -56,10 +65,11 @@ export async function hashedNetworkBucket(
   date: Date = new Date(),
   period: IpHashPeriod = 'day'
 ): Promise<string | null> {
-  if (!isValidIpHashKey(keyHex)) return null;
+  if (!isValidServerKey(keyHex)) return null;
   const iso = date.toISOString();
   const stamp = period === 'month' ? iso.slice(0, 7) : iso.slice(0, 10);
-  const periodKey = await hmacSha256(fromHex(keyHex), stamp);
+  const networkKey = fromHex(await deriveKey(keyHex, 'network'));
+  const periodKey = await hmacSha256(networkKey, stamp);
   return hmacSha256Hex(periodKey, String(ipBucket(address)));
 }
 

@@ -10,6 +10,12 @@ import {
 
 const MAX_PAGE_SIZE = 100;
 const MAX_QUERY_LENGTH = 100;
+// Window and page cap for the recently closed poll listing used by the snapshot
+// publisher. Polls are purged 30 days after close, so slightly more than 30 days
+// keeps a missed publish run inside the window.
+const RECENT_CLOSED_DAYS = 35;
+const RECENT_CLOSED_MAX_DAYS = 365;
+const RECENT_CLOSED_LIMIT = 500;
 
 interface PollRow {
   id: number;
@@ -38,6 +44,12 @@ function buildSearch(query: string, prefix = ''): { clause: string; pattern: str
 export async function handlePollsRequest(request: Request, url: URL, env: HandlerEnv): Promise<Response> {
   if (request.method !== 'GET') {
     return Response.json({ message: 'method not allowed' }, { status: 405 });
+  }
+
+  // Recently closed polls are listed for the snapshot publisher, so a poll that
+  // closed since the last publish run still has its final chain copied out.
+  if (url.pathname === '/api/polls/recent-closed') {
+    return listRecentlyClosed(url, env);
   }
 
   const pollIdText = url.pathname.slice('/api/polls/'.length);
@@ -146,6 +158,35 @@ export async function handlePollsRequest(request: Request, url: URL, env: Handle
     totalPolls: Number(allPollsResult?.total ?? 0),
     totalVotes: Number(voteTotalResult?.total ?? 0)
   }, {
+    headers: { 'cache-control': 'no-store' }
+  });
+}
+
+// Lists polls that closed within the last `days` days so the snapshot publisher
+// can fetch their final chain. Only the identity, status, and close time are
+// returned; the chains themselves are read from /api/snapshots/:id.
+async function listRecentlyClosed(url: URL, env: HandlerEnv): Promise<Response> {
+  const rawDays = url.searchParams.get('days');
+  const days = rawDays === null ? RECENT_CLOSED_DAYS : Number(rawDays);
+  if (!Number.isSafeInteger(days) || days < 1 || days > RECENT_CLOSED_MAX_DAYS) {
+    return Response.json({ message: 'invalid days parameter' }, { status: 400 });
+  }
+
+  const since = Math.floor(Date.now() / 1000) - days * 86400;
+  const result = await env.DB.prepare(
+    `SELECT id, status, closed_at FROM polls
+     WHERE status IN (?, ?) AND closed_at IS NOT NULL AND closed_at >= ?
+     ORDER BY closed_at DESC, id DESC LIMIT ?`
+  ).bind(PollStatus.Closed, PollStatus.Archived, since, RECENT_CLOSED_LIMIT)
+    .all<{ id: number; status: PollStatus; closed_at: number }>();
+
+  const polls = (result.results ?? []).map((row) => ({
+    id: Number(row.id),
+    status: getPollStatusLabel(row.status),
+    closedAt: toIsoDate(row.closed_at)
+  }));
+
+  return Response.json({ polls, total: polls.length }, {
     headers: { 'cache-control': 'no-store' }
   });
 }
