@@ -47,7 +47,7 @@ Public account endpoints (session state, register, login, logout, and recovery) 
 
 The local database schema is managed with versioned SQL migrations in the `migrations/` folder. `npm run db:migrate` applies every pending migration (the Wrangler tracking table is named `migrations`, set with `migrations_table` in `wrangler.toml`). Public settings fall back to built-in defaults until they are written, and the dashboard's Settings tab can insert any missing defaults.
 
-**Applied migrations are never edited.** Migrations are immutable once recorded: schema changes go in a new file (numbered from `0002`). Because the initial schema was consolidated into `0001_initial.sql`, **only fresh databases are supported**: create a database from scratch (run `npm run db:reset` locally, or apply `0001` and later migrations to an empty production database) rather than upgrading a database that recorded the earlier pre-consolidation migrations.
+**Applied migrations are never edited.** Migrations are immutable once recorded: schema changes go in a new file (numbered from `0002`). `migrations/0001_initial.sql` is the entire schema, frozen on 2026-10-11 when the earlier incremental files were folded into it because nothing had been deployed. Because the initial schema was consolidated, **only fresh databases are supported**: create a database from scratch (run `npm run db:reset` locally, or apply `0001_initial.sql` and any later files to an empty production database) rather than upgrading a database that recorded the earlier pre-consolidation migrations.
 
 ```bash
 npm run db:migrate

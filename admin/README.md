@@ -31,8 +31,8 @@ an audit log, and update application settings.
 
 ## Database
 
-The `0002_admin_auth.sql` and `0003_admin_roles.sql` migrations add three tables.
-Migrations contain schema changes only; no seed or demo rows are inserted.
+The consolidated migration `migrations/0001_initial.sql` creates three admin
+tables. Migrations contain schema changes only; no seed or demo rows are inserted.
 
 | Table | Purpose |
 | --- | --- |
@@ -40,9 +40,9 @@ Migrations contain schema changes only; no seed or demo rows are inserted.
 | `admin_sessions` | SHA-256 hashed session token, owning admin, `expires_at` (30-minute sliding window) |
 | `admin_audit_log` | Actor, action, target, JSON details, timestamp (no client IP) |
 
-The public application's `0004_user_auth.sql` migration adds the `users`,
-`user_sessions`, and `auth_attempts` tables that back public accounts; the Users
-tab in the dashboard manages rows in `users`.
+The same consolidated migration also creates the `users`, `user_sessions`, and
+`auth_attempts` tables that back public accounts; the Users tab in the dashboard
+manages rows in `users`.
 
 Apply it with the project migration command:
 

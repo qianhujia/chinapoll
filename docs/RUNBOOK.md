@@ -6,10 +6,12 @@ are run from the repository root.
 ## Deployments
 
 1. Apply D1 migrations: `npx wrangler d1 migrations apply chinapoll --remote`.
-   Migrations are immutable: never edit one that has already been applied. Because
-   the initial schema was consolidated, only a **fresh** database is supported;
-   create the production database empty and apply `0001_initial.sql` + later
-   migrations in order.
+   `migrations/0001_initial.sql` holds the entire schema in a single file, frozen
+   on **2026-10-11** when the earlier incremental migrations were folded together
+   (nothing had been deployed yet). From then on migrations are immutable: never
+   edit one that has already been applied, and add every schema change as a new
+   numbered file. Only a **fresh** database is supported; create the production
+   database empty and apply `0001_initial.sql` (plus any later files) in order.
 2. Set the required secret before the first deploy:
    `npx wrangler secret put IP_HASH_KEY` (a fresh 64-character hex value).
 3. Build the SPA: `npm run build` (outputs to `dist/web`).
