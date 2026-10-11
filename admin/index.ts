@@ -17,6 +17,7 @@ import { handleAuditRequest } from './api/audit';
 import { handleCommentsRequest } from './api/comments';
 import { handleOverviewRequest } from './api/overview';
 import { handlePollsRequest } from './api/polls';
+import { handleUsersRequest } from './api/users';
 import { handleSessionRequest, handleSetupRequest } from './api/session';
 import { handleSettingsRequest } from './api/settings';
 import { renderDashboard } from './ui';
@@ -24,6 +25,21 @@ import { renderDashboard } from './ui';
 export interface Env extends AdminEnv {}
 
 const TURNSTILE_ORIGIN = 'https://challenges.cloudflare.com';
+
+// The dashboard is a single page with a dedicated URL per view. Every known
+// view path serves the same HTML so direct navigation, bookmarks, sharing, and
+// browser refresh all work; the client resolves the view from the pathname.
+const DASHBOARD_PATHS = new Set([
+  '/',
+  '/index.html',
+  '/overview',
+  '/polls',
+  '/comments',
+  '/users',
+  '/admins',
+  '/audit',
+  '/settings'
+]);
 
 const htmlSecurityHeaders = (nonce: string): Record<string, string> => ({
   'content-type': 'text/html; charset=utf-8',
@@ -56,7 +72,7 @@ export default {
       return new Response(null, { status: 204 });
     }
 
-    if (url.pathname === '/' || url.pathname === '/index.html') {
+    if (DASHBOARD_PATHS.has(url.pathname)) {
       const nonce = crypto.randomUUID().replace(/-/g, '');
       return new Response(renderDashboard(nonce), {
         headers: htmlSecurityHeaders(nonce)
@@ -90,6 +106,9 @@ export default {
       }
       if (url.pathname === '/api/admin/comments' || url.pathname.startsWith('/api/admin/comments/')) {
         return handleCommentsRequest(request, url, env, actor);
+      }
+      if (url.pathname === '/api/admin/users' || url.pathname.startsWith('/api/admin/users/')) {
+        return handleUsersRequest(request, url, env, actor);
       }
       if (url.pathname === '/api/admin/admins' || url.pathname.startsWith('/api/admin/admins/')) {
         return handleAdminsRequest(request, url, env, actor);

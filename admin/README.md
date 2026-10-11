@@ -17,14 +17,16 @@ an audit log, and update application settings.
 | `api/audit.ts` | Read-only audit log |
 | `api/overview.ts` | Aggregate counts for the dashboard |
 | `api/polls.ts` | List polls, review pending submissions, and change poll status |
+| `api/users.ts` | List and manage public user accounts (disable, unlock, delete) |
 | `api/settings.ts` | List, validate, and update application settings |
 | `services/turnstile.ts` | Turnstile configuration and token verification |
 | `lib/password.ts` | PBKDF2 password hashing and policy |
 | `lib/admins.ts` | Account constants, status helpers, username validation |
 | `lib/audit.ts` | Audit log writer (never records client IPs) |
-| `lib/settings.ts` | Setting validation shared with `cli.ts` |
-| `ui.ts` | Self-contained dashboard HTML, CSS, and script |
-| `cli.ts` | Local D1 command line helper |
+| `lib/settings.ts` | Setting validation shared by the dashboard API |
+| `ui.ts` | Dashboard HTML shell (embedded styles and assembled client script) |
+| `dashboard/styles.ts` | Embedded dashboard CSS |
+| `dashboard/script/*` | Client script fragments: `script/index.ts` assembles `core`, `auth`, `shell`, and one module per page under `script/pages/` |
 | `wrangler.toml` | Worker configuration and shared D1 binding |
 
 ## Database
@@ -37,6 +39,10 @@ Migrations contain schema changes only; no seed or demo rows are inserted.
 | `admin_users` | Username, PBKDF2 `password_hash`, `role` (admin or super admin), status, `failed_attempts`, `locked_until`, `last_login_at` |
 | `admin_sessions` | SHA-256 hashed session token, owning admin, `expires_at` (30-minute sliding window) |
 | `admin_audit_log` | Actor, action, target, JSON details, timestamp (no client IP) |
+
+The public application's `0004_user_auth.sql` migration adds the `users`,
+`user_sessions`, and `auth_attempts` tables that back public accounts; the Users
+tab in the dashboard manages rows in `users`.
 
 Apply it with the project migration command:
 
@@ -69,9 +75,9 @@ so local development stays usable without keys.
   admins can read the audit log, and only super admins can create, modify, or
   delete other super admins.
 - Passwords are hashed with PBKDF2-HMAC-SHA256 (100,000 iterations) and stored as
-  `pbkdf2$iterations$salt$hash`; the local CLI produces the same format.
+  `pbkdf2$iterations$salt$hash`.
 - Five consecutive failed sign-ins lock an account for fifteen minutes. An admin
-  can clear the lock from the Admins tab or with `npm run admin -- unlock-admin`.
+  can clear the lock from the Admins tab.
 - Sessions live in `admin_sessions` with a thirty-minute sliding expiry and are
   revoked on password reset, disable, and delete.
 
@@ -93,7 +99,13 @@ login endpoint) or an `Authorization: Bearer <session-token>` header.
 
 | Method | Path | Description |
 | --- | --- | --- |
-| `GET` | `/` | Dashboard HTML |
+| `GET` | `/`, `/overview` | Overview dashboard HTML |
+| `GET` | `/polls` | Polls dashboard HTML |
+| `GET` | `/comments` | Comments dashboard HTML |
+| `GET` | `/users` | Users dashboard HTML |
+| `GET` | `/admins` | Admins dashboard HTML |
+| `GET` | `/audit` | Audit log dashboard HTML (super admins only) |
+| `GET` | `/settings` | Settings dashboard HTML |
 | `GET` | `/api/health` | Heartbeat |
 | `GET` | `/api/admin/session` | Session state, setup flag, Turnstile config |
 | `POST` | `/api/admin/session` | Login with `{ username, password, turnstileToken? }` |
@@ -104,6 +116,10 @@ login endpoint) or an `Authorization: Bearer <session-token>` header.
 | `POST` | `/api/admin/polls/:id/status` | Set poll status (`{ "status": "open" }`) |
 | `GET` | `/api/admin/comments` | List comments (`pollId`, `page`, `pageSize`, `q`) |
 | `DELETE` | `/api/admin/comments/:id` | Delete a comment |
+| `GET` | `/api/admin/users` | List public users (`status`, `page`, `pageSize`, `q`) |
+| `POST` | `/api/admin/users/:id/status` | Enable or disable a user (`{ "status": "disabled" }`) |
+| `POST` | `/api/admin/users/:id/unlock` | Reset failed attempts and lock expiry |
+| `DELETE` | `/api/admin/users/:id` | Delete a user (keeps and detaches their content) |
 | `GET` | `/api/admin/admins` | List admin users |
 | `POST` | `/api/admin/admins` | Create an admin user (`{ username, password, role? }`) |
 | `POST` | `/api/admin/admins/:id/password` | Reset a password (`{ password }`) |
@@ -120,27 +136,25 @@ Worker origin (or `ADMIN_ORIGIN`); other requests receive `403`. Self-lockout is
 prevented: an admin cannot disable or delete their own account, and the last
 active admin cannot be removed.
 
+### Dashboard URLs
+
+The dashboard is a single page that gives every view its own URL: `/overview`
+(also `/`), `/polls`, `/comments`, `/users`, `/admins`, `/audit`, and
+`/settings`. The sidebar links are real anchors, and switching views updates the address bar, so
+views can be bookmarked, shared, refreshed, and reached with the browser back and
+forward buttons. The Worker serves the same dashboard HTML for each of these
+paths; any view that a visitor is not allowed to open (for example `/audit` for a
+regular admin) or is not signed in for falls back to the overview or the login
+screen. Paths outside this set return `404`.
+
 ## Audit log
 
 The audit log is visible to super admins only. Every state change is recorded
 with the acting username, action, target, and JSON details: login
 success/failure/lock, logout, poll status changes (including approving or
-rejecting submissions), comment deletion, setting updates, and admin user
-management. Secret setting values are never written. Client IP addresses are
-never stored.
-
-## CLI
-
-The local CLI operates on the same `.wrangler` D1 database:
-
-```bash
-npm run admin -- create-admin <username> <password> [--super]
-npm run admin -- list-admins
-npm run admin -- unlock-admin <admin-id>
-npm run admin -- promote-super-admin <admin-id>
-```
-
-The first account created while no admin exists is a super admin automatically.
+rejecting submissions), comment deletion, setting updates, public user status
+changes, unlocks and deletions, and admin user management. Secret setting values
+are never written. Client IP addresses are never stored.
 
 ## Deployment
 

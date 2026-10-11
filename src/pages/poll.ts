@@ -10,6 +10,7 @@ import {
   submitComment,
   submitVote
 } from '../lib/poll';
+import { getCurrentUser } from '../lib/session';
 import {
   getCommentsPerPage,
   escapeHtml,
@@ -73,6 +74,7 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
   const voteTotal = voteCounts
     ? voteCounts.approve + voteCounts.neutral + voteCounts.oppose
     : 0;
+  const canComment = getCurrentUser() !== null;
   const voteButtons = voteCounts
     ? (['approve', 'neutral', 'oppose'] as const).map((option) => renderVoteButton(
       option,
@@ -112,13 +114,18 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
         </section>
 
         <section class="grid gap-3 rounded-[22px] border border-border bg-panel p-6 shadow-card">
-          <button class="mx-auto cursor-pointer rounded-full border border-primary bg-primary px-4 py-2.5 text-white" type="button" aria-expanded="false" aria-controls="comment-form" data-toggle-comment>${t('commentToggle')}</button>
-          <div class="grid gap-3" id="comment-form" hidden>
-            <label for="comment">${t('anonymousComment')}</label>
-            <textarea class="w-full resize-y rounded-[14px] border border-border bg-[#f9fbff] px-3.5 py-3" id="comment" minlength="5" maxlength="140" rows="4" placeholder="${t('commentPlaceholder')}"></textarea>
-            <button class="mx-auto cursor-pointer rounded-full border border-primary bg-primary px-4 py-2.5 text-white" type="button" data-submit-comment>${t('submitComment')}</button>
-            <p class="comment-submit-status m-0 min-h-5 text-[0.9rem] text-muted" role="status" aria-live="polite"></p>
-          </div>
+          ${canComment ? `
+            <button class="mx-auto cursor-pointer rounded-full border border-primary bg-primary px-4 py-2.5 text-white" type="button" aria-expanded="false" aria-controls="comment-form" data-toggle-comment>${t('commentToggle')}</button>
+            <div class="grid gap-3" id="comment-form" hidden>
+              <label for="comment">${t('accountComment')}</label>
+              <textarea class="w-full resize-y rounded-[14px] border border-border bg-[#f9fbff] px-3.5 py-3" id="comment" minlength="5" maxlength="140" rows="4" placeholder="${t('commentPlaceholder')}"></textarea>
+              <button class="mx-auto cursor-pointer rounded-full border border-primary bg-primary px-4 py-2.5 text-white" type="button" data-submit-comment>${t('submitComment')}</button>
+              <p class="comment-submit-status m-0 min-h-5 text-[0.9rem] text-muted" role="status" aria-live="polite"></p>
+            </div>
+          ` : `
+            <p class="m-0 text-center text-muted">${t('commentLoginRequired')}</p>
+            <a class="mx-auto cursor-pointer rounded-full border border-primary bg-primary px-4 py-2.5 text-white no-underline" href="/login" data-route="/login">${t('loginRequiredAction')}</a>
+          `}
         </section>
 
         <section class="rounded-[22px] border border-border bg-panel p-6 shadow-card">

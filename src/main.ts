@@ -1,9 +1,12 @@
 import './styles.css';
 import { DEFAULT_LOCALE, loadTranslations, setDefaultLocale } from './i18n';
-import { mountAboutPage, mountClaimProposalPage, mountProposePage } from './pages/content';
+import { mountAboutPage, mountProposePage } from './pages/content';
+import { mountAccountPage } from './pages/account';
+import { mountLoginPage, mountRegisterPage, mountResetPage } from './pages/auth';
 import { mountHome } from './pages/home';
 import { mountVotePage } from './pages/poll';
 import { getPublicSettings, loadPublicSettings } from './config';
+import { loadSession } from './lib/session';
 import { bindHeaderSearch, setSearchNavigator } from './search';
 import { getErrorMessage, getQueryPage, getSiteName } from './ui';
 
@@ -49,7 +52,7 @@ async function render() {
     return;
   }
 
-  if (route === '/propose' || route === '/propose/claim') {
+  if (route === '/propose') {
     const canonicalRoute = route.replace(/^\/propose/, '/submit');
     window.history.replaceState({}, '', canonicalRoute);
     await render();
@@ -61,8 +64,23 @@ async function render() {
     return;
   }
 
-  if (route === '/submit/claim') {
-    mountClaimProposalPage(app!, bindNavigation);
+  if (route === '/login') {
+    mountLoginPage(app!, bindNavigation);
+    return;
+  }
+
+  if (route === '/register') {
+    mountRegisterPage(app!, bindNavigation);
+    return;
+  }
+
+  if (route === '/reset') {
+    mountResetPage(app!, bindNavigation);
+    return;
+  }
+
+  if (route === '/account') {
+    await mountAccountPage(app!, bindNavigation, navigateTo);
     return;
   }
 
@@ -96,6 +114,7 @@ async function start(): Promise<void> {
     setDefaultLocale(settings.default_locale);
     document.documentElement.style.setProperty('--page-width', `${getPublicSettings().page_max_width_px}px`);
     await loadTranslations(DEFAULT_LOCALE);
+    await loadSession();
     setSearchNavigator(navigateTo);
     bindHeaderSearch();
     await render();

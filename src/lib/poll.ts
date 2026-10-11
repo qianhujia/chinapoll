@@ -134,18 +134,10 @@ export async function submitProposal(payload: {
   mode: 'deadline' | 'evergreen';
   startAt?: string;
   endAt?: string;
-  email?: string;
-}): Promise<{ ok: boolean; message: string; pollId: number; submitter?: string }> {
+}): Promise<{ ok: boolean; message: string; pollId: number; status?: 'open' | 'pending'; submitter?: string }> {
   return fetchJson('/api/proposal', {
     method: 'POST',
     body: JSON.stringify(payload)
-  });
-}
-
-export async function claimProposal(pollId: string, email: string): Promise<{ ok: boolean; pollId: number; submitter: string }> {
-  return fetchJson('/api/proposal/claim', {
-    method: 'POST',
-    body: JSON.stringify({ pollId, email })
   });
 }
 

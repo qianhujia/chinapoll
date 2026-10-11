@@ -4,9 +4,7 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "db:migrate": "npx wrangler d1 migrations apply chinapoll-local --local --persist-to .wrangler && npm run admin -- initialize-settings",
-    "admin:build": "tsc --project tsconfig.json",
-    "admin": "node dist/admin/cli.js",
+    "db:migrate": "npx wrangler d1 migrations apply chinapoll-local --local --persist-to .wrangler",
     "admin:worker:dev": "npx wrangler dev --config admin/wrangler.toml --port 8788 --local --persist-to .wrangler --live-reload=false",
     "admin:worker:deploy": "npx wrangler deploy --config admin/wrangler.toml",
     "admin:worker:dry-run": "npx wrangler deploy --config admin/wrangler.toml --dry-run",

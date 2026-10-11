@@ -1,6 +1,7 @@
 import { ArrowBigDown, ArrowBigUp, CircleAlert, CircleCheck, Minus, Search, X, type IconNode } from 'lucide';
 import { DEFAULT_LOCALE, getLocaleText } from './i18n';
 import { getComments, type CommentsResponse, type PollSummary, type VoteOption } from './lib/poll';
+import { getCurrentUser } from './lib/session';
 import { getPublicSettings } from './config';
 
 const voteButtonStyles: Record<VoteOption, { color: string; empty: string }> = {
@@ -93,8 +94,28 @@ export function renderHeader(activeRoute: string): string {
           ${getNavigationMarkup(activeRoute)}
         </nav>
       </div>
-      ${renderHeaderSearch()}
+      <div class="flex flex-wrap items-center gap-2 max-[700px]:w-full">
+        ${renderHeaderSearch()}
+        ${renderHeaderAuthActions()}
+      </div>
     </header>
+  `;
+}
+
+// Sign-in actions shown to the right of the header search. Signed-in visitors
+// reach their own content through the account link in the navigation instead.
+function renderHeaderAuthActions(): string {
+  if (getCurrentUser() !== null) return '';
+
+  // The "optional" badge makes clear that signing in is not required. It is
+  // placed on the top-right corner of both the login link and the sign-up button.
+  const badge = getPublicSettings().login_badge_enable
+    ? `<span class="pointer-events-none absolute -top-2 -right-2 rounded-full bg-[#f1f3f5] px-[6px] py-[1px] text-[10px] leading-[1.5] font-light whitespace-nowrap text-muted">${escapeHtml(t('loginOptionalBadge'))}</span>`
+    : '';
+
+  return `
+      <a class="relative py-1 whitespace-nowrap text-muted no-underline hover:text-primary" href="/login" data-route="/login">${escapeHtml(t('login'))}${badge}</a>
+      <a class="relative whitespace-nowrap rounded-full border border-primary bg-primary px-4 py-2 text-white no-underline hover:bg-[#0f2f61] hover:no-underline" href="/register" data-route="/register">${escapeHtml(t('register'))}${badge}</a>
   `;
 }
 
@@ -159,9 +180,21 @@ export function renderFooter(): string {
   return `
     <footer class="mt-9 flex flex-wrap items-center justify-center gap-3 text-center text-[0.9rem] text-muted">
       <span>Powered by <a class="font-bold text-primary hover:underline" href="https://github.com/qianhujia/chinapoll" target="_blank" rel="noopener noreferrer">${getSiteName()}</a></span>
-      <a class="text-primary hover:underline" href="/submit/claim" data-route="/submit/claim">${t('claimProposalLink')}</a>
       ${dataUrl ? `<a class="text-primary hover:underline" href="${escapeHtml(dataUrl)}" target="_blank" rel="noopener noreferrer">${t('dataLink')}</a>` : ''}
     </footer>
+  `;
+}
+
+// Renders a one-time recovery code. The plaintext code appears here only; the
+// server keeps just its hash.
+export function renderRecoveryCode(code: string): string {
+  return `
+    <div class="grid gap-3" data-recovery-code>
+      <h2 class="m-0 text-xl font-bold">${t('recoveryCodeTitle')}</h2>
+      <p class="m-0 text-muted">${t('recoveryCodeBody')}</p>
+      <p class="m-0 rounded-[14px] border border-border bg-[#f9fbff] px-4 py-3 font-mono tracking-wider text-sm [overflow-wrap:anywhere]">${escapeHtml(code)}</p>
+      <p class="m-0 rounded-[14px] border border-[#f0c36d] bg-[#fff7e6] px-3.5 py-3 text-sm text-ink" role="note">${t('recoveryCodeWarning')}</p>
+    </div>
   `;
 }
 
@@ -291,10 +324,14 @@ export function updateVoteGroup(group: HTMLElement, counts: Record<VoteOption, n
 }
 
 export function getNavigationMarkup(activeRoute: string): string {
+  const user = getCurrentUser();
+  // Login and sign-up live next to the search bar (see renderHeaderAuthActions),
+  // so the navigation only lists informational pages plus the account link.
   const links = [
     { route: '/', label: t('home') },
     { route: '/about', label: t('about') },
-    { route: '/submit', label: t('propose') }
+    { route: '/submit', label: t('propose') },
+    ...(user !== null ? [{ route: '/account', label: t('account') }] : [])
   ];
 
   return links.map(({ route, label }) => `

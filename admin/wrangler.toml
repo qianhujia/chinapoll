@@ -19,6 +19,7 @@ binding = "DB"
 database_name = "chinapoll-local"
 database_id = "local"
 migrations_dir = "../migrations"
+migrations_table = "migrations"
 
 [vars]
 # Public Turnstile site key used to render the login widget. Server-side token

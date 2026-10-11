@@ -13,6 +13,15 @@ export interface PublicSettings {
   hero_background_color: string;
   read_only_mode: boolean;
   turnstile_enable: boolean;
+  login_badge_enable: boolean;
+  auto_approve_polls: boolean;
+  user_poll_delay_hours: number;
+  user_comment_delay_hours: number;
+  max_accounts_per_ip: number;
+  login_max_failed_attempts: number;
+  login_lock_minutes: number;
+  login_rate_limit: string;
+  register_rate_limit: string;
 }
 
 const defaultSettings: PublicSettings = {
@@ -27,7 +36,16 @@ const defaultSettings: PublicSettings = {
   hero_subtitle: '',
   hero_background_color: '',
   read_only_mode: false,
-  turnstile_enable: false
+  turnstile_enable: false,
+  login_badge_enable: false,
+  auto_approve_polls: false,
+  user_poll_delay_hours: 48,
+  user_comment_delay_hours: 24,
+  max_accounts_per_ip: 4,
+  login_max_failed_attempts: 5,
+  login_lock_minutes: 15,
+  login_rate_limit: '10/h',
+  register_rate_limit: '5/d'
 };
 
 let publicSettings = defaultSettings;
@@ -45,7 +63,16 @@ export async function loadPublicSettings(): Promise<PublicSettings> {
     || typeof result.hero_subtitle !== 'string'
     || typeof result.hero_background_color !== 'string'
     || typeof result.read_only_mode !== 'boolean'
-    || typeof result.turnstile_enable !== 'boolean') {
+    || typeof result.turnstile_enable !== 'boolean'
+    || typeof result.login_badge_enable !== 'boolean'
+    || typeof result.auto_approve_polls !== 'boolean'
+    || !Number.isSafeInteger(result.user_poll_delay_hours) || result.user_poll_delay_hours < 0
+    || !Number.isSafeInteger(result.user_comment_delay_hours) || result.user_comment_delay_hours < 0
+    || !Number.isSafeInteger(result.max_accounts_per_ip) || result.max_accounts_per_ip < 1
+    || !Number.isSafeInteger(result.login_max_failed_attempts) || result.login_max_failed_attempts < 1
+    || !Number.isSafeInteger(result.login_lock_minutes) || result.login_lock_minutes < 1
+    || typeof result.login_rate_limit !== 'string'
+    || typeof result.register_rate_limit !== 'string') {
     throw new Error('Invalid public settings response.');
   }
   publicSettings = result;

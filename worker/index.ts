@@ -1,13 +1,14 @@
-import { handleProposalClaimRequest, handleProposalRequest } from './api/proposal';
+import { handleProposalRequest } from './api/proposal';
 import { handleStatsRequest } from './api/stats';
 import { handleVoteRequest, handleVoteStatusRequest } from './api/vote';
 import { handleCommentsRequest } from './api/comments';
 import { handlePollsRequest } from './api/polls';
 import { handlePublicSettingsRequest } from './api/settings';
+import { handleAuthRequest } from './api/auth';
+import { handleUserRequest } from './api/user';
 
 export interface Env {
   DB: D1Database;
-  SERVER_SECRET?: string;
 }
 
 interface PublicSettings {
@@ -27,6 +28,15 @@ interface PublicSettings {
   read_only_mode: boolean;
   turnstile_secret_key: string;
   turnstile_enable: boolean;
+  login_badge_enable: boolean;
+  auto_approve_polls: boolean;
+  user_poll_delay_hours: number;
+  user_comment_delay_hours: number;
+  max_accounts_per_ip: number;
+  login_max_failed_attempts: number;
+  login_lock_minutes: number;
+  login_rate_limit: string;
+  register_rate_limit: string;
 }
 
 async function getPublicSettings(db: D1Database): Promise<PublicSettings> {
@@ -35,7 +45,9 @@ async function getPublicSettings(db: D1Database): Promise<PublicSettings> {
     'polls_per_page', 'comments_per_page', 'page_max_width_px',
     'vote_rate_limit', 'comment_rate_limit', 'proposal_rate_limit',
     'hero_title', 'hero_subtitle', 'hero_background_color',
-    'read_only_mode', 'turnstile_secret_key', 'turnstile_enable'
+    'read_only_mode', 'turnstile_secret_key', 'turnstile_enable', 'login_badge_enable', 'auto_approve_polls',
+    'user_poll_delay_hours', 'user_comment_delay_hours', 'max_accounts_per_ip',
+    'login_max_failed_attempts', 'login_lock_minutes', 'login_rate_limit', 'register_rate_limit'
   ];
   const placeholders = keys.map(() => '?').join(', ');
   const result = await db.prepare(
@@ -61,11 +73,18 @@ async function getPublicSettings(db: D1Database): Promise<PublicSettings> {
       case 'polls_per_page':
       case 'comments_per_page':
       case 'page_max_width_px':
+      case 'user_poll_delay_hours':
+      case 'user_comment_delay_hours':
+      case 'max_accounts_per_ip':
+      case 'login_max_failed_attempts':
+      case 'login_lock_minutes':
         settings[row.key] = Number(row.value);
         break;
       case 'vote_rate_limit':
       case 'comment_rate_limit':
       case 'proposal_rate_limit':
+      case 'login_rate_limit':
+      case 'register_rate_limit':
         settings[row.key] = row.value.trim().toLowerCase();
         break;
       case 'hero_title':
@@ -79,6 +98,12 @@ async function getPublicSettings(db: D1Database): Promise<PublicSettings> {
         break;
       case 'read_only_mode':
         settings.read_only_mode = row.value === 'true';
+        break;
+      case 'login_badge_enable':
+        settings.login_badge_enable = row.value === 'true';
+        break;
+      case 'auto_approve_polls':
+        settings.auto_approve_polls = row.value === 'true';
         break;
       case 'turnstile_secret_key':
         settings.turnstile_secret_key = row.value;
@@ -108,7 +133,16 @@ const DEFAULT_PUBLIC_SETTINGS: PublicSettings = {
   hero_background_color: '',
   read_only_mode: false,
   turnstile_secret_key: '',
-  turnstile_enable: false
+  turnstile_enable: false,
+  login_badge_enable: false,
+  auto_approve_polls: false,
+  user_poll_delay_hours: 48,
+  user_comment_delay_hours: 24,
+  max_accounts_per_ip: 4,
+  login_max_failed_attempts: 5,
+  login_lock_minutes: 15,
+  login_rate_limit: '10/h',
+  register_rate_limit: '5/d'
 };
 
 export default {
@@ -154,12 +188,16 @@ export default {
       return handleVoteStatusRequest(request, envWithSettings);
     }
 
-    if (url.pathname === '/api/proposal/claim') {
-      return handleProposalClaimRequest(request, envWithSettings);
-    }
-
     if (url.pathname === '/api/proposal') {
       return handleProposalRequest(request, envWithSettings);
+    }
+
+    if (url.pathname === '/api/auth' || url.pathname.startsWith('/api/auth/')) {
+      return handleAuthRequest(request, url, envWithSettings);
+    }
+
+    if (url.pathname.startsWith('/api/user/')) {
+      return handleUserRequest(request, url, envWithSettings);
     }
 
     return new Response('Not found', { status: 404 });

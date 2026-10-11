@@ -52,13 +52,36 @@ export function validateSettingValue(key: string, value: string): SettingValidat
       break;
     case 'vote_rate_limit':
     case 'comment_rate_limit':
-    case 'proposal_rate_limit': {
+    case 'proposal_rate_limit':
+    case 'login_rate_limit':
+    case 'register_rate_limit': {
       const normalized = value.trim().toLowerCase();
       if (!RATE_LIMIT_PATTERN.test(normalized)) {
         return { ok: false, error: `${key} must be in format "N/w|d|h|m|s" (e.g., "5/h", "3/h", "1/d").` };
       }
       return { ok: true, value: normalized };
     }
+    case 'user_poll_delay_hours':
+    case 'user_comment_delay_hours':
+      if (!/^\d+$/.test(value) || Number(value) > 8760) {
+        return { ok: false, error: `${key} must be an integer from 0 to 8760.` };
+      }
+      break;
+    case 'max_accounts_per_ip':
+      if (!/^\d+$/.test(value) || Number(value) < 1 || Number(value) > 1000) {
+        return { ok: false, error: 'max_accounts_per_ip must be an integer from 1 to 1000.' };
+      }
+      break;
+    case 'login_max_failed_attempts':
+      if (!/^\d+$/.test(value) || Number(value) < 1 || Number(value) > 100) {
+        return { ok: false, error: 'login_max_failed_attempts must be an integer from 1 to 100.' };
+      }
+      break;
+    case 'login_lock_minutes':
+      if (!/^\d+$/.test(value) || Number(value) < 1 || Number(value) > 1440) {
+        return { ok: false, error: 'login_lock_minutes must be an integer from 1 to 1440.' };
+      }
+      break;
     case 'hero_title':
       if (!value.trim() || value.length > 200) return { ok: false, error: 'hero_title must contain 1 to 200 characters.' };
       break;
@@ -72,6 +95,8 @@ export function validateSettingValue(key: string, value: string): SettingValidat
       break;
     case 'read_only_mode':
     case 'turnstile_enable':
+    case 'login_badge_enable':
+    case 'auto_approve_polls':
       if (value !== 'true' && value !== 'false') return { ok: false, error: `${key} must be "true" or "false".` };
       break;
     case 'turnstile_secret_key':

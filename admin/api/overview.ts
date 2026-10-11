@@ -10,14 +10,14 @@ export async function handleOverviewRequest(request: Request, env: AdminEnv): Pr
     return Response.json({ message: 'method not allowed' }, { status: 405 });
   }
 
-  const [pending, open, closed, archived, votes, comments, identities, settings, adminUsers, auditEntries] = await Promise.all([
+  const [pending, open, closed, archived, votes, comments, users, settings, adminUsers, auditEntries] = await Promise.all([
     count(env, 'SELECT COUNT(*) AS total FROM polls WHERE status = ?', PollStatus.Pending),
     count(env, 'SELECT COUNT(*) AS total FROM polls WHERE status = ?', PollStatus.Open),
     count(env, 'SELECT COUNT(*) AS total FROM polls WHERE status = ?', PollStatus.Closed),
     count(env, 'SELECT COUNT(*) AS total FROM polls WHERE status = ?', PollStatus.Archived),
     count(env, 'SELECT COUNT(*) AS total FROM votes'),
     count(env, 'SELECT COUNT(*) AS total FROM comments'),
-    count(env, 'SELECT COUNT(*) AS total FROM identities'),
+    count(env, 'SELECT COUNT(*) AS total FROM users'),
     count(env, 'SELECT COUNT(*) AS total FROM settings'),
     count(env, 'SELECT COUNT(*) AS total FROM admin_users'),
     count(env, 'SELECT COUNT(*) AS total FROM admin_audit_log')
@@ -39,7 +39,7 @@ export async function handleOverviewRequest(request: Request, env: AdminEnv): Pr
       archived,
       votes,
       comments,
-      identities,
+      users,
       settings,
       adminUsers,
       auditEntries,

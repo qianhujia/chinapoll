@@ -30,7 +30,22 @@ export const DEFAULT_PUBLIC_SETTINGS = {
   hero_background_color: '',
   read_only_mode: false,
   turnstile_secret_key: '',
-  turnstile_enable: false
+  turnstile_enable: false,
+  // Shows an "optional" badge next to the login link in the site navigation when
+  // true, making clear that signing in is not required.
+  login_badge_enable: false,
+  // When true, submitted polls are published immediately; when false they stay
+  // pending until an admin approves them.
+  auto_approve_polls: false,
+  // Account gating and authentication limits. Delay values are whole hours;
+  // "N/w|d|h|m|s" values use the shared rate-limit format.
+  user_poll_delay_hours: 48,
+  user_comment_delay_hours: 24,
+  max_accounts_per_ip: 4,
+  login_max_failed_attempts: 5,
+  login_lock_minutes: 15,
+  login_rate_limit: '10/h',
+  register_rate_limit: '5/d'
 };
 
 const publicSettingKeys = Object.keys(DEFAULT_PUBLIC_SETTINGS);
@@ -91,7 +106,9 @@ export async function handlePublicSettingsRequest(request: Request, env: Setting
         break;
       case 'vote_rate_limit':
       case 'comment_rate_limit':
-      case 'proposal_rate_limit': {
+      case 'proposal_rate_limit':
+      case 'login_rate_limit':
+      case 'register_rate_limit': {
         const normalized = row.value.trim().toLowerCase();
         // An invalid value falls back to the default so one bad setting cannot break the public endpoint.
         if (RATE_LIMIT_PATTERN.test(normalized)) {
@@ -99,6 +116,31 @@ export async function handlePublicSettingsRequest(request: Request, env: Setting
         }
         break;
       }
+      case 'user_poll_delay_hours':
+      case 'user_comment_delay_hours':
+        if (!/^\d+$/.test(row.value) || Number(row.value) > 8760) {
+          return Response.json({ message: `setting \"${row.key}\" must be an integer from 0 to 8760` }, { status: 500 });
+        }
+        settings[row.key] = Number(row.value);
+        break;
+      case 'max_accounts_per_ip':
+        if (!/^\d+$/.test(row.value) || Number(row.value) < 1 || Number(row.value) > 1000) {
+          return Response.json({ message: 'setting \"max_accounts_per_ip\" must be an integer from 1 to 1000' }, { status: 500 });
+        }
+        settings.max_accounts_per_ip = Number(row.value);
+        break;
+      case 'login_max_failed_attempts':
+        if (!/^\d+$/.test(row.value) || Number(row.value) < 1 || Number(row.value) > 100) {
+          return Response.json({ message: 'setting \"login_max_failed_attempts\" must be an integer from 1 to 100' }, { status: 500 });
+        }
+        settings.login_max_failed_attempts = Number(row.value);
+        break;
+      case 'login_lock_minutes':
+        if (!/^\d+$/.test(row.value) || Number(row.value) < 1 || Number(row.value) > 1440) {
+          return Response.json({ message: 'setting \"login_lock_minutes\" must be an integer from 1 to 1440' }, { status: 500 });
+        }
+        settings.login_lock_minutes = Number(row.value);
+        break;
       case 'hero_title':
         if (!row.value.trim() || row.value.length > 200) {
           return Response.json({ message: 'setting "hero_title" must contain 1 to 200 characters' }, { status: 500 });
@@ -116,6 +158,18 @@ export async function handlePublicSettingsRequest(request: Request, env: Setting
           return Response.json({ message: 'setting "hero_background_color" must be a CSS color (hex, rgb/a, hsl/a, or named) or a CSS gradient' }, { status: 500 });
         }
         settings.hero_background_color = row.value;
+        break;
+      case 'login_badge_enable':
+        if (row.value !== 'true' && row.value !== 'false') {
+          return Response.json({ message: 'setting login_badge_enable must be "true" or "false"' }, { status: 500 });
+        }
+        settings.login_badge_enable = row.value === 'true';
+        break;
+      case 'auto_approve_polls':
+        if (row.value !== 'true' && row.value !== 'false') {
+          return Response.json({ message: 'setting auto_approve_polls must be "true" or "false"' }, { status: 500 });
+        }
+        settings.auto_approve_polls = row.value === 'true';
         break;
       case 'read_only_mode':
         if (row.value !== 'true' && row.value !== 'false') {

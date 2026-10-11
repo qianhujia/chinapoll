@@ -1,9 +1,13 @@
 import { RATE_LIMIT_PATTERN } from './settings';
+import { ipBucket } from '../services/ip';
+import { requireUser } from '../services/session';
+import { checkAccountAge } from '../services/users';
 
 const MAX_PAGE_SIZE = 100;
 const MIN_COMMENT_LENGTH = 5;
 const MAX_COMMENT_LENGTH = 140;
 const DEFAULT_COMMENT_RATE_LIMIT = '3/h';
+const DEFAULT_COMMENT_DELAY_HOURS = 24;
 
 function parseRateLimit(rateLimitStr: string): { count: number; windowMs: number } {
   const match = rateLimitStr.match(RATE_LIMIT_PATTERN);
@@ -81,6 +85,18 @@ export async function handleCommentsRequest(request: Request, url: URL, env: any
 }
 
 async function handleCommentSubmission(request: Request, env: any): Promise<Response> {
+  const auth = await requireUser(request, env);
+  if (!auth.ok) return auth.response;
+
+  const delayHours = Number(env.user_comment_delay_hours ?? DEFAULT_COMMENT_DELAY_HOURS);
+  const accountAge = checkAccountAge(auth.user.createdAt, delayHours);
+  if (!accountAge.allowed) {
+    return Response.json({
+      message: `new accounts can comment once the account is ${delayHours} hours old`,
+      remainingHours: accountAge.remainingHours
+    }, { status: 403 });
+  }
+
   let body: unknown;
   try {
     body = await request.json();
@@ -106,7 +122,7 @@ async function handleCommentSubmission(request: Request, env: any): Promise<Resp
   const bucketStart = now - (now % commentWindowMs);
 
   const remoteIp = request.headers.get('cf-connecting-ip') ?? '127.0.0.1';
-  const ipPrefix = remoteIp.split('.').slice(0, 3).join('.');
+  const ipPrefix = ipBucket(remoteIp);
 
   const rateLimitResult: any = await env.DB.prepare(
     `SELECT COUNT(*) as count FROM comments WHERE ip_prefix = ? AND ts_bucket = ?`
@@ -117,8 +133,8 @@ async function handleCommentSubmission(request: Request, env: any): Promise<Resp
   }
 
   const result = await env.DB.prepare(
-    'INSERT INTO comments (poll_id, comment, ip_prefix, ts_bucket) VALUES (?, ?, ?, ?)'
-  ).bind(pollId, comment, ipPrefix, bucketStart).run();
+    'INSERT INTO comments (poll_id, comment, ip_prefix, ts_bucket, user_id) VALUES (?, ?, ?, ?, ?)'
+  ).bind(pollId, comment, ipPrefix, bucketStart, auth.user.id).run();
 
   return Response.json({ ok: true, id: result.meta.last_row_id }, { status: 201 });
 }

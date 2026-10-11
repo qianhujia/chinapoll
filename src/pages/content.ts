@@ -1,4 +1,5 @@
-import { claimProposal, submitProposal } from '../lib/poll';
+import { submitProposal } from '../lib/poll';
+import { getCurrentUser } from '../lib/session';
 import { getErrorMessage, renderFooter, renderHeader, renderToast, showToast, t } from '../ui';
 
 export function mountAboutPage(app: HTMLElement, bindNavigation: () => void): void {
@@ -24,6 +25,23 @@ export function mountAboutPage(app: HTMLElement, bindNavigation: () => void): vo
 }
 
 export function mountProposePage(app: HTMLElement, bindNavigation: () => void): void {
+  if (!getCurrentUser()) {
+    app.innerHTML = `
+      <div class="mx-auto max-w-[var(--page-width)] px-5 pt-6 pb-16">
+        ${renderHeader('/submit')}
+        <main class="grid gap-5">
+          <section class="grid gap-3 rounded-[22px] border border-border bg-panel p-6 text-center shadow-card">
+            <p class="m-0 text-muted">${t('proposalLoginRequired')}</p>
+            <a class="mx-auto cursor-pointer rounded-full border border-primary bg-primary px-4 py-2.5 text-white no-underline" href="/login" data-route="/login">${t('loginRequiredAction')}</a>
+          </section>
+        </main>
+        ${renderFooter()}
+      </div>
+    `;
+    bindNavigation();
+    return;
+  }
+
   app.innerHTML = `
     <div class="mx-auto max-w-[var(--page-width)] px-5 pt-6 pb-16">
       ${renderHeader('/submit')}
@@ -47,10 +65,6 @@ export function mountProposePage(app: HTMLElement, bindNavigation: () => void): 
               <label class="grid gap-2" for="proposal-description">${t('proposalDescriptionLabel')}
                 <textarea class="min-h-[140px] w-full resize-y rounded-[14px] border border-border bg-[#f9fbff] px-3.5 py-3" id="proposal-description" name="description" maxlength="2000"></textarea>
               </label>
-              <label class="grid gap-2" for="proposal-email">${t('proposalEmailLabel')}
-                <input class="w-full rounded-[14px] border border-border bg-[#f9fbff] px-3.5 py-3" id="proposal-email" name="email" type="email" autocomplete="email">
-              </label>
-              <small class="-mt-1.5 text-xs leading-[1.45] text-muted">${t('proposalEmailNote')}</small>
             </details>
             <fieldset class="m-0 grid gap-2 border-0 p-0">
               <legend class="mb-2 font-semibold">${t('proposalModeLabel')}</legend>
@@ -107,7 +121,6 @@ export function mountProposePage(app: HTMLElement, bindNavigation: () => void): 
     const mode = modeValue === 'deadline' ? 'deadline' : 'evergreen';
     const startAt = String(formData.get('startAt') ?? '');
     const endAt = String(formData.get('endAt') ?? '');
-    const email = String(formData.get('email') ?? '').trim();
     const submitButton = proposalForm.querySelector<HTMLButtonElement>('button[type="submit"]')!;
     submitButton.disabled = true;
 
@@ -117,11 +130,13 @@ export function mountProposePage(app: HTMLElement, bindNavigation: () => void): 
         description: description || undefined,
         mode,
         startAt: mode === 'deadline' ? new Date(startAt).toISOString() : undefined,
-        endAt: mode === 'deadline' ? new Date(endAt).toISOString() : undefined,
-        email: email || undefined
+        endAt: mode === 'deadline' ? new Date(endAt).toISOString() : undefined
       });
-      const submitter = result.submitter ?? t('anonymousSubmitter');
-      showToast(`${t('proposalSubmitted')}: ${result.pollId} · ${submitter}`);
+      if (result.status === 'open') {
+        showToast(`${t('proposalPublished')}: ${result.pollId}`);
+      } else {
+        showToast(`${t('proposalSubmitted')}: ${result.pollId} · ${result.submitter ?? ''}`);
+      }
       proposalForm.reset();
       updateProposalSchedule(false);
     } catch (error) {
@@ -134,48 +149,5 @@ export function mountProposePage(app: HTMLElement, bindNavigation: () => void): 
   bindNavigation();
 }
 
-export function mountClaimProposalPage(app: HTMLElement, bindNavigation: () => void): void {
-  app.innerHTML = `
-    <div class="mx-auto max-w-[var(--page-width)] px-5 pt-6 pb-16">
-      ${renderHeader('/submit')}
-      <main class="grid gap-5">
-        <section class="grid gap-3 rounded-[22px] border border-border bg-panel p-6 shadow-card">
-          <h1 class="m-0 text-2xl font-bold">${t('claimProposalTitle')}</h1>
-          <p class="m-0 text-muted">${t('claimProposalDescription')}</p>
-          <form class="grid gap-3" data-claim-form>
-            <label class="grid gap-2" for="claim-poll-id">${t('claimPollIdLabel')}
-              <input class="w-full rounded-[14px] border border-border bg-[#f9fbff] px-3.5 py-3" id="claim-poll-id" name="pollId" type="text" inputmode="numeric" placeholder="47" required>
-            </label>
-            <label class="grid gap-2" for="claim-email">${t('claimEmailLabel')}
-              <input class="w-full rounded-[14px] border border-border bg-[#f9fbff] px-3.5 py-3" id="claim-email" name="email" type="email" autocomplete="email" required>
-            </label>
-            <button class="mx-auto mt-2 cursor-pointer rounded-full border border-primary bg-primary px-4 py-2.5 text-white" type="submit">${t('claimProposal')}</button>
-          </form>
-        </section>
-      </main>
-      ${renderToast()}
-      ${renderFooter()}
-    </div>
-  `;
 
-  const claimForm = document.querySelector<HTMLFormElement>('[data-claim-form]');
-  claimForm?.addEventListener('submit', async (event) => {
-    event.preventDefault();
-    const formData = new FormData(claimForm);
-    const pollId = String(formData.get('pollId') ?? '').trim();
-    const email = String(formData.get('email') ?? '').trim();
-    const submitButton = claimForm.querySelector<HTMLButtonElement>('button[type="submit"]')!;
-    submitButton.disabled = true;
 
-    try {
-      const result = await claimProposal(pollId, email);
-      showToast(`${t('claimConfirmed')}: ${result.pollId} · ${result.submitter}`);
-    } catch (error) {
-      showToast(`${t('claimFailed')} ${getErrorMessage(error)}`, 'error');
-    } finally {
-      submitButton.disabled = false;
-    }
-  });
-
-  bindNavigation();
-}
