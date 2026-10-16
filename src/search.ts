@@ -33,7 +33,7 @@ function openSearch(): void {
   form.classList.remove('w-0', 'opacity-0', 'pointer-events-none');
   form.classList.add('w-56', 'opacity-100', 'max-[700px]:w-full');
   toggle?.classList.remove('w-9', 'opacity-100');
-  toggle?.classList.add('w-0', 'overflow-hidden', 'border-0', 'opacity-0', 'pointer-events-none');
+  toggle?.classList.add('w-0', 'overflow-hidden', 'opacity-0', 'pointer-events-none');
   toggle?.setAttribute('aria-expanded', 'true');
   searchStatus('');
   input.focus();
@@ -50,7 +50,7 @@ function closeSearch(): void {
   form.classList.add('w-0', 'opacity-0', 'pointer-events-none');
   form.classList.remove('w-56', 'opacity-100', 'max-[700px]:w-full');
   toggle?.classList.add('w-9', 'opacity-100');
-  toggle?.classList.remove('w-0', 'overflow-hidden', 'border-0', 'opacity-0', 'pointer-events-none');
+  toggle?.classList.remove('w-0', 'overflow-hidden', 'opacity-0', 'pointer-events-none');
   toggle?.setAttribute('aria-expanded', 'false');
   searchStatus('');
   if (input) input.value = '';

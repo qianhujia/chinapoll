@@ -92,20 +92,25 @@ export function renderHeader(activeRoute: string): string {
         <a class="text-3xl font-extrabold leading-none text-primary hover:underline" href="/" data-route="/" aria-label="${escapeHtml(t('homeLinkLabel'))}">${escapeHtml(getSiteName())}</a>
         <nav class="flex flex-wrap items-center gap-[18px]">
           ${getNavigationMarkup(activeRoute)}
+          ${renderHeaderSearch()}
         </nav>
       </div>
       <div class="flex flex-wrap items-center gap-2 max-[700px]:w-full">
-        ${renderHeaderSearch()}
-        ${renderHeaderAuthActions()}
+        ${renderHeaderAuthActions(activeRoute)}
       </div>
     </header>
   `;
 }
 
-// Sign-in actions shown to the right of the header search. Signed-in visitors
-// reach their own content through the account link in the navigation instead.
-function renderHeaderAuthActions(): string {
-  if (getCurrentUser() !== null) return '';
+// Right-aligned account actions. Signed-out visitors see the log in link and the
+// sign up button; signed-in visitors see their own account ("My") link instead.
+function renderHeaderAuthActions(activeRoute: string): string {
+  if (getCurrentUser() !== null) {
+    const isActive = activeRoute === '/account';
+    return `
+      <a class="py-1 whitespace-nowrap text-muted no-underline hover:text-primary ${isActive ? 'font-bold text-primary' : ''}" href="/account" data-route="/account">${escapeHtml(t('account'))}</a>
+    `;
+  }
 
   // The "optional" badge makes clear that signing in is not required. It is
   // placed on the top-right corner of both the login link and the sign-up button.
@@ -126,14 +131,14 @@ function renderHeaderSearch(): string {
     ? 'w-56 opacity-100 max-[700px]:w-full'
     : 'w-0 opacity-0 pointer-events-none';
   const toggleStateClass = isOpen
-    ? 'w-0 overflow-hidden border-0 opacity-0 pointer-events-none'
+    ? 'w-0 overflow-hidden opacity-0 pointer-events-none'
     : 'w-9 opacity-100';
 
   return `
     <div class="flex flex-wrap items-center gap-2 max-[700px]:w-full" data-search-root data-search-open="${isOpen}">
       <button
         type="button"
-        class="flex h-9 shrink-0 cursor-pointer items-center justify-center rounded-full border border-border bg-panel text-muted transition-[width,opacity] duration-200 ease-out hover:border-primary hover:text-primary ${toggleStateClass}"
+        class="flex h-9 shrink-0 cursor-pointer items-center justify-center text-muted transition-[width,opacity] duration-200 ease-out hover:text-primary ${toggleStateClass}"
         data-search-toggle
         aria-expanded="${isOpen}"
         aria-controls="header-search-form"
@@ -324,14 +329,13 @@ export function updateVoteGroup(group: HTMLElement, counts: Record<VoteOption, n
 }
 
 export function getNavigationMarkup(activeRoute: string): string {
-  const user = getCurrentUser();
-  // Login and sign-up live next to the search bar (see renderHeaderAuthActions),
-  // so the navigation only lists informational pages plus the account link.
+  // Log in, sign up, and the account ("My") link are grouped on the right side
+  // of the navbar (see renderHeaderAuthActions), so the navigation lists only
+  // the informational pages. The header search follows these items in the navbar.
   const links = [
     { route: '/', label: t('home') },
     { route: '/about', label: t('about') },
-    { route: '/submit', label: t('propose') },
-    ...(user !== null ? [{ route: '/account', label: t('account') }] : [])
+    { route: '/submit', label: t('propose') }
   ];
 
   return links.map(({ route, label }) => `
