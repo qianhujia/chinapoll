@@ -197,7 +197,13 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
           turnstileToken: turnstileToken('vote')
         });
       } catch (error) {
-        let statusMessage = `${t('submitFailed')}: ${getErrorMessage(error)}`;
+        const errorMessage = getErrorMessage(error);
+        // A 503 means the deployment is missing its server key (or is in
+        // read-only mode). Show a clear localized message instead of the terse
+        // server text so a misconfiguration does not look like a client error.
+        let statusMessage = errorMessage.includes('(503)')
+          ? t('siteNotConfigured')
+          : `${t('submitFailed')}: ${errorMessage}`;
         try {
           const currentVoteStatus = await getVoteStatus(poll.id, hash);
           if (currentVoteStatus.voted) {

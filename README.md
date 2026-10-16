@@ -31,7 +31,7 @@ The homepage lists open polls stored in the local D1 `polls` table. An empty dat
 
 ## User accounts
 
-Voting stays anonymous, but submitting a poll and posting a comment require an account. Users sign up with a username and password only; there is no email or recovery channel, so credentials must be kept safe (like a crypto recovery phrase). Passwords are hashed with PBKDF2-HMAC-SHA256 (100,000 iterations) and stored in the `users` table as `pbkdf2$iterations$salt$hash`. Sessions live in `user_sessions` with a thirty-day sliding expiry and are stored in an HttpOnly, SameSite=Strict cookie; only the SHA-256 hash of the token is kept.
+Voting stays anonymous, but submitting a poll and posting a comment require an account. Users sign up with a username and password only; there is no email or recovery channel, so credentials must be kept safe (like a crypto recovery phrase). Passwords are hashed with PBKDF2-HMAC-SHA256 (600,000 iterations, set by the `PBKDF2_ITERATIONS` constant in `shared/password.ts`) and stored in the `users` table as `pbkdf2$iterations$salt$hash`. Sessions live in `user_sessions` with a thirty-day sliding expiry and are stored in an HttpOnly, SameSite=Strict cookie; only the SHA-256 hash of the token is kept.
 
 - New accounts can submit a poll after `user_poll_delay_hours` and comment after `user_comment_delay_hours`, so brand-new accounts cannot post immediately.
 - Repeated failed sign-ins lock the account after `login_max_failed_attempts` for `login_lock_minutes` minutes.

@@ -23,6 +23,7 @@ import { handleAuthRequest } from './api/auth';
 import { handleUserRequest } from './api/user';
 import { makeSnapshot } from './services/snapshot';
 import { runMaintenanceTasks } from './services/maintenance';
+import { isValidServerKey, serverHmacKey } from './services/ip';
 
 export interface Env {
   DB: D1Database;
@@ -124,10 +125,15 @@ async function handleHealth(env: Env, settingsError: boolean): Promise<Response>
   } catch {
     db = 'error';
   }
+  // A missing or malformed SERVER_HMAC_KEY makes every vote, comment, and
+  // account request fail with 503, so surface it here (and fail `ok`) before a
+  // visitor tries to vote. The vote page maps that 503 to a localized message.
+  const serverKey = isValidServerKey(serverHmacKey(env));
   return Response.json({
-    ok: db === 'ok' && !settingsError,
+    ok: db === 'ok' && !settingsError && serverKey,
     build: buildSha(env),
     db,
+    serverKey,
     settingsError,
     lastSnapshotAt
   });

@@ -184,5 +184,6 @@
   "accountDeleteAction": "Delete my account",
   "accountDeleteConfirm": "Delete your account permanently?",
   "accountDeleted": "Account deleted.",
-  "accountPasswordPrompt": "Enter your current password to continue"
+  "accountPasswordPrompt": "Enter your current password to continue",
+  "siteNotConfigured": "This site is not fully configured yet"
 }

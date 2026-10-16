@@ -79,3 +79,10 @@ the schema or the network handling changes.
 - **Undocumented host settings.** Cloudflare-side logging (Logpush, Web
   Analytics, Bot Analytics), Managed Transforms "Remove visitor IP headers", and
   Onion Routing are recorded in the configuration log above.
+- **Rewritten closing hour.** A poll's terminal counts are written when it
+  closes, which can rewrite that hour's snapshot row (counts, hash, and `final`
+  flag) in place. A verifier who copied the chain between the hourly snapshot run
+  and the close may therefore see a different hash for that hour than the server
+  later reports. Only the row marked `final` is authoritative for the closing
+  hour, and at most one hour per poll is ever rewritten; earlier hours and their
+  hashes never change.

@@ -23,9 +23,11 @@ are run from the repository root.
 ## Uptime monitoring
 
 Point an external monitor at `GET /api/health`. A healthy response is
-`{ "ok": true, "db": "ok" }`; `db` becomes `"error"` when D1 is unreachable and
-the monitor should alert. The endpoint also returns the deployment `build` hash
-and the timestamp of the most recent statistics snapshot.
+`{ "ok": true, "db": "ok", "serverKey": true }`; `db` becomes `"error"` when D1 is
+unreachable, `serverKey` is `false` when `SERVER_HMAC_KEY` is missing or malformed
+(every vote then returns `503`), and `ok` is `false` in either case, so the
+monitor should alert. The endpoint also returns the deployment `build` hash and
+the timestamp of the most recent statistics snapshot.
 
 ## Backups and restore
 
@@ -55,3 +57,13 @@ matching, which only relaxes the rolling account cap for one day. Rotate the
 Turnstile secret from the dashboard and the admin Settings tab. The legacy
 `IP_HASH_KEY` name is still read as a fallback, so a deployment can move to
 `SERVER_HMAC_KEY` without downtime.
+
+## Release notes
+
+- **Next release:** the one-release `IP_HASH_KEY` fallback is dropped. Rename the
+  secret to `SERVER_HMAC_KEY` on every deployment
+  (`npx wrangler secret put SERVER_HMAC_KEY --env production`) and in each
+  developer's local `.dev.vars` before upgrading. After the fallback is removed, a
+  deployment that still sets only `IP_HASH_KEY` has no usable key, and voting and
+  account creation return `503` (`GET /api/health` then reports
+  `"serverKey": false`).

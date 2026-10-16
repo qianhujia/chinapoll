@@ -184,5 +184,6 @@
   "accountDeleteAction": "刪除我的帳號",
   "accountDeleteConfirm": "確定要永久刪除帳號嗎？",
   "accountDeleted": "帳號已刪除。",
-  "accountPasswordPrompt": "請輸入目前密碼以繼續"
+  "accountPasswordPrompt": "請輸入目前密碼以繼續",
+  "siteNotConfigured": "本站尚未完成設定"
 }

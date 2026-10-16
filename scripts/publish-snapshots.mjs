@@ -16,16 +16,12 @@
 
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 const apiBase = process.env.API_BASE;
 const outputDir = process.env.DATA_REPO_PATH ?? '.';
 const PAGE_SIZE = 100;
 const CLOSED_DAYS = 35;
-
-if (!apiBase) {
-  console.error('API_BASE is not set');
-  process.exit(1);
-}
 
 async function getJson(path) {
   const response = await fetch(new URL(path, apiBase));
@@ -54,8 +50,24 @@ async function listRecentlyClosed() {
   return (listing.polls ?? []).map((entry) => entry.id);
 }
 
-function snapshotHour(snapshot) {
+export function snapshotHour(snapshot) {
   return Number(snapshot?.tsHourEpoch ?? 0);
+}
+
+// Returns the cursor the next fetch should start after. When the newest stored
+// snapshot is not marked final, start one hour earlier so the closing hour is
+// fetched again: a close that runs after the previous publish rewrites that
+// hour's counts, hash, and final flag in place, and the API only ever returns
+// rows whose ts_hour is greater than the cursor. `mergeSnapshots` then replaces
+// the stale row by hour.
+export function resumeAfter(stored) {
+  const last = stored.reduce(
+    (highest, snapshot) => (snapshotHour(snapshot) > snapshotHour(highest) ? snapshot : highest),
+    null
+  );
+  if (!last) return 0;
+  const lastHour = snapshotHour(last);
+  return last.final === true ? lastHour : Math.max(0, lastHour - 1);
 }
 
 // Reads the snapshots already stored for a poll, tolerating a missing or
@@ -85,7 +97,7 @@ async function fetchNewSnapshots(pollId, after) {
 }
 
 // Merges stored and newly fetched snapshots by hour so a re-run cannot duplicate.
-function mergeSnapshots(stored, added) {
+export function mergeSnapshots(stored, added) {
   const byHour = new Map();
   for (const snapshot of [...stored, ...added]) {
     const hour = snapshotHour(snapshot);
@@ -95,6 +107,11 @@ function mergeSnapshots(stored, added) {
 }
 
 async function main() {
+  if (!apiBase) {
+    console.error('API_BASE is not set');
+    process.exit(1);
+  }
+
   const openIds = await listOpenPolls();
   const closedIds = await listRecentlyClosed();
   const pollIds = [...new Set([...openIds, ...closedIds])].sort((a, b) => a - b);
@@ -108,8 +125,7 @@ async function main() {
   let updated = 0;
   for (const pollId of pollIds) {
     const stored = await readStoredSnapshots(pollId);
-    const lastHour = stored.reduce((highest, snapshot) => Math.max(highest, snapshotHour(snapshot)), 0);
-    const added = await fetchNewSnapshots(pollId, lastHour);
+    const added = await fetchNewSnapshots(pollId, resumeAfter(stored));
     if (added.length === 0) continue;
 
     const snapshots = mergeSnapshots(stored, added);
@@ -123,7 +139,11 @@ async function main() {
   console.log(`Updated ${updated} poll file(s); ${pollIds.length} poll(s) tracked.`);
 }
 
-main().catch((error) => {
-  console.error(error);
-  process.exit(1);
-});
+// Run only when invoked as a script; importing the module (unit tests) must not
+// start a network crawl.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((error) => {
+    console.error(error);
+    process.exit(1);
+  });
+}

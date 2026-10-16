@@ -184,5 +184,6 @@
   "accountDeleteAction": "删除我的账号",
   "accountDeleteConfirm": "确定要永久删除账号吗？",
   "accountDeleted": "账号已删除。",
-  "accountPasswordPrompt": "请输入当前密码以继续"
+  "accountPasswordPrompt": "请输入当前密码以继续",
+  "siteNotConfigured": "本站尚未完成配置"
 }
