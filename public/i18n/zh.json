@@ -221,6 +221,7 @@
   "optionsLabel": "选项",
   "optionPlaceholder": "选项文字",
   "addOption": "添加选项",
+  "addNeutralOption": "添加中立选项",
   "removeOption": "删除",
   "optionInvalidLength": "每个选项需为 1 至 80 个字符。",
   "optionDuplicate": "选项不能重复。",

@@ -1,4 +1,4 @@
-import { PollMode, PollStatus, PollType, VoteOption } from '../../worker/enums';
+import { PollMode, PollStatus, PollType } from '../../worker/enums';
 import { currentHour, writeSnapshotForPoll } from '../../worker/services/maintenance';
 import {
   countBallots,
@@ -6,7 +6,12 @@ import {
   legacyVerdictCounts,
   type PollOption
 } from '../../worker/services/options';
-import { validatePollOptions } from '../../worker/services/pollType';
+import {
+  REQUIRED_VERDICT_PRESET_KEYS,
+  validatePollOptions,
+  validatePresetKeys,
+  type PresetKey
+} from '../../worker/services/pollType';
 import type { AdminActor, AdminEnv } from '../auth';
 import { logAudit } from '../lib/audit';
 import {
@@ -30,9 +35,6 @@ interface AdminPollRow {
   start_at: number | null;
   end_at: number | null;
   status: number;
-  approve: number;
-  neutral: number;
-  oppose: number;
   views: number;
   created_at: number;
   updated_at: number;
@@ -40,7 +42,8 @@ interface AdminPollRow {
 
 interface AdminOptionCount {
   id: number;
-  label: string;
+  label: string | null;
+  presetKey: string | null;
   position: number;
   count: number;
 }
@@ -116,24 +119,18 @@ async function listPolls(url: URL, env: AdminEnv): Promise<Response> {
      SELECT i.id, i.title, i.description, i.mode, i.poll_type, i.duration_seconds,
             i.start_at, i.end_at, i.status,
             i.created_at, i.updated_at,
-            COALESCE(SUM(CASE WHEN v.option = ? THEN 1 ELSE 0 END), 0) AS approve,
-            COALESCE(SUM(CASE WHEN v.option = ? THEN 1 ELSE 0 END), 0) AS neutral,
-            COALESCE(SUM(CASE WHEN v.option = ? THEN 1 ELSE 0 END), 0) AS oppose,
             (SELECT COALESCE(SUM(pv.views), 0) FROM poll_views pv WHERE pv.poll_id = i.id) AS views
      FROM page
      JOIN polls i ON i.id = page.id
-     LEFT JOIN votes v ON v.poll_id = i.id
-     GROUP BY i.id
      ORDER BY i.created_at DESC, i.id DESC`
   ).bind(
     ...statusBind, ...(query ? [likePattern] : []),
-    pageSize, offset,
-    VoteOption.Approve, VoteOption.Neutral, VoteOption.Oppose
+    pageSize, offset
   ).all<AdminPollRow>();
 
   // The options and the tally of every poll on this page come from the shared
-  // engine (paginate, then aggregate), so a verdict poll also exposes its three
-  // virtual entries with their counts.
+  // engine (paginate, then aggregate), so a verdict poll exposes its preset rows
+  // with their counts exactly like a choice poll exposes its labels.
   const pageRows = (result.results ?? []).map((row) => ({
     id: Number(row.id),
     poll_type: Number(row.poll_type ?? PollType.Verdict)
@@ -160,14 +157,14 @@ async function listPolls(url: URL, env: AdminEnv): Promise<Response> {
         updatedAt: toIso(row.updated_at),
         views: Number(row.views),
         ballots: tally.ballots,
-        counts: legacyVerdictCounts(tally),
-        // The labels are shown with their counts; a virtual verdict option keeps
-        // its i18n key as the label, so the dashboard shows it as-is.
+        counts: legacyVerdictCounts(optionsByPoll.get(pollId) ?? [], tally),
+        // The labels are shown with their counts; a preset verdict row carries
+        // its preset key instead of a label, so the dashboard translates it.
         options: (optionsByPoll.get(pollId) ?? []).map((option: PollOption) => ({
           id: option.id,
           position: option.position,
           label: option.label,
-          virtual: option.virtual,
+          presetKey: option.presetKey,
           count: Number(tally.counts.get(option.id) ?? 0)
         }))
       };
@@ -290,9 +287,11 @@ function toIso(unixSeconds: number | null): string | null {
   return unixSeconds === null ? null : new Date(unixSeconds * 1000).toISOString();
 }
 
-// Replaces the option set of a pending choice poll. Editing is restricted to
-// polls that are still pending: once a poll is open the labels are part of the
-// published question and of its counts. The change is written to the audit log.
+// Updates the option set of a pending poll that has no ballots yet. A choice
+// poll's labels are replaced by position; a verdict poll only allows its
+// optional `neutral` preset row to be removed or restored, because `approve` and
+// `oppose` are part of the question itself. The change is written to the audit
+// log.
 async function updatePollOptions(
   pollId: number,
   request: Request,
@@ -309,14 +308,7 @@ async function updatePollOptions(
   } catch {
     return Response.json({ message: 'invalid JSON' }, { status: 400 });
   }
-
-  const rawOptions = typeof body === 'object' && body !== null
-    ? (body as Record<string, unknown>).options
-    : undefined;
-  const validation = validatePollOptions(rawOptions);
-  if (!validation.ok) {
-    return Response.json({ message: validation.message }, { status: 400 });
-  }
+  const payload = typeof body === 'object' && body !== null ? body as Record<string, unknown> : {};
 
   const poll = await env.DB.prepare(
     'SELECT id, poll_type, status FROM polls WHERE id = ?'
@@ -324,21 +316,83 @@ async function updatePollOptions(
   if (!poll) {
     return Response.json({ message: `poll ${pollId} was not found` }, { status: 404 });
   }
-  if (Number(poll.poll_type) === PollType.Verdict) {
-    return Response.json({ message: `poll ${pollId} is a verdict poll and has no options` }, { status: 409 });
-  }
   if (Number(poll.status) !== PollStatus.Pending) {
     return Response.json({ message: 'option labels can only be edited while a poll is pending' }, { status: 409 });
   }
 
-  const previous = await env.DB.prepare(
-    'SELECT id, position, label FROM poll_options WHERE poll_id = ? ORDER BY position ASC'
-  ).bind(pollId).all<{ id: number; position: number; label: string }>();
+  // An option set can only be corrected before anyone has voted, so the counts
+  // published for the poll can never disagree with its current options.
+  const ballots = await env.DB.prepare(
+    'SELECT COUNT(*) AS total FROM votes WHERE poll_id = ?'
+  ).bind(pollId).first<{ total: number }>();
+  if (Number(ballots?.total ?? 0) > 0) {
+    return Response.json({ message: `poll ${pollId} already has ballots and its options are frozen` }, { status: 409 });
+  }
+
+  const previousResult = await env.DB.prepare(
+    'SELECT id, position, label, preset_key FROM poll_options WHERE poll_id = ? ORDER BY position ASC'
+  ).bind(pollId).all<{ id: number; position: number; label: string | null; preset_key: string | null }>();
+  const previous = previousResult.results ?? [];
+
+  // A verdict poll: only the optional neutral preset row may change.
+  if (Number(poll.poll_type) === PollType.Verdict) {
+    if (payload.options !== undefined) {
+      return Response.json({
+        message: `poll ${pollId} is a verdict poll; only its neutral preset row can be changed`
+      }, { status: 409 });
+    }
+    const presetValidation = validatePresetKeys(payload.presetKeys);
+    if (!presetValidation.ok) {
+      return Response.json({ message: presetValidation.message }, { status: 400 });
+    }
+
+    for (const key of REQUIRED_VERDICT_PRESET_KEYS) {
+      if (!previous.some((row) => row.preset_key === key)) {
+        return Response.json({ message: `poll ${pollId} is missing its ${key} preset row` }, { status: 409 });
+      }
+    }
+
+    const desired = new Set<PresetKey>(presetValidation.presetKeys);
+    const neutral = previous.find((row) => row.preset_key === 'neutral');
+    const presetStatements: D1PreparedStatement[] = [];
+    if (desired.has('neutral') && !neutral) {
+      presetStatements.push(env.DB.prepare(
+        "INSERT INTO poll_options (poll_id, position, label, preset_key) VALUES (?, ?, NULL, 'neutral')"
+      ).bind(pollId, previous.length + 1));
+    } else if (!desired.has('neutral') && neutral) {
+      presetStatements.push(env.DB.prepare('DELETE FROM poll_options WHERE id = ?').bind(Number(neutral.id)));
+    }
+    if (presetStatements.length > 0) await env.DB.batch(presetStatements);
+
+    await logAudit(env, {
+      actor, action: 'poll.options', targetType: 'poll', targetId: pollId,
+      details: { previous: previous.map(readableOption), presetKeys: presetValidation.presetKeys }
+    });
+
+    return Response.json({
+      ok: true,
+      pollId,
+      presetKeys: presetValidation.presetKeys,
+      message: `Updated the preset rows of poll ${pollId}.`
+    });
+  }
+
+  // A choice poll: the labels are replaced by position.
+  if (payload.presetKeys !== undefined) {
+    return Response.json({ message: 'a choice poll does not accept preset keys' }, { status: 400 });
+  }
+  const validation = validatePollOptions(payload.options);
+  if (!validation.ok) {
+    return Response.json({ message: validation.message }, { status: 400 });
+  }
+  if (previous.some((row) => row.preset_key !== null)) {
+    return Response.json({ message: `poll ${pollId} carries preset rows that cannot be edited` }, { status: 409 });
+  }
 
   // The existing option ids are reused by position so a pending poll keeps a
   // stable option identity across an edit.
   const existing = new Map<number, number>();
-  for (const row of previous.results ?? []) {
+  for (const row of previous) {
     existing.set(Number(row.position), Number(row.id));
   }
 
@@ -347,7 +401,7 @@ async function updatePollOptions(
     const optionId = existing.get(option.position);
     if (optionId === undefined) {
       statements.push(env.DB.prepare(
-        'INSERT INTO poll_options (poll_id, position, label) VALUES (?, ?, ?)'
+        'INSERT INTO poll_options (poll_id, position, label, preset_key) VALUES (?, ?, ?, NULL)'
       ).bind(pollId, option.position, option.label));
     } else {
       statements.push(env.DB.prepare(
@@ -367,9 +421,7 @@ async function updatePollOptions(
   await logAudit(env, {
     actor, action: 'poll.options', targetType: 'poll', targetId: pollId,
     details: {
-      previous: (previous.results ?? []).map((row) => ({
-        position: Number(row.position), label: row.label
-      })),
+      previous: previous.map(readableOption),
       options: validation.options
     }
   });
@@ -380,4 +432,15 @@ async function updatePollOptions(
     options: validation.options,
     message: `Updated ${validation.options.length} option(s) for poll ${pollId}.`
   });
+}
+
+// The audit-friendly view of a stored option row.
+function readableOption(row: { position: number; label: string | null; preset_key: string | null }): {
+  position: number;
+  label?: string | null;
+  presetKey?: string | null;
+} {
+  return row.preset_key === null
+    ? { position: Number(row.position), label: row.label }
+    : { position: Number(row.position), presetKey: row.preset_key };
 }

@@ -48,7 +48,7 @@ Public account endpoints (session state, register, login, logout, and recovery) 
 
 The local database schema is managed with versioned SQL migrations in the `migrations/` folder. `npm run db:migrate` applies every pending migration (the Wrangler tracking table is named `migrations`, set with `migrations_table` in `wrangler.toml`). Public settings fall back to built-in defaults until they are written, and the dashboard's Settings tab can insert any missing defaults.
 
-**Applied migrations are never edited.** Migrations are immutable once recorded: schema changes go in a new file (numbered from `0002`). `migrations/0001_initial.sql` is the entire schema, frozen on 2026-10-11 when the earlier incremental files were folded into it because nothing had been deployed. `0002_reports_and_views.sql` adds anonymous reports and view counting, and `0003_poll_types_and_options.sql` adds the poll types, the per-poll options, the choice ballot tables, `polls.duration_seconds`, and the `ballots`/`option_counts` columns of the snapshot chain. Because the initial schema was consolidated, **only fresh databases are supported**: create a database from scratch (run `npm run db:reset` locally, or apply `0001_initial.sql` and any later files to an empty production database) rather than upgrading a database that recorded the earlier pre-consolidation migrations.
+**Applied migrations are never edited.** Migrations are immutable once recorded: schema changes go in a new file (numbered from `0002`). `migrations/0001_initial.sql` is the entire schema, frozen on 2026-10-11 when the earlier incremental files were folded into it because nothing had been deployed. `0002_reports_and_views.sql` adds anonymous reports and view counting, `0003_poll_types_and_options.sql` adds the poll types, the per-poll options, the choice ballot tables, `polls.duration_seconds`, and the `ballots`/`option_counts` columns of the snapshot chain, and `0004_unified_selections.sql` removes `votes.option` and records every selection in `vote_selections` (it copies an existing database's rows: a choice selection keeps its `option_id`, a verdict ballot's old code 1/2/3 becomes a selection on the poll's `approve`/`oppose`/`neutral` preset row, and every verdict poll gains those preset rows). Because the initial schema was consolidated, **only fresh databases are supported**: create a database from scratch (run `npm run db:reset` locally, or apply `0001_initial.sql` and any later files to an empty production database) rather than upgrading a database that recorded the earlier pre-consolidation migrations.
 
 ```bash
 npm run db:migrate
@@ -58,7 +58,7 @@ This keeps schema changes reproducible across local development. Future schema u
 
 ## Proposal approval
 
-Review and publish pending submissions from the dashboard's Polls tab: set a poll's status to `open` to approve it or to `closed` to reject it. A poll keeps the same ID from submission through approval. Approving a choice poll that has no options is refused (`422`). Option labels of a **pending** choice poll can be corrected from the Polls tab (`PUT /api/admin/polls/:id/options`); once a poll is open the labels are part of the published question and of its counts, so they can no longer be edited.
+Review and publish pending submissions from the dashboard's Polls tab: set a poll's status to `open` to approve it or to `closed` to reject it. A poll keeps the same ID from submission through approval. Approving a choice poll that has no options is refused (`422`). Options can be corrected from the Polls tab (`PUT /api/admin/polls/:id/options`) while a poll is still **pending and has no ballots**: a choice poll's labels are replaced, and a verdict poll only allows its optional `neutral` preset row to be removed or restored, because `approve` and `oppose` are part of the question. Once a poll is open (or has ballots) the option set is frozen, since it is part of the published question and of its counts.
 
 ## Poll types and options
 
@@ -66,27 +66,42 @@ A poll is one of three ballot shapes, selected on the proposal form and stored i
 
 | Code | `poll_type` | Options | Selections per ballot |
 | --- | --- | --- | --- |
-| 1 | `verdict` | virtual: approve (1), neutral (2), oppose (3) | exactly 1 |
-| 2 | `single_choice` | 2 to 7 stored rows | exactly 1 |
-| 3 | `multi_choice` | 2 to 7 stored rows | 1 to all |
+| 1 | `verdict` | the preset rows `approve` and `oppose`, plus optional `neutral` | exactly 1 |
+| 2 | `single_choice` | 2 to 7 custom rows | exactly 1 |
+| 3 | `multi_choice` | 2 to 7 custom rows | 1 to all |
 
 ### One engine, three types
 
-The three types stay distinct **in the schema** because the verdict scale is fixed, translated from the i18n files, and comparable across polls: a verdict poll keeps its answer in `votes.option`, and the values are the long-standing codes approve 1, oppose 2, neutral 3, which are never renumbered. A choice poll keeps its rows in `poll_options` and its selections in `vote_selections`.
+Every poll type keeps its options in `poll_options` and records one
+`vote_selections` row per chosen option. A verdict poll's rows are **presets**:
+`label` is NULL and `preset_key` is `approve`, `oppose`, or `neutral`, so the
+client translates them; a choice poll's rows carry the text the submitter wrote.
+`votes` is a ballot table only and holds **no choice data** (`id`, `poll_id`,
+`voter_token_hash`, `created_at`), so the verdict scale is the only thing that
+still differs between the types — and it differs in data, not in code.
 
 In **code** there is one engine, `worker/services/options.ts`, and every poll goes through it:
 
-- **Every poll exposes a list of options.** `getPollOptions` returns the three fixed entries for a verdict poll with `id` 1/2/3, `label` set to the i18n keys `approve`, `neutral`, `oppose`, and `virtual: true`; a choice poll returns its stored rows with `virtual: false`. The frontend translates a virtual label and shows a stored label as-is.
-- **Every ballot is a set of selected option IDs.** `validateSelections` accepts `{ option?: "approve" | "neutral" | "oppose", optionIds?: number[] }`. Type 1 takes either the legacy `option` label or `optionIds` with one virtual ID; type 2 requires exactly one stored ID; type 3 requires 1 to 7 distinct stored IDs. Every ID must belong to the poll, so a caller cannot vote with another poll's option.
-- **One counting function.** `countBallots` returns `{ ballots, counts: Map<optionId, count> }` per poll from a fixed number of aggregate queries (paginate, then aggregate): one `GROUP BY poll_id, option` query for the verdict group and one `vote_selections`-joined query for the choice group.
-- **One results shape.** `toPublicResults` returns `{ pollType, ballots, hidden, threshold, options: [{ id, position, label, virtual, count }] | null }` for every type. Below `min_votes_to_display` **every** option count is withheld together while the ballot total is still returned. The threshold hides results only: the poll page always renders the vote controls for an open poll, and voting is disabled only for a poll that is not open, a visitor who has already voted, or a failed vote-status lookup. A visitor who votes below the threshold sees their choice highlighted while the numbers stay hidden. The home page lists every poll type the same way — mode badge, type badge, ballot total, views, and a vote link to the poll page — and never votes in place.
+- **Every poll exposes a list of options.** `getPollOptions` reads `poll_options`
+  ordered by position for every type. A verdict row carries `presetKey` (`approve`,
+  `oppose`, `neutral`) and no label; a choice row carries its label and no preset
+  key. Options are identified by `id` in every request and response, and the
+  frontend renders `t(presetKey)` or the label from the same array.
+- **Every ballot is a set of selected option IDs.** `validateSelections` accepts `{ option?: "approve" | "oppose" | "neutral", optionIds?: number[] }`. A verdict poll takes either the legacy `option` label (resolved to that poll's preset row) or one `optionIds` entry; a single choice poll requires exactly one option ID; a multi choice poll requires 1 to 7 distinct option IDs. Every ID must belong to the poll, so a caller cannot vote with another poll's option.
+- **One counting function.** `countBallots` returns `{ ballots, counts: Map<optionId, count> }` per poll from two aggregate queries total (paginate, then aggregate): the ballot total from `votes` and the per-option counts from `vote_selections` grouped by `(poll_id, option_id)`. The same two queries serve every poll type.
+- **One results shape.** `toPublicResults` returns `{ pollType, ballots, hidden, threshold, options: [{ id, position, label, presetKey, count }] | null }` for every type. Below `min_votes_to_display` **every** option count is withheld together while the ballot total is still returned. The threshold hides results only: the poll page always renders the vote controls for an open poll, and voting is disabled only for a poll that is not open, a visitor who has already voted, or a failed vote-status lookup. A visitor who votes below the threshold sees their choice highlighted while the numbers stay hidden. The home page lists every poll type the same way — mode badge, type badge, ballot total, views, and a vote link to the poll page — and never votes in place.
 - **One snapshot shape.** See the snapshot section below.
 
-A ballot stays **one row per (poll, token)** in `votes`, so the existing unique index keeps enforcing one ballot per browser; a choice ballot stores `NULL` in `votes.option` and its selections in the `vote_selections` child table, written in the same batch as the ballot.
+Voting happens on the poll page. A verdict poll renders one button per preset row
+of the poll (two or three), so a poll whose `neutral` row was removed shows two
+buttons, and the results list is built from the same options array. A choice poll
+renders one radio (single choice) or checkbox (multi choice) per row.
+
+A ballot stays **one row per (poll, token)** in `votes`, so the existing unique index keeps enforcing one ballot per browser. The ballot row is written first and its `vote_selections` rows second; if the second step fails the ballot is rolled back, so a partial ballot is never left behind.
 
 ### Endpoints
 
-`POST /api/vote` accepts `{ pollId, tokenHash, turnstileToken?, option?, optionIds? }`. `POST /api/vote/status` returns `optionIds` for every type, plus `option` for a verdict poll. `GET /api/stats/:id`, `GET /api/polls/:id`, and the poll list return `pollType`, `options`, and the results shape above; a verdict poll additionally keeps the legacy `counts: { approve, oppose, neutral }` object so existing clients keep working.
+`POST /api/vote` accepts `{ pollId, tokenHash, turnstileToken?, option?, optionIds? }`. `POST /api/vote/status` returns `optionIds` for every type, plus the legacy `option` label for a verdict selection. `GET /api/stats/:id`, `GET /api/polls/:id`, and the poll list return `pollType`, `options`, and the results shape above; a verdict poll additionally keeps the legacy `counts: { approve, oppose, neutral }` object (filled by preset key, `0` when the poll has no neutral row) so existing clients keep working.
 
 Public responses show per-option counts only. Which options were chosen together on one ballot is never published and is only visible to a database reader, who still sees anonymous ballots (see `docs/THREAT_MODEL.md`).
 
@@ -149,7 +164,7 @@ under the buttons, and `docs/THREAT_MODEL.md` documents the data flow.
 
 ## Snapshot chain and its schema version
 
-The hourly snapshot chain is the tamper-evident record of published results. Each record's hash covers the poll id, the hour, the approve/oppose/neutral counts, the number of ballots, the per-option counts of a choice poll, the cumulative view total, and the previous record's hash.
+The hourly snapshot chain is the tamper-evident record of published results. Each record's hash covers the poll id, the hour, the approve/oppose/neutral counts, the number of ballots, the per-option counts of every poll, the cumulative view total, and the previous record's hash.
 
 The canonical payload carries a `schemaVersion`:
 
@@ -158,7 +173,7 @@ The canonical payload carries a `schemaVersion`:
 
 `verifySnapshotHash` accepts a record without the new fields as version 1, and the `/api/snapshots/:id/verify` walk reproduces the stored hash under either version, so a chain copied out before the release still verifies and is never reported as tampered with. `/api/snapshots/:id` and the publish script both report the schema version alongside the snapshots.
 
-For a verdict poll `optionCounts` is `null` and the three verdict columns keep their original meaning, so the published data format does not change for the polls that already exist. For a choice poll those three columns are `0` and `optionCounts` carries the per-position counts as JSON in `stats_snapshots.option_counts`. `ballots` is filled for every type.
+For a verdict poll `optionCounts` carries the per-position counts of its preset rows and the three verdict columns are filled from those rows by `preset_key` (`0` when the poll has no `neutral` row), so the published data keeps its original meaning. For a choice poll the three columns are `0` and `optionCounts` carries the per-position counts as JSON in `stats_snapshots.option_counts`. `ballots` is filled for every type.
 
 ## Poll reports and view counts
 
@@ -243,13 +258,17 @@ records admin actions without client IP addresses. Deploy with
   report rate limit, and both auto-hide thresholds), view counting (the daily
   counter, the display threshold, the 7-day window, and the always-204 rate
   limit), the admin report list and resolve handlers, the three poll types (ballot
-  validation, per-option counts, the ballot threshold, and the stored selection
-  rows), the duration model (`duration_seconds`, the derived mode, and the end
-  date computed at open), the admin option editor, and AI assistance (the disabled
-  setting, the auth gate, the input limits, a malformed model answer, and a valid
-  trimmed answer). Every migration is applied to the isolated test database in
-  order (`migrations/0001_initial.sql`, `0002_reports_and_views.sql`, then
-  `0003_poll_types_and_options.sql`).
+  validation, per-option counts, the ballot threshold, the stored selection rows,
+  and the verdict preset rows), the duration model (`duration_seconds`, the
+  derived mode, and the end date computed at open), the admin option editor
+  including removing and restoring a verdict poll's `neutral` row, and AI
+  assistance (the disabled setting, the auth gate, the input limits, a malformed
+  model answer, and a valid trimmed answer). Every migration is applied to the
+  isolated test database in order (`migrations/0001_initial.sql`,
+  `0002_reports_and_views.sql`, `0003_poll_types_and_options.sql`, then
+  `0004_unified_selections.sql`); `tests/integration/migrationSelections.test.ts`
+  additionally applies `0001` to `0003`, seeds the pre-`0004` shape, and then
+  applies `0004` to check the data copy and that `votes.option` is gone.
 
 The AI binding has no local simulator, so `vitest.workers.config.ts` sets
 `remoteBindings: false` and the AI tests stub `env.AI` with an object whose `run`

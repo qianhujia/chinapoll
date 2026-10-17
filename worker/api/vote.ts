@@ -5,11 +5,11 @@
 // daily-rotated hash of the network bucket (never a raw address) and lives in
 // the RateLimiter Durable Object, so no IP-derived value is written to D1.
 //
-// A ballot is always one row in `votes`. A verdict poll stores its answer in
-// `votes.option`; a choice poll stores NULL there and keeps its selections in
-// the child table `vote_selections`, so the same unique index still enforces
-// one ballot per (poll, token). All three types are validated, counted, and
-// rendered through the shared engine in worker/services/options.ts.
+// A ballot is one row in `votes`, which holds no choice data at all, plus one
+// `vote_selections` row per chosen option for every poll type. The unique index
+// on (poll_id, voter_token_hash) still enforces one ballot per browser, and the
+// options are validated, counted, and rendered through the shared engine in
+// worker/services/options.ts.
 
 import type { HandlerEnv } from '../index';
 import { checkRateLimit } from '../services/rateLimit';
@@ -24,13 +24,7 @@ import {
   validateSelections,
   type PublicResults
 } from '../services/options';
-import {
-  getVoteOptionLabel,
-  PollMode,
-  PollStatus,
-  PollType,
-  VoteOption as VoteOptionCode
-} from '../enums';
+import { PollMode, PollStatus, PollType } from '../enums';
 
 const DEFAULT_VOTE_RATE_LIMIT = '5/h';
 const TOKEN_HASH_PATTERN = /^[0-9a-f]{64}$/i;
@@ -53,33 +47,37 @@ export async function handleVoteStatusRequest(request: Request, env: HandlerEnv)
     return Response.json({ message: 'bad request' }, { status: 400 });
   }
 
-  const vote: { id: number; option: VoteOptionCode | null } | null = await env.DB.prepare(
-    'SELECT id, option FROM votes WHERE poll_id = ? AND voter_token_hash = ? LIMIT 1'
+  const vote: { id: number } | null = await env.DB.prepare(
+    'SELECT id FROM votes WHERE poll_id = ? AND voter_token_hash = ? LIMIT 1'
   ).bind(pollId, tokenHash).first();
 
-  // Every type reports the stored selections as option IDs. A verdict poll also
-  // reports its single verdict, so the two views agree.
+  // Every type reports the stored selections as option IDs. A preset selection
+  // is also reported through the legacy `option` label, resolved from the
+  // poll's preset row, so a verdict poll keeps the old field.
   let optionIds: number[] = [];
+  let option: string | null = null;
   if (vote) {
-    if (vote.option !== null) {
-      optionIds = [Number(vote.option)];
-    } else {
-      const selections = await env.DB.prepare(
-        'SELECT option_id FROM vote_selections WHERE vote_id = ? ORDER BY option_id ASC'
-      ).bind(vote.id).all<{ option_id: number }>();
-      optionIds = (selections.results ?? []).map((row) => Number(row.option_id));
-    }
+    const selections = await env.DB.prepare(
+      `SELECT vs.option_id, o.preset_key
+       FROM vote_selections vs
+       JOIN poll_options o ON o.id = vs.option_id
+       WHERE vs.vote_id = ? ORDER BY o.position ASC`
+    ).bind(vote.id).all<{ option_id: number; preset_key: string | null }>();
+    const rows = selections.results ?? [];
+    optionIds = rows.map((row) => Number(row.option_id));
+    option = rows.find((row) => row.preset_key !== null)?.preset_key ?? null;
   }
 
   return Response.json({
     pollId,
     voted: Boolean(vote),
-    option: vote && vote.option !== null ? getVoteOptionLabel(vote.option) : null,
+    option,
     optionIds
   }, {
     headers: { 'cache-control': 'no-store' }
   });
 }
+
 export async function handleVoteRequest(request: Request, env: HandlerEnv): Promise<Response> {
   if (env.read_only_mode === true) {
     return Response.json({ ok: false, message: 'readonly mode enabled' }, { status: 503 });
@@ -123,9 +121,6 @@ export async function handleVoteRequest(request: Request, env: HandlerEnv): Prom
   if (!selection.ok) {
     return Response.json({ ok: false, message: selection.message }, { status: 400 });
   }
-  // A verdict ballot stores its verdict in `votes.option`; a choice ballot
-  // stores NULL there and its selections in `vote_selections`.
-  const verdictCode = isChoicePollType(pollType) ? null : selection.optionIds[0];
 
   // Turnstile is enforced only when it is enabled and fully configured.
   if (env.turnstile_enable && env.turnstile_secret_key) {
@@ -158,23 +153,27 @@ export async function handleVoteRequest(request: Request, env: HandlerEnv): Prom
   // edge logs or with another row created at the same second.
   const coarseNow = nowSeconds - (nowSeconds % 3600);
   const insertResult = await env.DB.prepare(
-    `INSERT INTO votes (poll_id, voter_token_hash, option, created_at)
-     VALUES (?, ?, ?, ?)
+    `INSERT INTO votes (poll_id, voter_token_hash, created_at)
+     VALUES (?, ?, ?)
      ON CONFLICT(poll_id, voter_token_hash) DO NOTHING`
-  ).bind(pollId, tokenHash, verdictCode, coarseNow).run();
+  ).bind(pollId, tokenHash, coarseNow).run();
 
   if (!insertResult.meta.changes) {
     return Response.json({ ok: false, message: 'duplicate vote' }, { status: 409 });
   }
 
-  // The ballot and, for a choice poll, its selections are written as one batch,
-  // keyed by the ballot row that was just inserted.
-  if (isChoicePollType(pollType) && selection.optionIds.length > 0) {
-    const voteId = Number(insertResult.meta.last_row_id);
-    if (voteId > 0) {
+  // The ballot row is written first, then one selection row per chosen option,
+  // keyed by the ballot id that was just inserted. A failure while writing the
+  // selections rolls the ballot back, so a partial ballot is never left behind.
+  const voteId = Number(insertResult.meta.last_row_id);
+  if (voteId > 0 && selection.optionIds.length > 0) {
+    try {
       await env.DB.batch(selection.optionIds.map((optionId) => env.DB.prepare(
-        'INSERT INTO vote_selections (vote_id, option_id) VALUES (?, ?)'
-      ).bind(voteId, optionId)));
+        'INSERT INTO vote_selections (poll_id, vote_id, option_id) VALUES (?, ?, ?)'
+      ).bind(pollId, voteId, optionId)));
+    } catch {
+      await env.DB.prepare('DELETE FROM votes WHERE id = ?').bind(voteId).run();
+      return Response.json({ ok: false, message: 'vote could not be stored' }, { status: 500 });
     }
   }
 
@@ -189,7 +188,7 @@ export async function handleVoteRequest(request: Request, env: HandlerEnv): Prom
     message: 'vote accepted',
     ...results,
     // Kept so existing clients keep reading the verdict counts the same way.
-    counts: isChoicePollType(pollType) || results.hidden ? null : legacyVerdictCounts(tally),
+    counts: isChoicePollType(pollType) || results.hidden ? null : legacyVerdictCounts(options, tally),
     voted: true
   });
 }

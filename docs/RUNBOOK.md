@@ -12,10 +12,12 @@ are run from the repository root.
    edit one that has already been applied, and add every schema change as a new
    numbered file. Only a **fresh** database is supported; create the production
    database empty and apply `0001_initial.sql` (plus any later files) in order.
-   `0002_reports_and_views.sql` adds anonymous reports and view counting, and
+   `0002_reports_and_views.sql` adds anonymous reports and view counting,
    `0003_poll_types_and_options.sql` adds the poll types, the per-poll options,
    the choice ballot tables, the duration column, and the ballots/option count
-   columns of the snapshot chain.
+   columns of the snapshot chain, and `0004_unified_selections.sql` removes
+   `votes.option` and records every selection in `vote_selections`, copying an
+   existing database's rows onto the poll's preset rows.
 2. Set the required secret before the first deploy:
    `npx wrangler secret put SERVER_HMAC_KEY --env production` (a fresh 64-character hex value).
 3. Build the SPA: `npm run build` (outputs to `dist/web`).

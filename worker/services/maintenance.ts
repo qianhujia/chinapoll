@@ -15,7 +15,7 @@
 // verdict poll and a choice poll are tallied the same way.
 
 import { PollMode, PollStatus, PollType } from '../enums';
-import { getOptionsForPolls, isChoicePollType, countBallots, type PollOption } from './options';
+import { countBallots, getOptionsForPolls, presetCount, type PollOption } from './options';
 import { makeSnapshot, serializeOptionCounts, type SnapshotOptionCount } from './snapshot';
 
 interface MaintenanceEnv {
@@ -77,20 +77,13 @@ function emptyCounts(): Counts {
   return { approve: 0, oppose: 0, neutral: 0 };
 }
 
-// Fills one of the three verdict columns from a fixed option code.
-function applyCount(counts: Counts, option: number, count: number): void {
-  if (option === 1) counts.approve = count;
-  else if (option === 2) counts.oppose = count;
-  else if (option === 3) counts.neutral = count;
-}
-
 // Per-option counts of a poll, keyed by poll id and ordered by position.
 type OptionCountMap = Map<number, SnapshotOptionCount[]>;
 
 // Reads the counts of a set of polls through the shared engine, then shapes them
-// for the snapshot: a verdict poll fills the three existing columns so the
-// published data format does not change, and a choice poll zeroes them and
-// carries its per-position counts in `optionCounts`.
+// for the snapshot: the three verdict columns are filled from the poll's preset
+// rows (0 when the poll does not carry `neutral`), and the per-position counts
+// carry the full option list of every poll type.
 async function loadSnapshotCounts(
   env: MaintenanceEnv,
   polls: Array<{ id: number; poll_type: number }>
@@ -110,36 +103,30 @@ async function loadSnapshotCounts(
   for (const poll of polls) {
     const pollId = Number(poll.id);
     const tally = tallies.get(pollId) ?? { ballots: 0, counts: new Map<number, number>() };
+    const options = optionsByPoll.get(pollId) ?? [];
     ballots.set(pollId, tally.ballots);
-
-    if (isChoicePollType(Number(poll.poll_type))) {
-      // A choice poll leaves the verdict columns at zero and publishes the
-      // per-position counts instead.
-      counts.set(pollId, emptyCounts());
-      optionCounts.set(pollId, perPositionCounts(optionsByPoll.get(pollId) ?? [], tally.counts));
-    } else {
-      counts.set(pollId, verdictCounts(tally.counts));
-    }
+    // A verdict poll's preset rows fill the three published columns; a choice
+    // poll has no preset row and therefore reports three zeros.
+    counts.set(pollId, {
+      approve: presetCount(options, tally, 'approve'),
+      oppose: presetCount(options, tally, 'oppose'),
+      neutral: presetCount(options, tally, 'neutral')
+    });
+    optionCounts.set(pollId, perPositionCounts(options, tally.counts));
   }
 
   return { counts, ballots, optionCounts };
 }
 
-// Maps the tally of a verdict poll onto the three stored columns.
-function verdictCounts(tally: Map<number, number>): Counts {
-  const counts = emptyCounts();
-  for (const [option, count] of tally) applyCount(counts, option, count);
-  return counts;
-}
-
-// Reduces a choice poll's per-option tally to the per-position counts the
-// snapshot stores, ordered by position. Selections always belong to the poll, so
-// every counted option is present in the option list.
+// Reduces a poll's per-option tally to the per-position counts the snapshot
+// stores, ordered by position. Selections always belong to the poll, so every
+// counted option is present in the option list.
 function perPositionCounts(options: PollOption[], tally: Map<number, number>): SnapshotOptionCount[] {
   return options
     .map((option) => ({ position: option.position, count: Number(tally.get(option.id) ?? 0) }))
     .sort((left, right) => left.position - right.position);
 }
+
 
 export async function runMaintenanceTasks(env: MaintenanceEnv): Promise<void> {
   const now = Math.floor(Date.now() / 1000);

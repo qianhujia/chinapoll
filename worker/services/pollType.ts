@@ -1,10 +1,12 @@
 // Shared poll-type helpers.
 //
-// A poll is one of three ballot shapes (see worker/enums.ts). Type 1 keeps the
-// three-verdict behaviour and stores its answer in `votes.option`; types 2 and
-// 3 store their selections in `vote_selections` and expose per-option counts.
-// Every public response shows the ballots per poll and the counts per option
-// only - never which options were chosen together on one ballot.
+// A poll is one of three ballot shapes (see worker/enums.ts). Every type keeps
+// its options in `poll_options`: a verdict poll holds the preset rows
+// `approve` and `oppose` (and optional `neutral`) whose label is NULL, and a
+// choice poll holds 2 to 7 custom labeled rows. Every ballot records one
+// `vote_selections` row per chosen option. Every public response shows the
+// ballots per poll and the counts per option only - never which options were
+// chosen together on one ballot.
 
 import { getPollTypeLabel, PollType, type PollTypeLabel } from '../enums';
 
@@ -12,16 +14,50 @@ export const MIN_POLL_OPTIONS = 2;
 export const MAX_POLL_OPTIONS = 7;
 export const MAX_OPTION_LABEL_LENGTH = 80;
 
-export interface PollOptionCount {
+export type PollOptionCount = {
   id: number;
-  label: string;
+  label: string | null;
+  presetKey: string | null;
   position: number;
   count: number;
+};
+
+// The preset keys of a verdict poll, in row order. `neutral` is optional.
+export type PresetKey = 'approve' | 'oppose' | 'neutral';
+
+export const VERDICT_PRESET_KEYS: ReadonlyArray<PresetKey> = ['approve', 'oppose', 'neutral'];
+
+// The preset rows a verdict poll must always carry, and the one it may omit.
+export const REQUIRED_VERDICT_PRESET_KEYS: ReadonlyArray<PresetKey> = ['approve', 'oppose'];
+export const OPTIONAL_VERDICT_PRESET_KEYS: ReadonlyArray<PresetKey> = ['neutral'];
+
+export function isPresetKey(value: unknown): value is PresetKey {
+  return typeof value === 'string' && (VERDICT_PRESET_KEYS as ReadonlyArray<string>).includes(value);
 }
 
-export interface ChoiceCounts {
-  ballots: number;
-  options: PollOptionCount[];
+// Validates the `presetKeys` of a verdict proposal: `approve` and `oppose` are
+// required, `neutral` is optional, and nothing else is accepted. The returned
+// keys are always in row order (approve, oppose, neutral).
+export function validatePresetKeys(value: unknown): { ok: true; presetKeys: PresetKey[] } | { ok: false; message: string } {
+  if (!Array.isArray(value)) {
+    return { ok: false, message: 'a verdict poll needs the preset keys approve and oppose' };
+  }
+  const requested = new Set<PresetKey>();
+  for (const entry of value) {
+    if (!isPresetKey(entry)) {
+      return { ok: false, message: 'a verdict poll only accepts the preset keys approve, oppose, and neutral' };
+    }
+    if (requested.has(entry)) {
+      return { ok: false, message: 'the preset keys must be unique' };
+    }
+    requested.add(entry);
+  }
+  for (const key of REQUIRED_VERDICT_PRESET_KEYS) {
+    if (!requested.has(key)) {
+      return { ok: false, message: `a verdict poll must include the preset key ${key}` };
+    }
+  }
+  return { ok: true, presetKeys: VERDICT_PRESET_KEYS.filter((key) => requested.has(key)) };
 }
 
 export function isChoicePollType(pollType: number): boolean {
@@ -30,6 +66,7 @@ export function isChoicePollType(pollType: number): boolean {
 
 // Number of selections a ballot of this type must carry.
 export function requiredSelectionCount(pollType: number): { min: number; max: number } | null {
+  if (pollType === PollType.Verdict) return { min: 1, max: 1 };
   if (pollType === PollType.SingleChoice) return { min: 1, max: 1 };
   if (pollType === PollType.MultiChoice) return { min: 1, max: MAX_POLL_OPTIONS };
   return null;
@@ -45,9 +82,12 @@ export function validateOptionLabel(value: unknown, position: number): { ok: tru
   return { ok: true, label };
 }
 
+// One option row of a proposal: a custom row carries a label, a preset row
+// carries a preset key. Exactly one of the two is set.
 export interface ParsedOption {
   position: number;
-  label: string;
+  label: string | null;
+  presetKey: PresetKey | null;
 }
 
 export type PollOptionsValidation =
@@ -90,11 +130,18 @@ export function validatePollOptions(value: unknown): PollOptionsValidation {
       return { ok: false, message: 'option labels must be unique' };
     }
     seenLabels.add(key);
-    options.push({ position, label: label.label });
+    options.push({ position, label: label.label, presetKey: null });
   }
 
   options.sort((left, right) => left.position - right.position);
   return { ok: true, options };
+}
+
+// Builds the ordered preset rows of a verdict poll from its preset keys.
+export function presetOptionRows(presetKeys: ReadonlyArray<PresetKey>): ParsedOption[] {
+  return VERDICT_PRESET_KEYS
+    .filter((key) => presetKeys.includes(key))
+    .map((key, index) => ({ position: index + 1, label: null, presetKey: key }));
 }
 
 // Normalizes the accepted option shapes to a list of entries, or null when the
@@ -102,32 +149,6 @@ export function validatePollOptions(value: unknown): PollOptionsValidation {
 function toOptionEntries(value: unknown): unknown[] | null {
   if (!Array.isArray(value)) return null;
   return value.filter((entry) => typeof entry === 'string' || (typeof entry === 'object' && entry !== null));
-}
-
-// Builds the public `counts` shape of a choice poll: the number of ballots and
-// one entry per option, sorted by position. A zero-count option is included so
-// the bar list is stable. Below the ballot threshold every count is withheld.
-export function choiceCounts(
-  ballots: number,
-  options: Array<{ id: number; label: string; position: number; count?: number }>,
-  threshold: number
-): { counts: ChoiceCounts | null; hidden: boolean; threshold: number } {
-  if (threshold > 0 && ballots < threshold) {
-    return { counts: null, hidden: true, threshold };
-  }
-  return {
-    counts: {
-      ballots,
-      options: options.map((option) => ({
-        id: Number(option.id),
-        label: option.label,
-        position: Number(option.position),
-        count: Number(option.count ?? 0)
-      }))
-    },
-    hidden: false,
-    threshold
-  };
 }
 
 // Label of a poll type, tolerating an unknown stored value so a public listing

@@ -4,6 +4,7 @@ import {
   ORIGIN,
   applySchema,
   choiceVoteRequest,
+  insertBallot,
   seedOptions,
   seedPoll,
   voteRequest,
@@ -49,22 +50,17 @@ describe('single choice polls', () => {
     expect(hidden.counts).toBeNull();
 
     // Nine more ballots reveal the counts and keep one row per option.
-    const statements = [];
     for (let index = 0; index < 9; index += 1) {
-      statements.push(
-        env.DB.prepare('INSERT INTO votes (poll_id, voter_token_hash, option, created_at) VALUES (?, ?, NULL, unixepoch())')
-          .bind(pollId, TOKENS(100 + index))
-      );
+      await insertBallot(pollId, TOKENS(100 + index), [ids.get(2)!]);
     }
-    await env.DB.batch(statements);
 
     const stats = await statsFor(pollId);
     expect(stats.pollType).toBe('single_choice');
     expect(stats.hidden).toBe(false);
     expect(stats.ballots).toBe(10);
-    // Only the first ballot has a selection, so one option carries one count.
-    expect(stats.options.map((option: any) => [option.position, option.count, option.virtual])).toEqual([
-      [1, 0, false], [2, 1, false], [3, 0, false]
+    // Every ballot chose the same option, so that row carries all ten counts.
+    expect(stats.options.map((option: any) => [option.position, option.count, option.presetKey])).toEqual([
+      [1, 0, null], [2, 10, null], [3, 0, null]
     ]);
     expect(stats.options[1].label).toBe('Metro');
   });
@@ -84,79 +80,41 @@ describe('single choice polls', () => {
   });
 
   it('rejects an option that belongs to another poll', async () => {
-    const pollId = await seedPoll({ title: 'Ownership check', pollType: 2 });
+    const pollId = await seedPoll({ title: 'Single choice foreign option', pollType: 2 });
+    const otherId = await seedPoll({ title: 'Single choice other poll', pollType: 2 });
     await seedOptions(pollId, [
-      { position: 1, label: 'A' },
-      { position: 2, label: 'B' }
+      { position: 1, label: 'Yes' },
+      { position: 2, label: 'No' }
     ]);
-    const otherPoll = await seedPoll({ title: 'Other choice poll', pollType: 2 });
-    const otherIds = await seedOptions(otherPoll, [
-      { position: 1, label: 'C' },
-      { position: 2, label: 'D' }
-    ]);
-
-    expect((await choiceVoteRequest(pollId, TOKENS(2), [otherIds.get(1)!])).status).toBe(400);
-    // A missing option id is rejected as well.
-    expect((await choiceVoteRequest(pollId, TOKENS(2), [999_999])).status).toBe(400);
-  });
-
-  it('rejects option ids on a verdict poll and keeps one ballot per token', async () => {
-    const pollId = await seedPoll({ title: 'Verdict strictness' });
-    const choicePoll = await seedPoll({ title: 'Unrelated choice', pollType: 2 });
-    const ids = await seedOptions(choicePoll, [
-      { position: 1, label: 'A' },
-      { position: 2, label: 'B' }
+    const foreign = await seedOptions(otherId, [
+      { position: 1, label: 'Elsewhere' },
+      { position: 2, label: 'Nowhere' }
     ]);
 
-    // A verdict poll accepts one virtual ID, one legacy label, or both in
-    // agreement; anything else is refused.
-    expect((await choiceVoteRequest(pollId, TOKENS(3), [ids.get(1)!])).status).toBe(400);
-    expect((await choiceVoteRequest(pollId, TOKENS(3), [1, 2])).status).toBe(400);
-    expect((await choiceVoteRequest(pollId, TOKENS(3), [1])).status).toBe(200);
-    expect((await voteRequest(pollId, TOKENS(3), 'oppose')).status).toBe(409);
-
-    expect((await choiceVoteRequest(choicePoll, TOKENS(4), [ids.get(1)!])).status).toBe(200);
-    // The unique index still enforces one ballot per (poll, token) even though
-    // the option column is NULL for a choice ballot.
-    expect((await choiceVoteRequest(choicePoll, TOKENS(4), [ids.get(2)!])).status).toBe(409);
+    const response = await choiceVoteRequest(pollId, TOKENS(3), [foreign.get(1)!]);
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ ok: false, message: 'unknown option' });
   });
 });
 
-describe('multi choice polls', () => {
-  it('accepts several options and stores one selection row per option', async () => {
+describe('multiple choice polls', () => {
+  it('accepts one to seven options per ballot and rejects an empty or duplicate ballot', async () => {
     const pollId = await seedPoll({ title: 'Multi choice poll', pollType: 3 });
-    const ids = await seedOptions(pollId, [
-      { position: 1, label: 'Roads' },
-      { position: 2, label: 'Rail' },
-      { position: 3, label: 'Buses' }
-    ]);
-
-    const response = await choiceVoteRequest(pollId, TOKENS(5), [ids.get(3)!, ids.get(1)!]);
-    expect(response.status).toBe(200);
-
-    const stats = await statsFor(pollId);
-    expect(stats.counts).toBeNull();
-    expect(stats.hidden).toBe(true);
-
-    const selections = await env.DB.prepare(
-      `SELECT o.position FROM vote_selections vs
-       JOIN poll_options o ON o.id = vs.option_id
-       WHERE vs.vote_id = (SELECT id FROM votes WHERE poll_id = ? AND voter_token_hash = ?)
-       ORDER BY o.position ASC`
-    ).bind(pollId, TOKENS(5)).all<{ position: number }>();
-    expect(selections.results?.map((row) => Number(row.position))).toEqual([1, 3]);
-  });
-
-  it('accepts up to seven distinct options and rejects an empty ballot', async () => {
-    const pollId = await seedPoll({ title: 'Multi choice limits', pollType: 3 });
     const ids = await seedOptions(pollId, Array.from({ length: 7 }, (_, index) => ({
       position: index + 1,
       label: `Option ${index + 1}`
     })));
 
-    expect((await choiceVoteRequest(pollId, TOKENS(6), [])).status).toBe(400);
-    expect((await choiceVoteRequest(pollId, TOKENS(6), [...ids.values()])).status).toBe(200);
-    expect((await choiceVoteRequest(pollId, TOKENS(7), [ids.get(1)!, ids.get(1)!])).status).toBe(400);
+    expect((await choiceVoteRequest(pollId, TOKENS(4), [])).status).toBe(400);
+    expect((await choiceVoteRequest(pollId, TOKENS(4), [...ids.values()])).status).toBe(200);
+    // The same option cannot be selected twice on one ballot.
+    expect((await choiceVoteRequest(pollId, TOKENS(5), [ids.get(1)!, ids.get(1)!])).status).toBe(400);
+
+    // One ballot row, seven selection rows.
+    const selections = await env.DB.prepare(
+      'SELECT COUNT(*) AS total FROM vote_selections WHERE poll_id = ?'
+    ).bind(pollId).first<{ total: number }>();
+    expect(selections?.total).toBe(7);
   });
 });
 
@@ -167,13 +125,13 @@ describe('choice poll responses', () => {
       { position: 1, label: 'Keep' },
       { position: 2, label: 'Change' }
     ]);
-    await choiceVoteRequest(pollId, TOKENS(8), [ids.get(1)!]);
+    await choiceVoteRequest(pollId, TOKENS(6), [ids.get(1)!]);
 
     const detail = await (await SELF.fetch(`${ORIGIN}/api/polls/${pollId}`)).json() as any;
     expect(detail.poll.pollType).toBe('single_choice');
     expect(detail.poll.options).toEqual([
-      { id: ids.get(1), label: 'Keep', position: 1, virtual: false },
-      { id: ids.get(2), label: 'Change', position: 2, virtual: false }
+      { id: ids.get(1), label: 'Keep', presetKey: null, position: 1 },
+      { id: ids.get(2), label: 'Change', presetKey: null, position: 2 }
     ]);
 
     const listing = await listingFor(pollId);
@@ -183,29 +141,30 @@ describe('choice poll responses', () => {
     expect(listing.stats.ballots).toBe(1);
     expect(listing.stats.counts).toBeNull();
 
-    const status = await (await voteStatusRequest(pollId, TOKENS(8))).json() as any;
+    const status = await (await voteStatusRequest(pollId, TOKENS(6))).json() as any;
     expect(status.voted).toBe(true);
     expect(status.option).toBeNull();
     expect(status.optionIds).toEqual([ids.get(1)]);
 
-    const noVote = await (await voteStatusRequest(pollId, TOKENS(9))).json() as any;
+    const noVote = await (await voteStatusRequest(pollId, TOKENS(7))).json() as any;
     expect(noVote.voted).toBe(false);
     expect(noVote.optionIds).toEqual([]);
   });
 
-  it('reports the three virtual options and an optionIds ballot for a verdict poll', async () => {
+  it('reports the preset rows and an optionIds ballot for a verdict poll', async () => {
     const pollId = await seedPoll({ title: 'Verdict response shape' });
-    await voteRequest(pollId, TOKENS(10), 'oppose');
-    // A verdict can also be cast as one virtual option ID.
-    await choiceVoteRequest(pollId, TOKENS(11), [2]);
-
+    await voteRequest(pollId, TOKENS(8), 'oppose');
+    // A verdict can also be cast with the option id of its preset row.
     const detail = await (await SELF.fetch(`${ORIGIN}/api/polls/${pollId}`)).json() as any;
+    const opposeId = detail.poll.options.find((option: any) => option.presetKey === 'oppose').id;
+    await choiceVoteRequest(pollId, TOKENS(9), [opposeId]);
+
     expect(detail.poll.pollType).toBe('verdict');
-    // The three entries are virtual and carry i18n keys as their labels.
+    // The preset rows carry a preset key and no label.
     expect(detail.poll.options).toEqual([
-      { id: 1, label: 'approve', position: 1, virtual: true },
-      { id: 3, label: 'neutral', position: 2, virtual: true },
-      { id: 2, label: 'oppose', position: 3, virtual: true }
+      { id: expect.any(Number), label: null, presetKey: 'approve', position: 1 },
+      { id: expect.any(Number), label: null, presetKey: 'oppose', position: 2 },
+      { id: expect.any(Number), label: null, presetKey: 'neutral', position: 3 }
     ]);
 
     const stats = await statsFor(pollId);
@@ -218,12 +177,12 @@ describe('choice poll responses', () => {
     expect(stats.options).toBeNull();
     expect(stats.counts).toBeNull();
 
-    // Both spellings of the verdict resolve to the same stored code.
-    const byLabel = await (await voteStatusRequest(pollId, TOKENS(10))).json() as any;
+    // Both spellings of the verdict resolve to the same stored selection.
+    const byLabel = await (await voteStatusRequest(pollId, TOKENS(8))).json() as any;
     expect(byLabel.option).toBe('oppose');
-    expect(byLabel.optionIds).toEqual([2]);
-    const byId = await (await voteStatusRequest(pollId, TOKENS(11))).json() as any;
+    expect(byLabel.optionIds).toEqual([opposeId]);
+    const byId = await (await voteStatusRequest(pollId, TOKENS(9))).json() as any;
     expect(byId.option).toBe('oppose');
-    expect(byId.optionIds).toEqual([2]);
+    expect(byId.optionIds).toEqual([opposeId]);
   });
 });

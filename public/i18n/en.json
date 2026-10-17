@@ -221,6 +221,7 @@
   "optionsLabel": "Options",
   "optionPlaceholder": "Option text",
   "addOption": "Add option",
+  "addNeutralOption": "Add neutral option",
   "removeOption": "Remove",
   "optionInvalidLength": "Each option must be 1 to 80 characters.",
   "optionDuplicate": "Options must be unique.",

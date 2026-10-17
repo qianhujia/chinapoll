@@ -5,7 +5,6 @@ import {
   PollMode,
   PollStatus,
   PollType,
-  VoteOption,
   toIsoDate
 } from '../enums.js';
 import {
@@ -37,9 +36,6 @@ interface PollRow {
   start_at: number | null;
   end_at: number | null;
   status: PollStatus;
-  approve: number;
-  neutral: number;
-  oppose: number;
   ballots: number;
 }
 
@@ -116,20 +112,14 @@ export async function handlePollsRequest(request: Request, url: URL, env: Handle
        ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?
      )
      SELECT i.id, i.title, i.description, i.mode, i.poll_type, i.start_at, i.end_at, i.status,
-       (SELECT COUNT(*) FROM votes b WHERE b.poll_id = i.id) AS ballots,
-       COALESCE(SUM(CASE WHEN v.option = ? THEN 1 ELSE 0 END), 0) AS approve,
-       COALESCE(SUM(CASE WHEN v.option = ? THEN 1 ELSE 0 END), 0) AS neutral,
-       COALESCE(SUM(CASE WHEN v.option = ? THEN 1 ELSE 0 END), 0) AS oppose
+       (SELECT COUNT(*) FROM votes b WHERE b.poll_id = i.id) AS ballots
      FROM page
      JOIN polls i ON i.id = page.id
-     LEFT JOIN votes v ON v.poll_id = i.id
-     GROUP BY i.id
      ORDER BY i.created_at DESC, i.id DESC`
   ).bind(
     PollStatus.Open, PollMode.Deadline, PollMode.Evergreen,
     ...searchBinds,
-    pageSize, offset,
-    VoteOption.Approve, VoteOption.Neutral, VoteOption.Oppose
+    pageSize, offset
   ).all<PollRow>();
 
   // Vote totals below the threshold are withheld so a small sample cannot reveal
@@ -153,7 +143,7 @@ export async function handlePollsRequest(request: Request, url: URL, env: Handle
     const options = optionsByPoll.get(pollId) ?? [];
     const tally = tallies.get(pollId) ?? { ballots: 0, counts: new Map<number, number>() };
     // The legacy verdict counts keep working for the existing home-page buttons.
-    const counts = legacyVerdictCounts(tally);
+    const counts = legacyVerdictCounts(options, tally);
     const results = toPublicResults({ poll_type: pollType }, options, tally, threshold);
     return {
       poll: {
@@ -190,49 +180,14 @@ export async function handlePollsRequest(request: Request, url: URL, env: Handle
   });
 }
 
-// Reads the options of every choice poll on one page together with their
-// counts, using a single aggregate query over `vote_selections` joined to
-// `votes`, so the cost does not grow with the total number of ballots.
-export async function loadPageOptionCounts(
-  env: HandlerEnv,
-  pollIds: number[]
-): Promise<Map<number, Array<{ id: number; label: string; position: number; count: number }>>> {
-  const counts = new Map<number, Array<{ id: number; label: string; position: number; count: number }>>();
-  if (pollIds.length === 0) return counts;
-
-  const placeholders = pollIds.map(() => '?').join(', ');
-  const result = await env.DB.prepare(
-    `SELECT o.poll_id, o.id, o.label, o.position, COUNT(vs.vote_id) AS count
-     FROM poll_options o
-     LEFT JOIN vote_selections vs ON vs.option_id = o.id
-     LEFT JOIN votes v ON v.id = vs.vote_id
-     WHERE o.poll_id IN (${placeholders})
-     GROUP BY o.id
-     ORDER BY o.poll_id ASC, o.position ASC`
-  ).bind(...pollIds).all<{ poll_id: number; id: number; label: string; position: number; count: number }>();
-
-  for (const row of result.results ?? []) {
-    const pollId = Number(row.poll_id);
-    const entry = counts.get(pollId) ?? [];
-    entry.push({
-      id: Number(row.id),
-      label: row.label,
-      position: Number(row.position),
-      count: Number(row.count)
-    });
-    counts.set(pollId, entry);
-  }
-  return counts;
-}
-
-// The public option shape: identity, order, label, and whether the label is an
-// i18n key (a virtual verdict option) rather than submitter text.
-function publicOption(option: PollOption): { id: number; position: number; label: string; virtual: boolean } {
+// The public option shape: identity, order, and either a preset key (a verdict
+// row, translated by the client) or the submitter's label.
+function publicOption(option: PollOption): { id: number; position: number; label: string | null; presetKey: string | null } {
   return {
     id: option.id,
     position: option.position,
     label: option.label,
-    virtual: option.virtual
+    presetKey: option.presetKey
   };
 }
 
@@ -302,8 +257,8 @@ async function getPoll(pollIdText: string, env: HandlerEnv): Promise<Response> {
   const viewCounts = await loadViewCounts(env.DB, [pollId]);
   const views = publicViews(viewCounts.get(pollId), Number(env.min_views_to_display ?? 0));
 
-  // The options come from the shared engine, so a verdict poll also exposes its
-  // three virtual entries here.
+  // The options come from the shared engine, so a verdict poll exposes its
+  // preset rows here just like a choice poll exposes its labels.
   const options = await getOptionsForPolls(env, [{ id: pollId, poll_type: poll.poll_type }]);
   const pollOptions = options.get(pollId) ?? [];
 

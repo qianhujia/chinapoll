@@ -1,32 +1,30 @@
 // Shared options engine.
 //
-// Every poll exposes a list of options, every ballot is a set of selected option
-// IDs, and one counting function, one results shape, and one snapshot shape
-// serve all three poll types (see worker/enums.ts).
+// Every poll exposes a list of options stored in `poll_options`, every ballot is
+// a set of selected option IDs stored in `vote_selections`, and one counting
+// function, one results shape, and one snapshot shape serve all three poll types
+// (see worker/enums.ts).
 //
-// The three types stay distinct in the schema because the verdict scale is
-// fixed, translated from the i18n files, and comparable across polls. In code
-// they share this engine: a verdict poll's options are **virtual** - three fixed
-// entries with IDs 1, 2, 3 whose `label` is an i18n key, never stored in
-// `poll_options`. A choice poll's options are the stored rows.
+// A verdict poll's rows are presets: `label` is NULL and `preset_key` names the
+// fixed, translated scale (`approve`, `oppose`, `neutral`). A choice poll's rows
+// carry the label the submitter wrote. Either way an option is identified by
+// `id` in every request and response; the frontend renders `t(presetKey)` for a
+// preset row and the stored label otherwise.
 //
 // Anonymity is unchanged: the only voter identifier is the per-poll token hash,
-// and every public shape below publishes per-option counts only, never which
-// options were chosen together on one ballot.
+// and every public shape below publishes per-option counts only - including for
+// a verdict poll, whose single selection is a preset row like any other option.
 
-import { getVoteOptionLabel, PollType, VoteOption, type PollTypeLabel } from '../enums';
-import { isChoicePollType, MAX_POLL_OPTIONS, pollTypeLabel } from './pollType';
+import { PollType, type PollTypeLabel } from '../enums';
+import { isChoicePollType, isPresetKey, pollTypeLabel, requiredSelectionCount, type PresetKey } from './pollType';
 
 export interface PollOption {
   id: number;
   position: number;
-  /**
-   * For a virtual option this is the i18n key (`approve`, `neutral`, `oppose`);
-   * for a stored option it is the label the submitter wrote. The frontend
-   * translates a virtual label and shows a stored label as-is.
-   */
-  label: string;
-  virtual: boolean;
+  /** Submitter text of a choice option; NULL for a verdict preset row. */
+  label: string | null;
+  /** `approve`, `oppose`, or `neutral` for a verdict preset row; NULL otherwise. */
+  presetKey: string | null;
 }
 
 export interface PollOptionCount extends PollOption {
@@ -58,85 +56,69 @@ interface PollLike {
   poll_type?: number;
 }
 
-// The three fixed verdict options. IDs match the VoteOption codes (approve 1,
-// oppose 2, neutral 3) so a verdict ballot keeps storing its answer in
-// `votes.option` exactly as before; the display order is approve, neutral,
-// oppose, which is the order the UI has always used.
-export const VERDICT_OPTIONS: ReadonlyArray<PollOption> = [
-  { id: VoteOption.Approve, position: 1, label: 'approve', virtual: true },
-  { id: VoteOption.Neutral, position: 2, label: 'neutral', virtual: true },
-  { id: VoteOption.Oppose, position: 3, label: 'oppose', virtual: true }
-];
-
-// Maps a verdict label to its fixed option ID.
-export function verdictOptionId(value: unknown): number | null {
-  if (value === 'approve') return VoteOption.Approve;
-  if (value === 'oppose') return VoteOption.Oppose;
-  if (value === 'neutral') return VoteOption.Neutral;
-  return null;
+interface OptionRow {
+  id: number;
+  position: number;
+  label: string | null;
+  preset_key: string | null;
 }
 
-// Maps a fixed verdict option ID back to its label.
-export function verdictOptionLabel(id: number): string {
-  return getVoteOptionLabel(id);
-}
+const OPTION_COLUMNS = 'id, position, label, preset_key';
 
-// Returns the options of a poll: the three virtual verdict entries, or the
-// stored `poll_options` rows ordered by position.
-export async function getPollOptions(env: OptionsEnv, poll: PollLike): Promise<PollOption[]> {
-  const pollType = Number(poll.poll_type ?? PollType.Verdict);
-  if (!isChoicePollType(pollType)) return [...VERDICT_OPTIONS];
-  if (poll.id === undefined) return [];
-
-  const result = await env.DB.prepare(
-    'SELECT id, position, label FROM poll_options WHERE poll_id = ? ORDER BY position ASC'
-  ).bind(Number(poll.id)).all<{ id: number; position: number; label: string }>();
-
-  return (result.results ?? []).map((row) => ({
+function toOption(row: OptionRow): PollOption {
+  return {
     id: Number(row.id),
     position: Number(row.position),
-    label: row.label,
-    virtual: false
-  }));
+    label: row.label === null || row.label === undefined ? null : String(row.label),
+    presetKey: row.preset_key === null || row.preset_key === undefined ? null : String(row.preset_key)
+  };
+}
+
+// Returns the options of a poll from `poll_options`, ordered by position, for
+// every poll type.
+export async function getPollOptions(env: OptionsEnv, poll: PollLike): Promise<PollOption[]> {
+  if (poll.id === undefined) return [];
+  const result = await env.DB.prepare(
+    `SELECT ${OPTION_COLUMNS} FROM poll_options WHERE poll_id = ? ORDER BY position ASC`
+  ).bind(Number(poll.id)).all<OptionRow>();
+  return (result.results ?? []).map(toOption);
 }
 
 // Same as `getPollOptions` but for a page of polls at once, so a listing costs
-// one aggregate query instead of one per row (paginate, then aggregate).
+// one query instead of one per row (paginate, then aggregate).
 export async function getOptionsForPolls(
   env: OptionsEnv,
   polls: Array<PollLike & { id: number }>
 ): Promise<Map<number, PollOption[]>> {
   const byPoll = new Map<number, PollOption[]>();
-  const choicePollIds: number[] = [];
+  if (polls.length === 0) return byPoll;
+  const pollIds = polls.map((poll) => Number(poll.id)).filter((id) => Number.isSafeInteger(id));
+  for (const pollId of pollIds) byPoll.set(pollId, []);
+  if (pollIds.length === 0) return byPoll;
 
-  for (const poll of polls) {
-    const pollType = Number(poll.poll_type ?? PollType.Verdict);
-    if (isChoicePollType(pollType)) choicePollIds.push(Number(poll.id));
-    else byPoll.set(Number(poll.id), [...VERDICT_OPTIONS]);
-  }
-  if (choicePollIds.length === 0) return byPoll;
-
-  const placeholders = choicePollIds.map(() => '?').join(', ');
+  const placeholders = pollIds.map(() => '?').join(', ');
   const result = await env.DB.prepare(
-    `SELECT poll_id, id, position, label FROM poll_options
+    `SELECT poll_id, ${OPTION_COLUMNS} FROM poll_options
      WHERE poll_id IN (${placeholders})
      ORDER BY poll_id ASC, position ASC`
-  ).bind(...choicePollIds).all<{ poll_id: number; id: number; position: number; label: string }>();
+  ).bind(...pollIds).all<OptionRow & { poll_id: number }>();
 
   for (const row of result.results ?? []) {
-    const pollId = Number(row.poll_id);
-    const entry = byPoll.get(pollId) ?? [];
-    entry.push({
-      id: Number(row.id),
-      position: Number(row.position),
-      label: row.label,
-      virtual: false
-    });
-    byPoll.set(pollId, entry);
+    byPoll.get(Number(row.poll_id))?.push(toOption(row));
   }
-  // A choice poll with no stored rows still gets an (empty) entry.
-  for (const pollId of choicePollIds) if (!byPoll.has(pollId)) byPoll.set(pollId, []);
   return byPoll;
+}
+
+// The preset row of a poll, or null when the poll does not carry it.
+export function presetOption(options: PollOption[], key: PresetKey): PollOption | null {
+  return options.find((option) => option.presetKey === key) ?? null;
+}
+
+// The count of one preset row, or 0 when the poll does not carry it - which is
+// how an absent `neutral` row reports a zero instead of going missing.
+export function presetCount(options: PollOption[], tally: PollTally, key: PresetKey): number {
+  const option = presetOption(options, key);
+  return option ? Number(tally.counts.get(option.id) ?? 0) : 0;
 }
 
 export type SelectionResult =
@@ -144,13 +126,13 @@ export type SelectionResult =
   | { ok: false; message: string };
 
 // Validates the submitted ballot against the poll type and returns the selected
-// option IDs. Every ID must belong to the poll: a verdict ID must be one of the
-// three fixed codes and a stored ID must be one of the poll's own rows, so a
-// caller cannot vote with another poll's option.
+// option IDs. Every ID must belong to the poll, so a caller cannot vote with
+// another poll's option, and the per-type count rules are applied through
+// `requiredSelectionCount`.
 //
-// The legacy `option` field stays accepted for verdict polls so older clients
-// and the existing integration tests keep working; `optionIds` with one virtual
-// ID is the unified form.
+// The legacy `option` field stays accepted on a verdict poll and resolves to
+// that poll's preset row, so older clients keep working; `optionIds` with one
+// option ID is the unified form.
 export function validateSelections(poll: PollLike, options: PollOption[], body: unknown): SelectionResult {
   const source = (typeof body === 'object' && body !== null ? body : {}) as Record<string, unknown>;
   const pollType = Number(poll.poll_type ?? PollType.Verdict);
@@ -160,29 +142,9 @@ export function validateSelections(poll: PollLike, options: PollOption[], body: 
   }
   const legacyOption = source.option;
 
-  if (!isChoicePollType(pollType)) {
-    // Type 1: exactly one verdict, given either as the legacy label or as one
-    // virtual option ID.
-    if (Array.isArray(rawIds)) {
-      if (rawIds.length !== 1) return { ok: false, message: 'bad request' };
-      const id = Number(rawIds[0]);
-      if (!Number.isSafeInteger(id) || !VERDICT_OPTIONS.some((option) => option.id === id)) {
-        return { ok: false, message: 'bad request' };
-      }
-      if (legacyOption !== undefined && verdictOptionId(legacyOption) !== id) {
-        return { ok: false, message: 'bad request' };
-      }
-      return { ok: true, optionIds: [id] };
-    }
-    const id = verdictOptionId(legacyOption);
-    if (id === null) return { ok: false, message: 'bad request' };
-    return { ok: true, optionIds: [id] };
-  }
+  const rule = requiredSelectionCount(pollType);
+  if (rule === null) return { ok: false, message: 'bad request' };
 
-  // Types 2 and 3: stored IDs only, and `option` is not accepted.
-  if (legacyOption !== undefined) {
-    return { ok: false, message: 'this poll does not accept a verdict' };
-  }
   const ids = ((rawIds as unknown[] | undefined) ?? []).map((value) => Number(value));
   if (ids.some((id) => !Number.isSafeInteger(id) || id < 1)) {
     return { ok: false, message: 'bad request' };
@@ -192,25 +154,36 @@ export function validateSelections(poll: PollLike, options: PollOption[], body: 
     return { ok: false, message: 'duplicate option' };
   }
 
-  const allowed = new Set(options.filter((option) => !option.virtual).map((option) => option.id));
+  if (legacyOption !== undefined) {
+    // A verdict label is refused on a choice poll and resolves to a preset row
+    // on a verdict poll.
+    if (pollType !== PollType.Verdict) {
+      return { ok: false, message: 'this poll does not accept a verdict' };
+    }
+    if (!isPresetKey(legacyOption)) return { ok: false, message: 'bad request' };
+    const preset = presetOption(options, legacyOption);
+    if (preset === null) return { ok: false, message: 'unknown option' };
+    if (distinct.length === 0) return { ok: true, optionIds: [preset.id] };
+    if (distinct.length !== 1 || distinct[0] !== preset.id) {
+      return { ok: false, message: 'bad request' };
+    }
+    return { ok: true, optionIds: [preset.id] };
+  }
+
+  const allowed = new Set(options.map((option) => option.id));
   if (distinct.some((id) => !allowed.has(id))) {
     return { ok: false, message: 'unknown option' };
   }
-
-  if (pollType === PollType.SingleChoice) {
-    if (distinct.length !== 1) return { ok: false, message: 'bad request' };
-    return { ok: true, optionIds: distinct };
-  }
-  if (distinct.length < 1 || distinct.length > MAX_POLL_OPTIONS) {
+  if (distinct.length < rule.min || distinct.length > rule.max) {
     return { ok: false, message: 'bad request' };
   }
   return { ok: true, optionIds: distinct };
 }
 
-// Counts the ballots and the per-option counts of a page of polls. Two
-// aggregate queries per type cover everything (paginate, then aggregate): a
-// verdict poll keeps its answer in `votes.option`, a choice poll in
-// `vote_selections`. Polls without rows keep the zero tally inserted below.
+// Counts the ballots and the per-option counts of a page of polls with two
+// aggregate queries total (paginate, then aggregate): the ballot total comes
+// from `votes` and the counts from `vote_selections` grouped by
+// (poll_id, option_id). Polls without rows keep the zero tally inserted below.
 export async function countBallots(
   env: OptionsEnv,
   polls: Array<PollLike & { id: number }>
@@ -218,54 +191,26 @@ export async function countBallots(
   const tallies = new Map<number, PollTally>();
   if (polls.length === 0) return tallies;
 
-  const verdictIds: number[] = [];
-  const choiceIds: number[] = [];
-  for (const poll of polls) {
-    const id = Number(poll.id);
-    tallies.set(id, { ballots: 0, counts: new Map() });
-    if (isChoicePollType(Number(poll.poll_type ?? PollType.Verdict))) choiceIds.push(id);
-    else verdictIds.push(id);
+  const pollIds = polls.map((poll) => Number(poll.id)).filter((id) => Number.isSafeInteger(id));
+  for (const pollId of pollIds) tallies.set(pollId, { ballots: 0, counts: new Map() });
+  if (pollIds.length === 0) return tallies;
+
+  const placeholders = pollIds.map(() => '?').join(', ');
+  const ballotRows = await env.DB.prepare(
+    `SELECT poll_id, COUNT(*) AS ballots FROM votes
+     WHERE poll_id IN (${placeholders}) GROUP BY poll_id`
+  ).bind(...pollIds).all<{ poll_id: number; ballots: number }>();
+  for (const row of ballotRows.results ?? []) {
+    const tally = tallies.get(Number(row.poll_id));
+    if (tally) tally.ballots = Number(row.ballots);
   }
 
-  // A ballot is one row in `votes` for every type, so the ballot total is the
-  // same query for both groups.
-  for (const ids of [verdictIds, choiceIds]) {
-    if (ids.length === 0) continue;
-    const placeholders = ids.map(() => '?').join(', ');
-    const rows = await env.DB.prepare(
-      `SELECT poll_id, COUNT(*) AS ballots FROM votes
-       WHERE poll_id IN (${placeholders}) GROUP BY poll_id`
-    ).bind(...ids).all<{ poll_id: number; ballots: number }>();
-    for (const row of rows.results ?? []) {
-      const tally = tallies.get(Number(row.poll_id));
-      if (tally) tally.ballots = Number(row.ballots);
-    }
-  }
-
-  if (verdictIds.length > 0) {
-    const placeholders = verdictIds.map(() => '?').join(', ');
-    const rows = await env.DB.prepare(
-      `SELECT poll_id, option, COUNT(*) AS count FROM votes
-       WHERE poll_id IN (${placeholders}) AND option IS NOT NULL
-       GROUP BY poll_id, option`
-    ).bind(...verdictIds).all<{ poll_id: number; option: number; count: number }>();
-    for (const row of rows.results ?? []) {
-      tallies.get(Number(row.poll_id))?.counts.set(Number(row.option), Number(row.count));
-    }
-  }
-
-  if (choiceIds.length > 0) {
-    const placeholders = choiceIds.map(() => '?').join(', ');
-    const rows = await env.DB.prepare(
-      `SELECT v.poll_id, vs.option_id, COUNT(*) AS count
-       FROM vote_selections vs
-       JOIN votes v ON v.id = vs.vote_id
-       WHERE v.poll_id IN (${placeholders})
-       GROUP BY v.poll_id, vs.option_id`
-    ).bind(...choiceIds).all<{ poll_id: number; option_id: number; count: number }>();
-    for (const row of rows.results ?? []) {
-      tallies.get(Number(row.poll_id))?.counts.set(Number(row.option_id), Number(row.count));
-    }
+  const countRows = await env.DB.prepare(
+    `SELECT poll_id, option_id, COUNT(*) AS count FROM vote_selections
+     WHERE poll_id IN (${placeholders}) GROUP BY poll_id, option_id`
+  ).bind(...pollIds).all<{ poll_id: number; option_id: number; count: number }>();
+  for (const row of countRows.results ?? []) {
+    tallies.get(Number(row.poll_id))?.counts.set(Number(row.option_id), Number(row.count));
   }
 
   return tallies;
@@ -298,21 +243,23 @@ export function toPublicResults(
         id: option.id,
         position: option.position,
         label: option.label,
-        virtual: option.virtual,
+        presetKey: option.presetKey,
         count: Number(tally.counts.get(option.id) ?? 0)
       }))
   };
 }
 
 // The legacy verdict `counts` object, kept on verdict responses so existing
-// clients and the pre-existing integration tests keep working.
+// clients keep working. It is filled from the poll's preset rows by preset key,
+// so a poll that dropped its neutral row reports a zero.
 export function legacyVerdictCounts(
+  options: PollOption[],
   tally: PollTally
 ): { approve: number; neutral: number; oppose: number } {
   return {
-    approve: Number(tally.counts.get(VoteOption.Approve) ?? 0),
-    neutral: Number(tally.counts.get(VoteOption.Neutral) ?? 0),
-    oppose: Number(tally.counts.get(VoteOption.Oppose) ?? 0)
+    approve: presetCount(options, tally, 'approve'),
+    neutral: presetCount(options, tally, 'neutral'),
+    oppose: presetCount(options, tally, 'oppose')
   };
 }
 

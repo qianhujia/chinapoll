@@ -6,7 +6,15 @@ import {
   getPollOptions,
   toPublicResults
 } from '../../worker/services/options';
-import { applySchema, choiceVoteRequest, lastId, seedOptions, seedPoll, voteRequest } from './helpers';
+import {
+  applySchema,
+  choiceVoteRequest,
+  insertBallot,
+  lastId,
+  seedOptions,
+  seedPoll,
+  voteRequest
+} from './helpers';
 
 // The shared engine is the single counting and results path for all three poll
 // types. These tests exercise it directly against D1 so a change to the tally or
@@ -16,14 +24,29 @@ beforeAll(async () => {
   await env.DB.prepare("INSERT INTO settings (key, value) VALUES ('vote_rate_limit', '1000/h')").run();
 });
 
+// The stored rows of a poll, reduced to the values a test cares about.
+async function storedRows(pollId: number): Promise<Array<[number, string | null, string | null]>> {
+  const rows = await getPollOptions(env, { id: pollId, poll_type: 1 });
+  return rows.map((option) => [option.position, option.label, option.presetKey]);
+}
+
 describe('shared options engine against D1', () => {
-  it('returns the three virtual options for a verdict poll and stored rows otherwise', async () => {
+  it('returns the preset rows of a verdict poll and the labels of a choice poll', async () => {
     const verdictId = await seedPoll({ title: 'Engine verdict poll' });
-    const verdictOptions = await getPollOptions(env, { id: verdictId, poll_type: 1 });
-    expect(verdictOptions).toEqual([
-      { id: 1, position: 1, label: 'approve', virtual: true },
-      { id: 3, position: 2, label: 'neutral', virtual: true },
-      { id: 2, position: 3, label: 'oppose', virtual: true }
+    expect(await storedRows(verdictId)).toEqual([
+      [1, null, 'approve'],
+      [2, null, 'oppose'],
+      [3, null, 'neutral']
+    ]);
+
+    // The neutral row is optional: a poll created without it keeps two rows.
+    const withoutNeutral = await seedPoll({
+      title: 'Engine verdict poll without neutral',
+      presets: ['approve', 'oppose']
+    });
+    expect(await storedRows(withoutNeutral)).toEqual([
+      [1, null, 'approve'],
+      [2, null, 'oppose']
     ]);
 
     const choiceId = await seedPoll({ title: 'Engine choice poll', pollType: 3 });
@@ -33,34 +56,80 @@ describe('shared options engine against D1', () => {
       { position: 3, label: 'Third' }
     ]);
     const stored = await getPollOptions(env, { id: choiceId, poll_type: 3 });
-    expect(stored.map((option) => [option.position, option.label, option.virtual])).toEqual([
-      [1, 'First', false], [2, 'Second', false], [3, 'Third', false]
+    expect(stored.map((option) => [option.position, option.label, option.presetKey])).toEqual([
+      [1, 'First', null], [2, 'Second', null], [3, 'Third', null]
+    ]);
+  });
+
+  it('writes one ballot row and the expected selections for every poll type', async () => {
+    // A verdict ballot: one ballot row and one selection on the preset row.
+    const verdictId = await seedPoll({ title: 'Engine verdict ballot' });
+    const presets = await getPollOptions(env, { id: verdictId, poll_type: 1 });
+    const opposeId = presets.find((option) => option.presetKey === 'oppose')!.id;
+    expect((await voteRequest(verdictId, '1'.repeat(64), 'oppose')).status).toBe(200);
+
+    // A single choice ballot: one ballot row and one selection.
+    const singleId = await seedPoll({ title: 'Engine single ballot', pollType: 2 });
+    const single = await seedOptions(singleId, [
+      { position: 1, label: 'Bus' },
+      { position: 2, label: 'Metro' }
+    ]);
+    expect((await choiceVoteRequest(singleId, '2'.repeat(64), [single.get(2)!])).status).toBe(200);
+
+    // A multi choice ballot: one ballot row and one selection per chosen option.
+    const multiId = await seedPoll({ title: 'Engine multi ballot', pollType: 3 });
+    const multi = await seedOptions(multiId, [
+      { position: 1, label: 'A' },
+      { position: 2, label: 'B' },
+      { position: 3, label: 'C' }
+    ]);
+    expect((await choiceVoteRequest(multiId, '3'.repeat(64), [multi.get(1)!, multi.get(3)!])).status).toBe(200);
+
+    for (const pollId of [verdictId, singleId, multiId]) {
+      const ballots = await env.DB.prepare('SELECT COUNT(*) AS total FROM votes WHERE poll_id = ?')
+        .bind(pollId).first<{ total: number }>();
+      expect(ballots?.total).toBe(1);
+    }
+
+    const selections = await env.DB.prepare(
+      'SELECT poll_id, option_id FROM vote_selections ORDER BY poll_id ASC, option_id ASC'
+    ).all<{ poll_id: number; option_id: number }>();
+    expect(selections.results).toEqual([
+      { poll_id: verdictId, option_id: opposeId },
+      { poll_id: singleId, option_id: single.get(2)! },
+      { poll_id: multiId, option_id: multi.get(1)! },
+      { poll_id: multiId, option_id: multi.get(3)! }
     ]);
   });
 
   it('counts a page of mixed polls with a fixed number of queries', async () => {
     const verdictId = await seedPoll({ title: 'Counted verdict poll' });
+    const presets = await getPollOptions(env, { id: verdictId, poll_type: 1 });
+    const approveId = presets.find((option) => option.presetKey === 'approve')!.id;
+    const opposeId = presets.find((option) => option.presetKey === 'oppose')!.id;
+
     const multiId = await seedPoll({ title: 'Counted multi poll', pollType: 3 });
     const multi = await seedOptions(multiId, [
       { position: 1, label: 'A' },
       { position: 2, label: 'B' }
     ]);
 
-    await voteRequest(verdictId, '1'.repeat(64), 'approve');
-    await voteRequest(verdictId, '2'.repeat(64), 'oppose');
-    await choiceVoteRequest(multiId, '3'.repeat(64), [multi.get(1)!, multi.get(2)!]);
-    await choiceVoteRequest(multiId, '4'.repeat(64), [multi.get(1)!]);
+    await voteRequest(verdictId, '4'.repeat(64), 'approve');
+    await voteRequest(verdictId, '5'.repeat(64), 'oppose');
+    await choiceVoteRequest(multiId, '6'.repeat(64), [multi.get(1)!, multi.get(2)!]);
+    await choiceVoteRequest(multiId, '7'.repeat(64), [multi.get(1)!]);
 
-    const polls = [
+    // Every type is counted by the same two queries: ballots from `votes` and the
+    // per-option counts from `vote_selections`.
+    const tallies = await countBallots(env, [
       { id: verdictId, poll_type: 1 },
       { id: multiId, poll_type: 3 }
-    ];
-    const tallies = await countBallots(env, polls);
+    ]);
 
     const verdictTally = tallies.get(verdictId)!;
     expect(verdictTally.ballots).toBe(2);
-    expect(verdictTally.counts.get(1)).toBe(1);
-    expect(verdictTally.counts.get(2)).toBe(1);
+    expect(verdictTally.counts.get(approveId)).toBe(1);
+    expect(verdictTally.counts.get(opposeId)).toBe(1);
 
     const multiTally = tallies.get(multiId)!;
     // Two ballots, and the same option can be counted once per ballot.
@@ -80,7 +149,7 @@ describe('shared options engine against D1', () => {
       { position: 1, label: 'One' },
       { position: 2, label: 'Two' }
     ]);
-    await choiceVoteRequest(pollId, '5'.repeat(64), [options.get(1)!, options.get(2)!]);
+    await choiceVoteRequest(pollId, '8'.repeat(64), [options.get(1)!, options.get(2)!]);
 
     const tally = (await countBallots(env, [{ id: pollId, poll_type: 3 }])).get(pollId)!;
     const engineOptions = await getPollOptions(env, { id: pollId, poll_type: 3 });
@@ -114,6 +183,24 @@ describe('shared options engine against D1', () => {
       { id: second, poll_type: 1 }
     ]);
     expect(byPoll.get(first)?.map((option) => option.label)).toEqual(['Left', 'Right']);
-    expect(byPoll.get(second)?.every((option) => option.virtual)).toBe(true);
+    expect(byPoll.get(second)?.map((option) => option.presetKey)).toEqual(['approve', 'oppose', 'neutral']);
+  });
+
+  // A ballot and its selections are written in two steps, so the stored rows must
+  // stay consistent: one ballot, and one selection row per chosen option.
+  it('stores the ballot and its selections consistently', async () => {
+    const pollId = await seedPoll({ title: 'Consistent ballot poll', pollType: 2 });
+    const options = await seedOptions(pollId, [
+      { position: 1, label: 'Yes' },
+      { position: 2, label: 'No' }
+    ]);
+    const voteId = await insertBallot(pollId, '9'.repeat(64), [options.get(1)!]);
+
+    const stored = await env.DB.prepare(
+      'SELECT poll_id, vote_id, option_id FROM vote_selections WHERE vote_id = ?'
+    ).bind(voteId).all();
+    expect(stored.results).toEqual([
+      { poll_id: pollId, vote_id: voteId, option_id: options.get(1)! }
+    ]);
   });
 });

@@ -71,8 +71,8 @@ describe('renderPollRow', () => {
       pollType: 'multi_choice',
       ballots: 12,
       options: [
-        { id: 11, label: 'Alpha', position: 1, virtual: false },
-        { id: 12, label: 'Beta', position: 2, virtual: false }
+        { id: 11, label: 'Alpha', presetKey: null, position: 1 },
+        { id: 12, label: 'Beta', presetKey: null, position: 2 }
       ]
     }));
 

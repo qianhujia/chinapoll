@@ -50,7 +50,7 @@ export async function handleStatsRequest(request: Request, url: URL, env: Handle
   return new Response(JSON.stringify({
     pollId,
     ...results,
-    counts: isChoicePollType(pollType) || results.hidden ? null : legacyVerdictCounts(tally),
+    counts: isChoicePollType(pollType) || results.hidden ? null : legacyVerdictCounts(options, tally),
     voted: false
   } satisfies StatsResponse), {
     headers: {

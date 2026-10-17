@@ -20,7 +20,6 @@ import {
   type PollType,
   type PollViewCounts,
   type ReportReason,
-  type VoteOption,
   type VoteResponse
 } from '../lib/poll';
 import { getCurrentUser } from '../lib/session';
@@ -31,6 +30,7 @@ import {
   getErrorMessage,
   getQueryPage,
   moreIconMarkup,
+  optionLabel,
   renderCommentsContent,
   renderFooter,
   renderHeader,
@@ -80,12 +80,6 @@ function renderChoiceInputs(
       <button class="mx-auto cursor-pointer rounded-full border border-primary bg-primary px-4 py-2.5 text-white disabled:cursor-not-allowed disabled:opacity-60" type="submit" data-choice-submit ${hasVoted ? 'disabled' : ''}>${t('submitVote')}</button>
     </form>
   `;
-}
-
-// The label shown for an option: a virtual verdict option carries an i18n key,
-// so it is translated; a stored option carries the submitter's text.
-function optionLabel(option: PollOption): string {
-  return option.virtual ? t(option.label) : option.label;
 }
 
 // One horizontal bar per option, sorted by position, showing the count and the
@@ -235,16 +229,16 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
   } catch (error) {
     statsError = getErrorMessage(error);
   }
-  // The stored vote status drives the selected state. `votedOption` is the
-  // verdict the visitor already cast, if any, so the matching button can be
+  // The stored vote status drives the selected state. `votedOptionId` is the
+  // option the visitor already chose, if any, so the matching button can be
   // highlighted even when the counts are hidden.
-  let votedOption: VoteOption | null = null;
+  let votedOptionId: number | null = null;
   try {
     const voteStatus = await getVoteStatus(poll.id, hash);
     hasVoted ||= voteStatus.voted;
     if (voteStatus.voted) {
       markVotedLocally(poll.id, hash);
-      if (voteStatus.option) votedOption = voteStatus.option;
+      votedOptionId = voteStatus.optionIds?.[0] ?? null;
     }
   } catch (error) {
     voteStatusError = getErrorMessage(error);
@@ -255,12 +249,14 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
   } catch {
     commentsContent = t('commentsLoadFailed');
   }
-  const voteCounts = stats?.counts;
   const pollType: PollType = poll.pollType ?? stats?.pollType ?? 'verdict';
   const isChoice = pollType !== 'verdict';
-  // The options come from the server for every type: a verdict poll's three
-  // entries are virtual and carry an i18n key as their label.
-  const pollOptions = poll.options ?? stats?.options ?? [];
+  // The options come from the server for every type: a verdict poll carries its
+  // preset rows and a choice poll its labeled rows. `poll.options` is the label
+  // list from the poll detail; `stats.options` is the same list with the counts,
+  // and is null while the results are withheld.
+  const pollOptions = poll.options ?? [];
+  const resultOptions = stats?.options ?? null;
   const results: PollResults | null = stats
     ? {
       pollType,
@@ -270,36 +266,31 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
       options: stats.options
     }
     : null;
-  const verdictCounts = !isChoice && voteCounts
-    ? voteCounts as Record<VoteOption, number>
-    : null;
   // Whether the results are hidden is a separate concern from whether voting is
   // allowed: the threshold hides counts, it never closes the poll.
   const resultsHidden = stats?.hidden === true;
   const canComment = getCurrentUser() !== null;
-  // The vote group is rendered for every open verdict poll, with or without
-  // counts. Voting is disabled only for a poll that is not open, a visitor who
-  // has already voted, or a failed vote-status lookup.
+  // The vote group is rendered from the poll's own preset rows for every open
+  // verdict poll, with or without counts. Voting is disabled only for a poll
+  // that is not open, a visitor who has already voted, or a failed vote-status
+  // lookup.
   const votingDisabled = hasVoted || Boolean(voteStatusError) || poll.status !== 'open';
-  // A returning voter sees their stored choice highlighted, even while the
-  // counts are hidden below the threshold.
-  const selectedOption = votedOption;
   const voteGroup = !isChoice && poll.status === 'open'
     ? renderVoteGroup({
       pollId: poll.id,
-      counts: resultsHidden ? null : verdictCounts,
+      options: resultOptions ?? pollOptions,
       hidden: resultsHidden,
       disabled: votingDisabled,
       title: hasVoted ? t('alreadyVoted') : voteStatusError || t('vote'),
-      selected: selectedOption
+      selectedId: votedOptionId
     })
     : '';
   // The threshold notice sits next to the buttons rather than replacing them.
   const hiddenNotice = resultsHidden
     ? `<p class="mt-3 mb-0 text-center text-sm text-muted" data-results-hidden>${t('resultsHidden').replace('{n}', String(stats!.threshold))}</p>`
     : '';
-  // The stored options drive the choice inputs; the virtual verdict entries are
-  // not selectable as a list because they use the three buttons above.
+  // The stored options drive the choice inputs; a verdict poll's preset rows are
+  // not selectable as a list because they use the buttons above.
   const choiceOptions = isChoice ? pollOptions : [];
   const choiceInputs = choiceOptions.length > 0
     ? renderChoiceInputs(pollType as Exclude<PollType, 'verdict'>, choiceOptions, hasVoted)
@@ -307,7 +298,7 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
   // One results renderer for every type; below the threshold the server sends
   // `options: null` and only the message is shown.
   const resultsMarkup = results && !results.hidden
-    ? renderResults({ ...results, options: pollOptions })
+    ? renderResults({ ...results, options: resultOptions })
     : '';
   const ballotTotal = results ? results.ballots : 0;
   // The ballot total is only published once the results are visible; below the
@@ -430,15 +421,15 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
     }
   });
 
-  // A vote may carry a verdict (type 1) or a set of option ids (types 2 and 3).
-  // The duplicate and closed-poll handling is shared by both shapes.
-  const sendBallot = async (payload: { option?: VoteOption; optionIds?: number[] }) => {
+  // Every ballot is a set of option ids; a verdict ballot carries exactly one.
+  // The duplicate and closed-poll handling is shared by every poll type.
+  const sendBallot = async (payload: { optionIds: number[] }) => {
     let result;
     try {
       result = await submitVote({
         pollId: poll.id,
         tokenHash: hash,
-        ...payload,
+        optionIds: payload.optionIds,
         turnstileToken: turnstileToken('vote')
       });
     } catch (error) {
@@ -460,7 +451,7 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
         // Preserve the original submission error if the follow-up status check also fails.
       }
       if (hasVoted) {
-        document.querySelectorAll<HTMLInputElement | HTMLButtonElement>('[data-option], [data-choice-option], [data-choice-submit]')
+        document.querySelectorAll<HTMLInputElement | HTMLButtonElement>('[data-option-id], [data-choice-option], [data-choice-submit]')
           .forEach((voteButton) => { voteButton.disabled = true; });
         const choices = document.querySelector('.choice-stack');
         if (choices) choices.setAttribute('title', t('alreadyVoted'));
@@ -516,15 +507,17 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
     existing?.remove();
   };
 
-  document.querySelectorAll<HTMLButtonElement>('[data-option]').forEach((button) => {
+  // Verdict ballots (type 1): one button per preset row of the poll.
+  document.querySelectorAll<HTMLButtonElement>('[data-option-id]').forEach((button) => {
     button.addEventListener('click', async () => {
       if (hasVoted || voteStatusError || statsError) return;
-      const option = button.getAttribute('data-option') as VoteOption;
-      const result = await sendBallot({ option });
+      const optionId = Number(button.getAttribute('data-option-id') ?? 0);
+      if (!Number.isSafeInteger(optionId) || optionId < 1) return;
+      const result = await sendBallot({ optionIds: [optionId] });
       if (!result) return;
 
-      const statusText = option === 'approve' ? t('approve') : option === 'oppose' ? t('oppose') : t('neutral');
-      const message = `${t('voteRecord')}: ${statusText}`;
+      const chosen = (resultOptions ?? pollOptions).find((option) => option.id === optionId);
+      const message = `${t('voteRecord')}: ${chosen ? optionLabel(chosen) : ''}`;
       if (result.ok) {
         const voteGroup = document.querySelector<HTMLElement>(`[data-vote-group="${poll.id}"]`);
         hasVoted = true;
@@ -533,8 +526,8 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
           // The chosen button is marked as selected and the group is disabled.
           // When the response still hides the counts (the ballot is below the
           // threshold), the numbers stay hidden and the notice stays in place.
-          selectVoteOption(voteGroup, option);
-          updateVoteGroup(voteGroup, result.counts);
+          selectVoteOption(voteGroup, optionId);
+          updateVoteGroup(voteGroup, result.options);
         }
         updateThresholdNotice(result);
       }

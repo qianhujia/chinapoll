@@ -22,7 +22,7 @@ import {
   POLL_DURATIONS,
   type PollDuration
 } from '../enums';
-import { validatePollOptions, type ParsedOption } from '../services/pollType';
+import { presetOptionRows, validatePollOptions, validatePresetKeys, type ParsedOption } from '../services/pollType';
 import { checkRateLimit } from '../services/rateLimit';
 import { enforceSameOrigin } from '../services/csrf';
 import { ownerHash } from '../services/owner';
@@ -92,30 +92,35 @@ export async function handleProposalRequest(request: Request, env: HandlerEnv): 
   // same statement, so only then is its end date computed here.
   const openNow = autoApprove && mode === PollMode.Deadline;
   const endAt = openNow ? durationSeconds(duration) : null;
-  const result = await env.DB.prepare(
-    `INSERT INTO polls (title, description, mode, poll_type, duration_seconds, end_at, status, reviewed_at)
-     VALUES (?, ?, ?, ?, ?, CASE WHEN ? THEN unixepoch() + ? ELSE NULL END, ?, ?)`
-  ).bind(
-    title,
-    description,
-    mode,
-    pollType,
-    durationSeconds(duration),
-    openNow ? 1 : 0,
-    endAt ?? 0,
-    autoApprove ? PollStatus.Open : PollStatus.Pending,
-    autoApprove ? Math.floor(Date.now() / 1000) : null
-  ).run();
 
-  const pollId = Number(result.meta.last_row_id);
+  // The poll row and its option rows are written as one batch. `last_insert_rowid()`
+  // would be clobbered by the first option insert, so the new poll id is read
+  // back through a scalar subquery that each statement evaluates itself. The poll
+  // id is the only link and the labels are public anyway.
+  const newPollId = '(SELECT id FROM polls ORDER BY id DESC LIMIT 1)';
+  const statements: D1PreparedStatement[] = [
+    env.DB.prepare(
+      `INSERT INTO polls (title, description, mode, poll_type, duration_seconds, end_at, status, reviewed_at)
+       VALUES (?, ?, ?, ?, ?, CASE WHEN ? THEN unixepoch() + ? ELSE NULL END, ?, ?)`
+    ).bind(
+      title,
+      description,
+      mode,
+      pollType,
+      durationSeconds(duration),
+      openNow ? 1 : 0,
+      endAt ?? 0,
+      autoApprove ? PollStatus.Open : PollStatus.Pending,
+      autoApprove ? Math.floor(Date.now() / 1000) : null
+    ),
+    ...options.map((option) => env.DB.prepare(
+      `INSERT INTO poll_options (poll_id, position, label, preset_key)
+       VALUES (${newPollId}, ?, ?, ?)`
+    ).bind(option.position, option.label, option.presetKey))
+  ];
 
-  // The options of a choice poll are written right after the poll row. The
-  // poll id is the only link and the labels are public anyway.
-  if (options.length > 0 && pollId > 0) {
-    await env.DB.batch(options.map((option) => env.DB.prepare(
-      'INSERT INTO poll_options (poll_id, position, label) VALUES (?, ?, ?)'
-    ).bind(pollId, option.position, option.label)));
-  }
+  const results = await env.DB.batch(statements);
+  const pollId = Number(results[0]?.meta.last_row_id ?? 0);
 
   // The owner is stored as a one-way hash computed with the poll id, so it can
   // only be written after the row exists.
@@ -182,16 +187,25 @@ export function validateProposal(body: Record<string, unknown>): ProposalValidat
     return { ok: false, message: `duration must be one of ${POLL_DURATIONS.join(', ')}` };
   }
 
-  // Options are required for a choice poll and forbidden for a verdict poll. A
-  // plain string array is accepted as well as `{ position, label }` entries, so
-  // the client can submit the rows in order.
+  // A verdict poll carries preset rows and no custom options; a choice poll
+  // requires 2 to 7 custom options, each 1 to 80 characters after trimming and
+  // all distinct. A plain string array is accepted as well as
+  // `{ position, label }` entries, so the client can submit the rows in order.
   let options: ParsedOption[] = [];
-  if (pollType !== PollType.Verdict) {
+  if (pollType === PollType.Verdict) {
+    if (Array.isArray(body.options) && body.options.length > 0) {
+      return { ok: false, message: 'a verdict poll does not accept options' };
+    }
+    const presetValidation = validatePresetKeys(body.presetKeys);
+    if (!presetValidation.ok) return { ok: false, message: presetValidation.message };
+    options = presetOptionRows(presetValidation.presetKeys);
+  } else {
+    if (body.presetKeys !== undefined) {
+      return { ok: false, message: 'a choice poll does not accept preset keys' };
+    }
     const optionValidation = validatePollOptions(body.options);
     if (!optionValidation.ok) return { ok: false, message: optionValidation.message };
     options = optionValidation.options;
-  } else if (Array.isArray(body.options) && body.options.length > 0) {
-    return { ok: false, message: 'a verdict poll does not accept options' };
   }
 
   return {

@@ -10,12 +10,20 @@ import {
   rememberMyPoll,
   submitProposal,
   type PollDuration,
-  type PollType
+  type PollType,
+  type PresetKey
 } from '../lib/poll';
 import { getPublicSettings } from '../config';
 import { getErrorMessage, showToast, t } from '../ui';
 import type { AiLocale } from '../lib/ai';
-import { MAX_OPTIONS, MIN_OPTIONS, confirmationMarkup, optionRowMarkup } from './proposal';
+import {
+  MAX_OPTIONS,
+  MIN_OPTIONS,
+  PRESET_ROW_ORDER,
+  confirmationMarkup,
+  optionRowMarkup,
+  presetRowMarkup
+} from './proposal';
 import { bindAiButtons } from './proposalAi';
 
 export type OptionRowCheck =
@@ -93,6 +101,7 @@ export function bindProposalForm(app: HTMLElement, bindNavigation: () => void, a
   const optionsFieldset = form.querySelector<HTMLFieldSetElement>('[data-options-fieldset]');
   const optionRows = form.querySelector<HTMLDivElement>('[data-option-rows]');
   const addOptionButton = form.querySelector<HTMLButtonElement>('[data-add-option]');
+  const restoreNeutralButton = form.querySelector<HTMLButtonElement>('[data-restore-neutral]');
   const aiSuggestions = form.querySelector<HTMLUListElement>('[data-ai-suggestions]');
   const aiDiscardButton = form.querySelector<HTMLButtonElement>('[data-ai-discard]');
   const aiOptionsButton = form.querySelector<HTMLButtonElement>('[data-ai-options]');
@@ -106,13 +115,21 @@ export function bindProposalForm(app: HTMLElement, bindNavigation: () => void, a
   let confirming = false;
 
   const rows = () => Array.from(optionRows?.querySelectorAll<HTMLDivElement>('[data-option-row]') ?? []);
+  const isPresetRow = (row: HTMLDivElement) => typeof row.dataset.preset === 'string';
   const renumber = () => rows().forEach((row, index) => { row.dataset.position = String(index + 1); });
   const syncOptionButtons = () => {
-    const count = rows().length;
-    if (addOptionButton) addOptionButton.disabled = count >= MAX_OPTIONS;
+    if (addOptionButton) addOptionButton.hidden = pollType === 'verdict';
+    if (restoreNeutralButton) {
+      const hasNeutral = rows().some((row) => row.dataset.preset === 'neutral');
+      restoreNeutralButton.hidden = pollType !== 'verdict' || hasNeutral;
+    }
+    const editable = rows().filter((row) => !isPresetRow(row));
     rows().forEach((row) => {
       const remove = row.querySelector<HTMLButtonElement>('[data-remove-option]');
-      if (remove) remove.disabled = count <= MIN_OPTIONS;
+      if (!remove) return;
+      // A verdict poll only removes its optional neutral row and always keeps
+      // approve and oppose; a choice poll keeps at least two custom rows.
+      remove.disabled = isPresetRow(row) ? false : editable.length <= MIN_OPTIONS;
     });
   };
   const syncAiGates = () => {
@@ -125,23 +142,54 @@ export function bindProposalForm(app: HTMLElement, bindNavigation: () => void, a
     }
     if (aiHint) aiHint.hidden = longEnough;
   };
-  const setOptionsEnabled = (enabled: boolean) => {
-    if (optionsFieldset) optionsFieldset.hidden = !enabled;
-    if (enabled && rows().length === 0) {
-      // Two empty rows by default.
-      for (let index = 0; index < MIN_OPTIONS; index += 1) {
-        optionRows?.insertAdjacentHTML('beforeend', optionRowMarkup(index + 1));
-      }
-    }
-    syncOptionButtons();
+
+  // Fills the editor with the three locked preset rows of a verdict poll.
+  const fillPresetRows = () => {
+    optionRows?.replaceChildren();
+    PRESET_ROW_ORDER.forEach((key, index) => {
+      optionRows?.insertAdjacentHTML('beforeend', presetRowMarkup(key, index + 1));
+    });
   };
 
-  syncOptionButtons();
-  syncAiGates();
+  // Converts whatever the editor currently shows into editable custom rows with
+  // the same texts, so switching a verdict poll to a choice poll keeps the
+  // approve/oppose/neutral wording as a starting point.
+  const fillEditableRows = () => {
+    const texts = rows().map((row) =>
+      row.querySelector<HTMLInputElement>('[data-option-label]')?.value
+      ?? row.querySelector<HTMLInputElement>('[data-preset-label]')?.value
+      ?? '');
+    while (texts.length < MIN_OPTIONS) texts.push('');
+    optionRows?.replaceChildren();
+    texts.slice(0, MAX_OPTIONS).forEach((label, index) => {
+      optionRows?.insertAdjacentHTML('beforeend', optionRowMarkup(index + 1, label));
+    });
+  };
+
+  // Rebuilds the editor whenever the ballot shape changes, and shows it: a
+  // verdict poll always carries its preset rows.
+  const syncOptionEditor = () => {
+    if (optionsFieldset) optionsFieldset.hidden = false;
+    if (pollType === 'verdict') fillPresetRows();
+    else fillEditableRows();
+    renumber();
+    syncOptionButtons();
+    syncAiGates();
+  };
+
+  syncOptionEditor();
 
   addOptionButton?.addEventListener('click', () => {
-    if (rows().length >= MAX_OPTIONS) return;
+    if (pollType === 'verdict' || rows().length >= MAX_OPTIONS) return;
     optionRows?.insertAdjacentHTML('beforeend', optionRowMarkup(rows().length + 1));
+    renumber();
+    syncOptionButtons();
+  });
+
+  // Puts the optional neutral preset row back on a verdict poll.
+  restoreNeutralButton?.addEventListener('click', () => {
+    if (pollType !== 'verdict' || rows().some((row) => row.dataset.preset === 'neutral')) return;
+    optionRows?.insertAdjacentHTML('beforeend', presetRowMarkup('neutral', rows().length + 1));
     renumber();
     syncOptionButtons();
   });
@@ -149,7 +197,8 @@ export function bindProposalForm(app: HTMLElement, bindNavigation: () => void, a
   optionRows?.addEventListener('click', (event) => {
     const remove = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-remove-option]');
     const row = remove?.closest<HTMLDivElement>('[data-option-row]');
-    if (!row || rows().length <= MIN_OPTIONS) return;
+    if (!row || remove?.disabled) return;
+    if (!isPresetRow(row) && rows().filter((candidate) => !isPresetRow(candidate)).length <= MIN_OPTIONS) return;
     row.remove();
     renumber();
     syncOptionButtons();
@@ -166,8 +215,7 @@ export function bindProposalForm(app: HTMLElement, bindNavigation: () => void, a
   form.querySelectorAll<HTMLInputElement>('[data-poll-type]').forEach((radio) => {
     radio.addEventListener('change', () => {
       pollType = radio.value as PollType;
-      setOptionsEnabled(pollType !== 'verdict');
-      syncAiGates();
+      syncOptionEditor();
     });
   });
   titleInput?.addEventListener('input', syncAiGates);
@@ -204,8 +252,16 @@ export function bindProposalForm(app: HTMLElement, bindNavigation: () => void, a
       return;
     }
 
+    // A verdict poll carries preset keys; a choice poll carries its custom
+    // option rows. The confirmation summary shows the same texts either way.
+    let presetKeys: PresetKey[] = [];
     let options: Array<{ position: number; label: string }> = [];
-    if (pollType !== 'verdict') {
+    if (pollType === 'verdict') {
+      presetKeys = rows()
+        .map((row) => row.dataset.preset as PresetKey | undefined)
+        .filter((key): key is PresetKey => Boolean(key));
+      options = presetKeys.map((key, index) => ({ position: index + 1, label: t(key) }));
+    } else {
       const checked = checkOptionLabels(rows().map((row) =>
         row.querySelector<HTMLInputElement>('[data-option-label]')?.value ?? ''));
       if (!checked.ok) {
@@ -232,6 +288,7 @@ export function bindProposalForm(app: HTMLElement, bindNavigation: () => void, a
         description: description || undefined,
         pollType,
         duration,
+        presetKeys: pollType === 'verdict' ? presetKeys : undefined,
         options: pollType === 'verdict' ? undefined : options
       });
       showToast(result.status === 'open'
@@ -248,7 +305,7 @@ export function bindProposalForm(app: HTMLElement, bindNavigation: () => void, a
       if (descriptionDetails) descriptionDetails.open = false;
       if (durationSelect) durationSelect.value = 'none';
       rows().forEach((row) => row.remove());
-      setOptionsEnabled(false);
+      syncOptionEditor();
       if (aiSuggestions) aiSuggestions.hidden = true;
       if (aiDiscardButton) aiDiscardButton.hidden = true;
       syncAiGates();

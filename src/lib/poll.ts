@@ -3,6 +3,9 @@ export type VoteOption = 'approve' | 'oppose' | 'neutral';
 // Ballot shape of a poll, matching worker/enums.ts.
 export type PollType = 'verdict' | 'single_choice' | 'multi_choice';
 
+// The preset keys of a verdict poll, in row order.
+export type PresetKey = 'approve' | 'oppose' | 'neutral';
+
 // The durations offered by the proposal form. The mapping is defined once in
 // worker/enums.ts and re-exported here so the form and the Worker agree.
 export type PollDuration = 'none' | '1d' | '3d' | '7d' | '14d' | '1m' | '1y';
@@ -72,13 +75,14 @@ export interface PollViewCounts {
 
 export interface PollOption {
   id: number;
-  label: string;
-  position: number;
   /**
-   * True for a verdict poll's fixed options, whose `label` is an i18n key
-   * (`approve`, `neutral`, `oppose`) rather than text the submitter wrote.
+   * A verdict poll's preset row carries `presetKey` (`approve`, `oppose`, or
+   * `neutral`) and no label; a choice poll's row carries the submitter's label.
+   * The frontend renders `t(presetKey)` or the label from the same array.
    */
-  virtual?: boolean;
+  label: string | null;
+  presetKey: PresetKey | null;
+  position: number;
   count?: number;
 }
 
@@ -293,6 +297,7 @@ export async function submitProposal(payload: {
   description?: string;
   pollType: PollType;
   duration: PollDuration;
+  presetKeys?: PresetKey[];
   options?: Array<{ position: number; label: string }>;
 }): Promise<{ ok: boolean; message: string; pollId: number; status?: 'open' | 'pending' }> {
   return fetchJson('/api/proposal', {

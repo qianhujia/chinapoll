@@ -13,9 +13,14 @@ import {
   MIN_POLL_OPTIONS,
   POLL_DURATIONS,
   type PollDuration,
-  type PollType
+  type PollType,
+  type PresetKey
 } from '../lib/poll';
 import { escapeHtml, t } from '../ui';
+
+// The preset rows of a verdict poll, in row order. `approve` and `oppose` are
+// part of the question; `neutral` is optional and can be removed and restored.
+export const PRESET_ROW_ORDER: ReadonlyArray<PresetKey> = ['approve', 'oppose', 'neutral'];
 
 // One selectable card per poll type, with a one-line explanation.
 export function pollTypeCard(value: PollType, labelKey: string, hintKey: string, checked: boolean): string {
@@ -42,9 +47,23 @@ export function optionRowMarkup(position: number, label = '', suggested = false)
   `;
 }
 
-// The options editor for a choice poll. Built on demand: the labels are
-// translated when the markup is created, since `t()` only knows the locale after
-// the translations have been loaded.
+// One locked preset row of a verdict poll. The label is translated and cannot be
+// edited; only the optional neutral row can be removed.
+export function presetRowMarkup(key: PresetKey, position: number): string {
+  const label = t(key);
+  return `
+    <div class="flex items-center gap-2" data-option-row data-preset="${key}" data-position="${position}">
+      <input class="w-full cursor-not-allowed rounded-[14px] border border-border bg-[#f1f3f5] px-3.5 py-3 text-muted" type="text" value="${escapeHtml(label)}" readonly aria-label="${escapeHtml(label)}" data-preset-label>
+      ${key === 'neutral'
+      ? `<button class="shrink-0 cursor-pointer rounded-full border border-border bg-panel px-3 py-1.5 text-xs text-muted hover:border-[#d95b5b] hover:text-[#d95b5b]" type="button" data-remove-option>${t('removeOption')}</button>`
+      : ''}
+    </div>
+  `;
+}
+
+// The options editor. A verdict poll fills it with the three locked preset rows;
+// a choice poll fills it with editable rows, and the neutral preset row can be
+// put back while the verdict scale is selected.
 export function optionsFieldsetMarkup(): string {
   return `
   <fieldset class="m-0 grid gap-2 border-0 p-0" data-options-fieldset hidden>
@@ -52,6 +71,7 @@ export function optionsFieldsetMarkup(): string {
     <div class="grid gap-2" data-option-rows></div>
     <div class="flex flex-wrap items-center gap-2.5">
       <button class="cursor-pointer rounded-full border border-border bg-panel px-3.5 py-2 text-sm text-ink disabled:cursor-not-allowed disabled:opacity-60" type="button" data-add-option>${t('addOption')}</button>
+      <button class="cursor-pointer rounded-full border border-border bg-panel px-3.5 py-2 text-sm text-ink disabled:cursor-not-allowed disabled:opacity-60" type="button" data-restore-neutral hidden>${t('addNeutralOption')}</button>
       <button class="cursor-pointer rounded-full border border-border bg-panel px-3.5 py-2 text-sm text-ink disabled:cursor-not-allowed disabled:opacity-60" type="button" data-ai-options disabled hidden>${t('aiSuggestOptions')}</button>
       <button class="cursor-pointer text-xs text-primary hover:underline" type="button" data-ai-discard hidden>${t('aiDiscardSuggestions')}</button>
     </div>

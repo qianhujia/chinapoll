@@ -10,14 +10,9 @@ export enum PollStatus {
   Pending = 4
 }
 
-export enum VoteOption {
-  Approve = 1,
-  Oppose = 2,
-  Neutral = 3
-}
-
-// Ballot shape of a poll. Type 1 keeps the verdict behaviour; types 2 and 3 use
-// the `poll_options` table instead of the `votes.option` column.
+// Ballot shape of a poll. Every type keeps its options in `poll_options` and its
+// selections in `vote_selections`; only the option rows differ (preset rows for
+// a verdict poll, labeled rows for a choice poll).
 export enum PollType {
   Verdict = 1,
   SingleChoice = 2,
@@ -45,7 +40,6 @@ export enum ReportResolution {
 
 export type PollModeLabel = 'deadline' | 'evergreen';
 export type PollStatusLabel = 'open' | 'closed' | 'archived';
-export type VoteOptionLabel = 'approve' | 'oppose' | 'neutral';
 export type PollTypeLabel = 'verdict' | 'single_choice' | 'multi_choice';
 export type PollReportReasonLabel =
   | 'spam'
@@ -104,22 +98,6 @@ export function getPollTypeLabel(value: number): PollTypeLabel {
     case PollType.SingleChoice: return 'single_choice';
     case PollType.MultiChoice: return 'multi_choice';
     default: throw new Error(`Unknown poll type code: ${value}`);
-  }
-}
-
-export function getVoteOptionCode(value: unknown): VoteOption | null {
-  if (value === 'approve') return VoteOption.Approve;
-  if (value === 'oppose') return VoteOption.Oppose;
-  if (value === 'neutral') return VoteOption.Neutral;
-  return null;
-}
-
-export function getVoteOptionLabel(value: number): VoteOptionLabel {
-  switch (value) {
-    case VoteOption.Approve: return 'approve';
-    case VoteOption.Oppose: return 'oppose';
-    case VoteOption.Neutral: return 'neutral';
-    default: throw new Error(`Unknown vote option code: ${value}`);
   }
 }
 

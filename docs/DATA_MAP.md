@@ -29,49 +29,54 @@ full duration.
 
 | Column | Contents | Readers | Retention |
 | --- | --- | --- | --- |
-| id | internal option id | Public (as the option identity) | until the poll is deleted |
+| id | internal option id, the option identity used by every request and response | Public | until the poll is deleted |
 | poll_id | poll reference | Public | as above |
 | position | display position, 1 to 7 | Public | as above |
-| label | option text, 1 to 80 characters | Public | as above |
+| label | option text of a choice row, 1 to 80 characters, NULL on a preset row | Public | as above |
+| preset_key | `approve`, `oppose`, or `neutral` on a verdict row, NULL on a choice row | Public | as above |
 
-Note: only choice polls (`poll_type` 2 and 3) have rows here. A verdict poll's
-three options are **virtual**: they are never stored, they exist only as the fixed
-codes 1, 2, 3 with the i18n keys `approve`, `neutral`, `oppose` as their public
-labels. The labels are part of the published question and are shown in every
-result list, so they carry no extra exposure. Admins may edit labels only while
-the poll is still pending and only for a choice poll, and every edit writes an
-audit entry.
-
-
+Note: every poll type has rows here. A verdict poll always holds the preset rows
+`approve` and `oppose` and optionally `neutral` (in that row order); their
+`label` is NULL and their text comes from the i18n files on the client, so a
+verdict poll has **two or three** option rows that are translated client-side. A
+choice poll holds 2 to 7 rows whose `label` is the text the submitter wrote.
+`position` is display order only. Admins may edit a choice poll's labels, and may
+remove or restore a verdict poll's `neutral` row, only while the poll is pending
+and has no ballots, and every change writes an audit entry.
 
 ## votes
 
 | Column | Contents | Readers | Retention |
 | --- | --- | --- | --- |
-| poll_id | poll reference | Admin (counts only published publicly) | 30 days after close |
+| id | internal ballot id | none | 30 days after close |
+| poll_id | poll reference | Admin (counts only published publicly) | as above |
 | voter_token_hash | SHA-256 of a per-poll browser token | none | as above |
-| option | a single small integer: the fixed verdict code (approve 1, oppose 2, neutral 3), or NULL for a choice ballot | Public (aggregated) | as above |
 | created_at | hour-coarsened timestamp | none | as above |
 
-Note: a verdict ballot carries **only a single small integer** in `option`; it
-never stores an option id, a label, or anything derived from the token beyond the
-hash. The value is one of three fixed codes, so the row reveals nothing beyond the
-verdict itself, which is published as an aggregate anyway.
+Note: `votes` is a ballot table only. It holds **no choice data at all** - there
+is no `option` column any more - so the only thing a ballot row carries is the
+one-way token hash and the poll it belongs to. The unique index on
+(poll_id, voter_token_hash) still enforces one ballot per browser.
 
 ## vote_selections
 
 | Column | Contents | Readers | Retention |
 | --- | --- | --- | --- |
-| vote_id | reference to the one anonymous ballot row | none | 30 days after close |
+| poll_id | poll reference | Public (aggregated counts only) | 30 days after close |
+| vote_id | reference to the one anonymous ballot row | none | as above |
 | option_id | reference to a `poll_options` row | Public (aggregated counts only) | as above |
 
-Note: `vote_selections` links the chosen options to **one anonymous ballot token
-hash**. A database leak therefore reveals which options were chosen together on
-a single ballot, but the ballot itself carries no identity: there is no account
-link, no address, no network value, and only an hour-coarsened timestamp on the
-parent `votes` row. Public responses show per-option counts only and never the
-combination, so the grouping is never published. Rows are removed with their
-ballot and their option by the foreign key cascade.
+Note: `vote_selections` records one row per chosen option for **every** poll type,
+so a verdict ballot is stored the same way as a choice ballot and the options are
+always referenced by ID. It links the chosen options to one anonymous ballot
+token hash: a database leak therefore reveals which options were chosen together
+on a single ballot, but the ballot itself carries no identity. There is no
+account link, no address, no network value, and only an hour-coarsened
+timestamp. The primary key is (vote_id, option_id) and the index on
+(poll_id, option_id) serves the per-option counts. Every reference cascades on
+delete, so purging a poll's ballots removes their selections too. Public
+responses show per-option counts only and never the combination, so the grouping
+is never published.
 
 ## comments
 
@@ -158,9 +163,9 @@ by design; the hash chain makes rewriting detectable.
 | Column | Contents | Readers | Retention |
 | --- | --- | --- | --- |
 | poll_id, ts_hour | poll reference and hour bucket | Public | forever |
-| approve, oppose, neutral | verdict counts at that hour (0 for a choice poll) | Public | forever |
+| approve, oppose, neutral | verdict counts at that hour, filled from the poll's preset rows (0 for a choice poll, and 0 when a verdict poll has no neutral row) | Public | forever |
 | ballots | number of ballots cast at that hour, for every poll type | Public | forever |
-| option_counts | JSON array of `{ position, count }` for a choice poll, NULL for a verdict poll | Public | forever |
+| option_counts | JSON array of `{ position, count }` for every poll type | Public | forever |
 | views | cumulative view total at that hour | Public | forever |
 | prev_hash, hash | chain link and record hash | Public | forever |
 | final | 1 on the terminal snapshot written when the poll closed, 0 otherwise | Public | forever |
@@ -197,5 +202,8 @@ IP address. Read only by the admin Worker.
   per-poll daily counter with no per-view rows and no network value.
 - `vote_selections` links the options chosen on one ballot to that ballot's
   anonymous token hash. A leak therefore shows the option combination per
-  anonymous ballot, but nothing that identifies a person: no account link, no
-  address, no network value, and only an hour-coarsened timestamp.
+  anonymous ballot — for a multi-choice poll that is the whole combination of one
+  ballot — but nothing that identifies a person: no account link, no address, no
+  network value, and only an hour-coarsened timestamp. The ballot table `votes`
+  itself holds no choice data, so a leak of `votes` alone reveals only that some
+  browser voted on a poll.
