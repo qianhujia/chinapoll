@@ -1,8 +1,15 @@
-import { PollMode, PollStatus, VoteOption } from '../../worker/enums';
+import { PollMode, PollStatus, PollType, VoteOption } from '../../worker/enums';
 import { currentHour, writeSnapshotForPoll } from '../../worker/services/maintenance';
+import { validatePollOptions } from '../../worker/services/pollType';
 import type { AdminActor, AdminEnv } from '../auth';
 import { logAudit } from '../lib/audit';
-import { POLL_STATUS_VALUES, parsePollStatus, pollModeLabel, pollStatusLabel, type AdminPollStatus } from '../lib/enums';
+import {
+  POLL_STATUS_VALUES,
+  pollStatusLabel,
+  pollTypeLabel,
+  parsePollStatus,
+  type AdminPollStatus
+} from '../lib/enums';
 
 const MAX_PAGE_SIZE = 100;
 const MAX_QUERY_LENGTH = 100;
@@ -12,6 +19,8 @@ interface AdminPollRow {
   title: string | null;
   description: string | null;
   mode: number;
+  poll_type: number;
+  duration_seconds: number | null;
   start_at: number | null;
   end_at: number | null;
   status: number;
@@ -23,6 +32,13 @@ interface AdminPollRow {
   updated_at: number;
 }
 
+interface AdminOptionCount {
+  id: number;
+  label: string;
+  position: number;
+  count: number;
+}
+
 export async function handlePollsRequest(request: Request, url: URL, env: AdminEnv, actor: AdminActor): Promise<Response> {
   const statusMatch = url.pathname.match(/^\/api\/admin\/polls\/(\d+)\/status$/);
   if (statusMatch) {
@@ -30,6 +46,15 @@ export async function handlePollsRequest(request: Request, url: URL, env: AdminE
       return Response.json({ message: 'method not allowed' }, { status: 405 });
     }
     return updatePollStatus(Number(statusMatch[1]), request, env, actor);
+  }
+
+  // Option labels may only be corrected while a poll is still pending.
+  const optionsMatch = url.pathname.match(/^\/api\/admin\/polls\/(\d+)\/options$/);
+  if (optionsMatch) {
+    if (request.method !== 'PUT') {
+      return Response.json({ message: 'method not allowed' }, { status: 405 });
+    }
+    return updatePollOptions(Number(optionsMatch[1]), request, env, actor);
   }
 
   if (url.pathname !== '/api/admin/polls') {
@@ -82,7 +107,8 @@ async function listPolls(url: URL, env: AdminEnv): Promise<Response> {
        WHERE 1 = 1${statusClause}${searchClause}
        ORDER BY i.created_at DESC, i.id DESC LIMIT ? OFFSET ?
      )
-     SELECT i.id, i.title, i.description, i.mode, i.start_at, i.end_at, i.status,
+     SELECT i.id, i.title, i.description, i.mode, i.poll_type, i.duration_seconds,
+            i.start_at, i.end_at, i.status,
             i.created_at, i.updated_at,
             COALESCE(SUM(CASE WHEN v.option = ? THEN 1 ELSE 0 END), 0) AS approve,
             COALESCE(SUM(CASE WHEN v.option = ? THEN 1 ELSE 0 END), 0) AS neutral,
@@ -99,12 +125,20 @@ async function listPolls(url: URL, env: AdminEnv): Promise<Response> {
     VoteOption.Approve, VoteOption.Neutral, VoteOption.Oppose
   ).all<AdminPollRow>();
 
+  // The option counts of every choice poll on this page are read with one
+  // aggregate query over `vote_selections` (paginate, then aggregate).
+  const optionCounts = await loadAdminOptionCounts(env, (result.results ?? [])
+    .filter((row) => Number(row.poll_type) !== PollType.Verdict)
+    .map((row) => Number(row.id)));
+
   return Response.json({
     polls: (result.results ?? []).map((row) => ({
       id: row.id,
       title: row.title,
       description: row.description,
-      mode: pollModeLabel(row.mode),
+      mode: row.mode === PollMode.Evergreen ? 'evergreen' : 'deadline',
+      pollType: pollTypeLabel(Number(row.poll_type)),
+      durationSeconds: row.duration_seconds === null ? null : Number(row.duration_seconds),
       status: pollStatusLabel(row.status),
       startAt: toIso(row.start_at),
       endAt: toIso(row.end_at),
@@ -115,7 +149,8 @@ async function listPolls(url: URL, env: AdminEnv): Promise<Response> {
         approve: Number(row.approve),
         neutral: Number(row.neutral),
         oppose: Number(row.oppose)
-      }
+      },
+      options: optionCounts.get(Number(row.id)) ?? []
     })),
     page: currentPage,
     pageSize,
@@ -126,6 +161,38 @@ async function listPolls(url: URL, env: AdminEnv): Promise<Response> {
   }, {
     headers: { 'cache-control': 'no-store' }
   });
+}
+
+// Reads the options of several choice polls with one aggregate query.
+async function loadAdminOptionCounts(
+  env: AdminEnv,
+  pollIds: number[]
+): Promise<Map<number, AdminOptionCount[]>> {
+  const counts = new Map<number, AdminOptionCount[]>();
+  if (pollIds.length === 0) return counts;
+
+  const placeholders = pollIds.map(() => '?').join(', ');
+  const result = await env.DB.prepare(
+    `SELECT o.poll_id, o.id, o.label, o.position, COUNT(vs.vote_id) AS count
+     FROM poll_options o
+     LEFT JOIN vote_selections vs ON vs.option_id = o.id
+     WHERE o.poll_id IN (${placeholders})
+     GROUP BY o.id
+     ORDER BY o.poll_id ASC, o.position ASC`
+  ).bind(...pollIds).all<{ poll_id: number } & AdminOptionCount>();
+
+  for (const row of result.results ?? []) {
+    const pollId = Number(row.poll_id);
+    const entry = counts.get(pollId) ?? [];
+    entry.push({
+      id: Number(row.id),
+      label: row.label,
+      position: Number(row.position),
+      count: Number(row.count)
+    });
+    counts.set(pollId, entry);
+  }
+  return counts;
 }
 
 async function updatePollStatus(pollId: number, request: Request, env: AdminEnv, actor: AdminActor): Promise<Response> {
@@ -149,19 +216,23 @@ async function updatePollStatus(pollId: number, request: Request, env: AdminEnv,
   }
 
   const poll = await env.DB.prepare(
-    'SELECT id, title, mode, status, start_at FROM polls WHERE id = ?'
-  ).bind(pollId).first<{ id: number; title: string | null; mode: number; status: number; start_at: number | null }>();
+    'SELECT id, title, mode, status, start_at, end_at, duration_seconds, poll_type FROM polls WHERE id = ?'
+  ).bind(pollId).first<{
+    id: number;
+    title: string | null;
+    mode: number;
+    status: number;
+    start_at: number | null;
+    end_at: number | null;
+    duration_seconds: number | null;
+    poll_type: number;
+  }>();
 
   if (!poll) {
     return Response.json({ message: `poll ${pollId} was not found` }, { status: 404 });
   }
 
-  const now = Math.floor(Date.now() / 1000);
-  // Approving a deadline poll whose start time is still in the future keeps it
-  // pending (with reviewed_at set) so the hourly task opens it on schedule,
-  // instead of listing a poll that cannot be voted on yet as open.
-  let storedStatus = POLL_STATUS_VALUES[nextStatus];
-  let scheduled = false;
+  const storedStatus = POLL_STATUS_VALUES[nextStatus];
   if (nextStatus === 'open') {
     if (!poll.title?.trim()) {
       return Response.json({ message: `poll ${pollId} has no title and cannot be published` }, { status: 422 });
@@ -169,9 +240,14 @@ async function updatePollStatus(pollId: number, request: Request, env: AdminEnv,
     if (poll.mode !== PollMode.Deadline && poll.mode !== PollMode.Evergreen) {
       return Response.json({ message: `poll ${pollId} has an unsupported mode` }, { status: 422 });
     }
-    if (poll.mode === PollMode.Deadline && poll.start_at !== null && poll.start_at > now) {
-      storedStatus = PollStatus.Pending;
-      scheduled = true;
+    // A choice poll without options cannot be voted on.
+    if (Number(poll.poll_type) !== PollType.Verdict) {
+      const optionCount = await env.DB.prepare(
+        'SELECT COUNT(*) AS total FROM poll_options WHERE poll_id = ?'
+      ).bind(pollId).first<{ total: number }>();
+      if (Number(optionCount?.total ?? 0) === 0) {
+        return Response.json({ message: `poll ${pollId} has no options and cannot be published` }, { status: 422 });
+      }
     }
   }
 
@@ -184,6 +260,15 @@ async function updatePollStatus(pollId: number, request: Request, env: AdminEnv,
 
   if (update.meta.changes !== 1) {
     return Response.json({ message: `poll ${pollId} could not be updated` }, { status: 409 });
+  }
+
+  // The end date is computed when the poll opens: `duration_seconds` after that
+  // moment, unless the poll already has one.
+  if (nextStatus === 'open') {
+    await env.DB.prepare(
+      `UPDATE polls SET end_at = unixepoch() + duration_seconds
+       WHERE id = ? AND mode = ? AND duration_seconds IS NOT NULL AND end_at IS NULL`
+    ).bind(pollId, PollMode.Deadline).run();
   }
 
   // Stamp closed_at when a poll closes so retention does not depend on
@@ -200,22 +285,111 @@ async function updatePollStatus(pollId: number, request: Request, env: AdminEnv,
   await logAudit(env, {
     actor, action: 'poll.status', targetType: 'poll', targetId: pollId,
     details: {
-      status: scheduled ? 'pending' : nextStatus,
-      previousStatus: pollStatusLabel(poll.status),
-      scheduled
+      status: nextStatus,
+      previousStatus: pollStatusLabel(poll.status)
     }
   });
 
   return Response.json({
     ok: true,
     pollId,
-    status: scheduled ? 'scheduled' : nextStatus,
-    message: scheduled
-      ? `Poll ${pollId} is scheduled to open at its start time.`
-      : `Poll ${pollId} status set to ${nextStatus}.`
+    status: nextStatus,
+    message: `Poll ${pollId} status set to ${nextStatus}.`
   });
 }
 
 function toIso(unixSeconds: number | null): string | null {
   return unixSeconds === null ? null : new Date(unixSeconds * 1000).toISOString();
+}
+
+// Replaces the option set of a pending choice poll. Editing is restricted to
+// polls that are still pending: once a poll is open the labels are part of the
+// published question and of its counts. The change is written to the audit log.
+async function updatePollOptions(
+  pollId: number,
+  request: Request,
+  env: AdminEnv,
+  actor: AdminActor
+): Promise<Response> {
+  if (!Number.isSafeInteger(pollId) || pollId < 1) {
+    return Response.json({ message: 'invalid poll ID' }, { status: 400 });
+  }
+
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return Response.json({ message: 'invalid JSON' }, { status: 400 });
+  }
+
+  const rawOptions = typeof body === 'object' && body !== null
+    ? (body as Record<string, unknown>).options
+    : undefined;
+  const validation = validatePollOptions(rawOptions);
+  if (!validation.ok) {
+    return Response.json({ message: validation.message }, { status: 400 });
+  }
+
+  const poll = await env.DB.prepare(
+    'SELECT id, poll_type, status FROM polls WHERE id = ?'
+  ).bind(pollId).first<{ id: number; poll_type: number; status: number }>();
+  if (!poll) {
+    return Response.json({ message: `poll ${pollId} was not found` }, { status: 404 });
+  }
+  if (Number(poll.poll_type) === PollType.Verdict) {
+    return Response.json({ message: `poll ${pollId} is a verdict poll and has no options` }, { status: 409 });
+  }
+  if (Number(poll.status) !== PollStatus.Pending) {
+    return Response.json({ message: 'option labels can only be edited while a poll is pending' }, { status: 409 });
+  }
+
+  const previous = await env.DB.prepare(
+    'SELECT id, position, label FROM poll_options WHERE poll_id = ? ORDER BY position ASC'
+  ).bind(pollId).all<{ id: number; position: number; label: string }>();
+
+  // The existing option ids are reused by position so a pending poll keeps a
+  // stable option identity across an edit.
+  const existing = new Map<number, number>();
+  for (const row of previous.results ?? []) {
+    existing.set(Number(row.position), Number(row.id));
+  }
+
+  const statements: D1PreparedStatement[] = [];
+  for (const option of validation.options) {
+    const optionId = existing.get(option.position);
+    if (optionId === undefined) {
+      statements.push(env.DB.prepare(
+        'INSERT INTO poll_options (poll_id, position, label) VALUES (?, ?, ?)'
+      ).bind(pollId, option.position, option.label));
+    } else {
+      statements.push(env.DB.prepare(
+        'UPDATE poll_options SET label = ? WHERE id = ?'
+      ).bind(option.label, optionId));
+    }
+  }
+  // Positions above the new set are removed; the foreign key cascade also drops
+  // their selections, which cannot exist while the poll is pending.
+  const keptPositions = validation.options.map((option) => option.position);
+  statements.push(env.DB.prepare(
+    `DELETE FROM poll_options WHERE poll_id = ?
+     AND position NOT IN (${keptPositions.map(() => '?').join(', ')})`
+  ).bind(pollId, ...keptPositions));
+  await env.DB.batch(statements);
+
+  await logAudit(env, {
+    actor, action: 'poll.options', targetType: 'poll', targetId: pollId,
+    details: {
+      previous: (previous.results ?? []).map((row) => ({
+        position: Number(row.position), label: row.label
+      })),
+      options: validation.options
+    }
+  });
+
+  return Response.json({
+    ok: true,
+    pollId,
+    options: validation.options,
+    message: `Updated ${validation.options.length} option(s) for poll ${pollId}.`
+  });
 }

@@ -7,16 +7,22 @@ export type AdminPollMode = 'deadline' | 'evergreen';
 // Worker and the report endpoint cannot drift apart.
 export const REPORT_REASON_CODES = PollReportReason;
 export {
+  PollMode,
   PollReportReason,
+  PollStatus,
+  PollType,
   PRIORITY_REPORT_REASONS,
   getPollReportReasonCode,
   getPollReportReasonLabel,
+  getPollTypeCode,
+  getPollTypeLabel,
   getReportResolutionCode,
   getReportResolutionLabel,
   isPriorityReportReason
 } from '../../worker/enums';
 export type {
   PollReportReasonLabel,
+  PollTypeLabel,
   ReportResolutionLabel
 } from '../../worker/enums';
 
@@ -52,3 +58,8 @@ export function pollModeLabel(value: number): AdminPollMode {
     default: throw new Error(`Unknown poll mode code: ${value}`);
   }
 }
+
+// Label of a poll type, shared with the public Worker. A stored value that is
+// not one of the three known codes falls back to the verdict shape so the
+// dashboard never fails on one bad row.
+export { pollTypeLabel } from '../../worker/services/pollType';

@@ -4,9 +4,11 @@ import {
   getPollStatusLabel,
   PollMode,
   PollStatus,
+  PollType,
   VoteOption,
   toIsoDate
 } from '../enums.js';
+import { choiceCounts, isChoicePollType, pollTypeLabel } from '../services/pollType.js';
 import { loadViewCounts, publicViews } from './views';
 
 const MAX_PAGE_SIZE = 100;
@@ -23,12 +25,14 @@ interface PollRow {
   title: string;
   description: string | null;
   mode: PollMode;
+  poll_type: number;
   start_at: number | null;
   end_at: number | null;
   status: PollStatus;
   approve: number;
   neutral: number;
   oppose: number;
+  ballots: number;
 }
 
 // Builds the LIKE parameters and the WHERE fragment for a title/description
@@ -103,7 +107,8 @@ export async function handlePollsRequest(request: Request, url: URL, env: Handle
        WHERE status = ? AND mode IN (?, ?)${search.clause}
        ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?
      )
-     SELECT i.id, i.title, i.description, i.mode, i.start_at, i.end_at, i.status,
+     SELECT i.id, i.title, i.description, i.mode, i.poll_type, i.start_at, i.end_at, i.status,
+       (SELECT COUNT(*) FROM votes b WHERE b.poll_id = i.id) AS ballots,
        COALESCE(SUM(CASE WHEN v.option = ? THEN 1 ELSE 0 END), 0) AS approve,
        COALESCE(SUM(CASE WHEN v.option = ? THEN 1 ELSE 0 END), 0) AS neutral,
        COALESCE(SUM(CASE WHEN v.option = ? THEN 1 ELSE 0 END), 0) AS oppose
@@ -124,27 +129,43 @@ export async function handlePollsRequest(request: Request, url: URL, env: Handle
   const threshold = Number(env.min_votes_to_display ?? 0);
   const viewsThreshold = Number(env.min_views_to_display ?? 0);
   const viewCounts = await loadViewCounts(env.DB, (result.results ?? []).map((row) => Number(row.id)));
+  // The option counts of every choice poll on this page are read with one
+  // aggregate query over `vote_selections`, following the paginate-then-
+  // aggregate pattern used above.
+  const optionCounts = await loadPageOptionCounts(env, (result.results ?? [])
+    .filter((row) => isChoicePollType(Number(row.poll_type)))
+    .map((row) => Number(row.id)));
+
   const polls = (result.results ?? []).map((row) => {
+    const pollType = Number(row.poll_type ?? PollType.Verdict);
     const counts = {
       approve: Number(row.approve),
       neutral: Number(row.neutral),
       oppose: Number(row.oppose)
     };
     const voteTotal = counts.approve + counts.neutral + counts.oppose;
-    const hidden = threshold > 0 && voteTotal < threshold;
+    const choice = choiceCounts(Number(row.ballots), optionCounts.get(Number(row.id)) ?? [], threshold);
+    const hidden = isChoicePollType(pollType) ? choice.hidden : threshold > 0 && voteTotal < threshold;
     return {
       poll: {
         id: row.id,
         title: row.title,
         description: row.description,
         mode: getPollModeLabel(row.mode),
+        pollType: pollTypeLabel(pollType),
+        options: isChoicePollType(pollType)
+          ? (optionCounts.get(Number(row.id)) ?? []).map((option) => ({
+            id: option.id, label: option.label, position: option.position
+          }))
+          : [],
         start_at: toIsoDate(row.start_at),
         end_at: toIsoDate(row.end_at),
         status: getPollStatusLabel(row.status)
       },
       stats: {
         pollId: row.id,
-        counts: hidden ? null : counts,
+        pollType: pollTypeLabel(pollType),
+        counts: hidden ? null : (isChoicePollType(pollType) ? choice.counts : counts),
         hidden,
         threshold,
         voted: false
@@ -164,6 +185,41 @@ export async function handlePollsRequest(request: Request, url: URL, env: Handle
   }, {
     headers: { 'cache-control': 'no-store' }
   });
+}
+
+// Reads the options of every choice poll on one page together with their
+// counts, using a single aggregate query over `vote_selections` joined to
+// `votes`, so the cost does not grow with the total number of ballots.
+export async function loadPageOptionCounts(
+  env: HandlerEnv,
+  pollIds: number[]
+): Promise<Map<number, Array<{ id: number; label: string; position: number; count: number }>>> {
+  const counts = new Map<number, Array<{ id: number; label: string; position: number; count: number }>>();
+  if (pollIds.length === 0) return counts;
+
+  const placeholders = pollIds.map(() => '?').join(', ');
+  const result = await env.DB.prepare(
+    `SELECT o.poll_id, o.id, o.label, o.position, COUNT(vs.vote_id) AS count
+     FROM poll_options o
+     LEFT JOIN vote_selections vs ON vs.option_id = o.id
+     LEFT JOIN votes v ON v.id = vs.vote_id
+     WHERE o.poll_id IN (${placeholders})
+     GROUP BY o.id
+     ORDER BY o.poll_id ASC, o.position ASC`
+  ).bind(...pollIds).all<{ poll_id: number; id: number; label: string; position: number; count: number }>();
+
+  for (const row of result.results ?? []) {
+    const pollId = Number(row.poll_id);
+    const entry = counts.get(pollId) ?? [];
+    entry.push({
+      id: Number(row.id),
+      label: row.label,
+      position: Number(row.position),
+      count: Number(row.count)
+    });
+    counts.set(pollId, entry);
+  }
+  return counts;
 }
 
 // Lists polls that closed within the last `days` days so the snapshot publisher
@@ -206,7 +262,7 @@ async function getPoll(pollIdText: string, env: HandlerEnv): Promise<Response> {
   }
 
   const poll = await env.DB.prepare(
-    `SELECT id, title, description, mode, start_at, end_at, status
+    `SELECT id, title, description, mode, poll_type, start_at, end_at, duration_seconds, status
      FROM polls
      WHERE id = ? AND mode IN (?, ?) AND status IN (?, ?, ?)`
   ).bind(
@@ -218,8 +274,10 @@ async function getPoll(pollIdText: string, env: HandlerEnv): Promise<Response> {
     title: string;
     description: string | null;
     mode: PollMode;
+    poll_type: number;
     start_at: number | null;
     end_at: number | null;
+    duration_seconds: number | null;
     status: PollStatus;
   }>();
 
@@ -230,9 +288,18 @@ async function getPoll(pollIdText: string, env: HandlerEnv): Promise<Response> {
   const viewCounts = await loadViewCounts(env.DB, [pollId]);
   const views = publicViews(viewCounts.get(pollId), Number(env.min_views_to_display ?? 0));
 
+  const pollType = Number(poll.poll_type ?? PollType.Verdict);
+  const options = isChoicePollType(pollType)
+    ? (await loadPageOptionCounts(env, [pollId])).get(pollId) ?? []
+    : [];
+
   return Response.json({ poll: {
     ...poll,
     mode: getPollModeLabel(poll.mode),
+    pollType: pollTypeLabel(pollType),
+    options: options.map((option) => ({
+      id: option.id, label: option.label, position: option.position
+    })),
     start_at: toIsoDate(poll.start_at),
     end_at: toIsoDate(poll.end_at),
     status: getPollStatusLabel(poll.status)

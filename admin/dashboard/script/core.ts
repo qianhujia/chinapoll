@@ -17,6 +17,8 @@ export const scriptCore = `  var app = document.getElementById('app');
     settings: null,
     pollStatus: 'all',
     pollQuery: '',
+    // Poll ids whose option editor is expanded in the Polls tab.
+    expandedPolls: [],
     reportStatus: 'open',
     commentQuery: '',
     commentPollId: '',

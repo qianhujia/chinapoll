@@ -11,8 +11,9 @@
 // Retention is keyed on `polls.closed_at`, not `updated_at`, so editing a closed
 // poll does not restart its retention clock.
 
-import { PollMode, PollStatus } from '../enums';
-import { makeSnapshot } from './snapshot';
+import { PollMode, PollStatus, PollType } from '../enums';
+import { isChoicePollType } from './pollType';
+import { makeSnapshot, serializeOptionCounts, type SnapshotOptionCount } from './snapshot';
 
 interface MaintenanceEnv {
   DB: D1Database;
@@ -40,7 +41,7 @@ export function currentHour(): number {
 // Selects the polls that need a snapshot this hour: every open poll, plus any
 // poll that closed within the final-snapshot window and does not yet have a
 // terminal snapshot (a safety net for a close path that could not write one).
-const SNAPSHOT_POLLS_SQL = `SELECT id, status FROM polls
+const SNAPSHOT_POLLS_SQL = `SELECT id, status, poll_type FROM polls
    WHERE status = ?
       OR (status = ? AND closed_at IS NOT NULL AND closed_at >= ?
           AND NOT EXISTS (SELECT 1 FROM stats_snapshots s
@@ -50,12 +51,14 @@ const SNAPSHOT_POLLS_SQL = `SELECT id, status FROM polls
 // upsert keeps the terminal marker and the counts correct when an open snapshot
 // written earlier in the same hour is followed by a close.
 const INSERT_SNAPSHOT_SQL = `INSERT INTO stats_snapshots
-   (poll_id, ts_hour, approve, oppose, neutral, views, prev_hash, hash, final)
-   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+   (poll_id, ts_hour, approve, oppose, neutral, ballots, option_counts, views, prev_hash, hash, final)
+   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
    ON CONFLICT(poll_id, ts_hour) DO UPDATE SET
      approve = excluded.approve,
      oppose = excluded.oppose,
      neutral = excluded.neutral,
+     ballots = excluded.ballots,
+     option_counts = excluded.option_counts,
      views = excluded.views,
      prev_hash = excluded.prev_hash,
      hash = excluded.hash,
@@ -77,18 +80,69 @@ function applyCount(counts: Counts, option: number, count: number): void {
   else if (option === 3) counts.neutral = count;
 }
 
+// Per-option counts of a choice poll, keyed by poll id and ordered by position.
+type OptionCountMap = Map<number, SnapshotOptionCount[]>;
+
+// Reads the option counts and the ballot total of every choice poll in the set
+// with two aggregate queries, plus the ballot total of a mixed set of polls in
+// one more query.
+async function loadBallotsAndOptionCounts(
+  env: MaintenanceEnv,
+  pollTypes: Map<number, number>
+): Promise<{ ballots: Map<number, number>; optionCounts: OptionCountMap }> {
+  const ballots = new Map<number, number>();
+  const optionCounts: OptionCountMap = new Map();
+  const pollIds = [...pollTypes.keys()];
+  if (pollIds.length === 0) return { ballots, optionCounts };
+
+  const placeholders = pollIds.map(() => '?').join(', ');
+
+  // One row per poll: the number of ballots is the number of vote rows.
+  const ballotRows = await env.DB.prepare(
+    `SELECT poll_id, COUNT(*) AS ballots FROM votes
+     WHERE poll_id IN (${placeholders}) GROUP BY poll_id`
+  ).bind(...pollIds).all<{ poll_id: number; ballots: number }>();
+  for (const row of ballotRows.results ?? []) {
+    ballots.set(Number(row.poll_id), Number(row.ballots));
+  }
+
+  const choicePollIds = pollIds.filter((id) => isChoicePollType(Number(pollTypes.get(id))));
+  if (choicePollIds.length === 0) return { ballots, optionCounts };
+
+  const choicePlaceholders = choicePollIds.map(() => '?').join(', ');
+  const optionRows = await env.DB.prepare(
+    `SELECT o.poll_id, o.position, COUNT(vs.vote_id) AS count
+     FROM poll_options o
+     LEFT JOIN vote_selections vs ON vs.option_id = o.id
+     WHERE o.poll_id IN (${choicePlaceholders})
+     GROUP BY o.poll_id, o.position
+     ORDER BY o.poll_id ASC, o.position ASC`
+  ).bind(...choicePollIds).all<{ poll_id: number; position: number; count: number }>();
+  for (const row of optionRows.results ?? []) {
+    const pollId = Number(row.poll_id);
+    const entry = optionCounts.get(pollId) ?? [];
+    entry.push({ position: Number(row.position), count: Number(row.count) });
+    optionCounts.set(pollId, entry);
+  }
+  return { ballots, optionCounts };
+}
+
 export async function runMaintenanceTasks(env: MaintenanceEnv): Promise<void> {
   const now = Math.floor(Date.now() / 1000);
   const tsHour = now - (now % 3600);
   const cutoff = now - RETENTION_SECONDS;
 
-  // Open approved deadline polls whose start time has arrived. Approval records
-  // reviewed_at, so approval and opening stay distinct.
+  // New polls have no start time: a poll is opened either by an admin or by
+  // auto-approval, and its end date is computed from `duration_seconds` at that
+  // moment. The close step below acts on `end_at`.
+  //
+  // Stamp the end date of every open deadline poll that does not have one yet,
+  // so a poll approved before this change or opened without a duration still
+  // closes on schedule.
   await env.DB.prepare(
-    `UPDATE polls SET status = ?, updated_at = unixepoch()
-     WHERE status = ? AND mode = ? AND reviewed_at IS NOT NULL
-       AND start_at IS NOT NULL AND start_at <= ?`
-  ).bind(PollStatus.Open, PollStatus.Pending, PollMode.Deadline, now).run();
+    `UPDATE polls SET end_at = unixepoch() + duration_seconds, updated_at = unixepoch()
+     WHERE status = ? AND mode = ? AND duration_seconds IS NOT NULL AND end_at IS NULL`
+  ).bind(PollStatus.Open, PollMode.Deadline).run();
 
   // Snapshot every poll that is currently open (and any recently closed poll
   // whose terminal snapshot is still missing) before the close step runs, so a
@@ -155,9 +209,11 @@ export async function runMaintenanceTasks(env: MaintenanceEnv): Promise<void> {
 async function writeSnapshots(env: MaintenanceEnv, tsHour: number, now: number): Promise<void> {
   const polls = await env.DB.prepare(SNAPSHOT_POLLS_SQL)
     .bind(PollStatus.Open, PollStatus.Closed, now - FINAL_SNAPSHOT_WINDOW_SECONDS)
-    .all<{ id: number; status: number }>();
+    .all<{ id: number; status: number; poll_type: number }>();
   const entries = (polls.results ?? []).map((row) => ({
     id: Number(row.id),
+    status: Number(row.status),
+    pollType: Number(row.poll_type ?? PollType.Verdict),
     final: Number(row.status) === PollStatus.Closed
   }));
   if (entries.length === 0) return;
@@ -168,7 +224,7 @@ async function writeSnapshots(env: MaintenanceEnv, tsHour: number, now: number):
   const counts = new Map<number, Counts>();
   const countsRows = await env.DB.prepare(
     `SELECT poll_id, option, COUNT(*) AS count
-     FROM votes WHERE poll_id IN (${placeholders})
+     FROM votes WHERE poll_id IN (${placeholders}) AND option IS NOT NULL
      GROUP BY poll_id, option`
   ).bind(...pollIds).all<{ poll_id: number; option: number; count: number }>();
   for (const row of countsRows.results ?? []) {
@@ -177,6 +233,10 @@ async function writeSnapshots(env: MaintenanceEnv, tsHour: number, now: number):
     applyCount(entry, Number(row.option), Number(row.count));
     counts.set(pollId, entry);
   }
+
+  // Ballots and per-option counts, for every poll type.
+  const pollTypes = new Map(entries.map((entry) => [entry.id, entry.pollType]));
+  const { ballots, optionCounts } = await loadBallotsAndOptionCounts(env, pollTypes);
 
   const previous = new Map<number, string>();
   const hashRows = await env.DB.prepare(
@@ -209,12 +269,15 @@ async function writeSnapshots(env: MaintenanceEnv, tsHour: number, now: number):
       pollId: entry.id,
       tsHour,
       counts: counts.get(entry.id) ?? emptyCounts(),
+      ballots: ballots.get(entry.id) ?? 0,
+      optionCounts: optionCounts.get(entry.id) ?? null,
       views: viewsByPoll.get(entry.id) ?? 0,
       prevHash: previous.get(entry.id) ?? null
     });
     statements.push(insert.bind(
       snapshot.pollId, snapshot.tsHour, snapshot.approve, snapshot.oppose,
-      snapshot.neutral, snapshot.views, snapshot.prevHash, snapshot.hash, entry.final ? 1 : 0
+      snapshot.neutral, snapshot.ballots, serializeOptionCounts(snapshot.optionCounts),
+      snapshot.views, snapshot.prevHash, snapshot.hash, entry.final ? 1 : 0
     ));
   }
 
@@ -232,11 +295,19 @@ export async function writeSnapshotForPoll(
 ): Promise<void> {
   const counts = emptyCounts();
   const countsRows = await env.DB.prepare(
-    'SELECT option, COUNT(*) AS count FROM votes WHERE poll_id = ? GROUP BY option'
+    'SELECT option, COUNT(*) AS count FROM votes WHERE poll_id = ? AND option IS NOT NULL GROUP BY option'
   ).bind(pollId).all<{ option: number; count: number }>();
   for (const row of countsRows.results ?? []) {
     applyCount(counts, Number(row.option), Number(row.count));
   }
+
+  const pollRow = await env.DB.prepare('SELECT poll_type FROM polls WHERE id = ?')
+    .bind(pollId).first<{ poll_type: number }>();
+  const pollType = Number(pollRow?.poll_type ?? PollType.Verdict);
+  const { ballots, optionCounts } = await loadBallotsAndOptionCounts(
+    env,
+    new Map([[pollId, pollType]])
+  );
 
   const previous = await env.DB.prepare(
     `SELECT hash FROM stats_snapshots
@@ -251,12 +322,15 @@ export async function writeSnapshotForPoll(
     pollId,
     tsHour,
     counts,
+    ballots: ballots.get(pollId) ?? 0,
+    optionCounts: optionCounts.get(pollId) ?? null,
     views: Number(viewsRow?.views ?? 0),
     prevHash: previous?.hash ?? null
   });
 
   await env.DB.prepare(INSERT_SNAPSHOT_SQL).bind(
     snapshot.pollId, snapshot.tsHour, snapshot.approve, snapshot.oppose,
-    snapshot.neutral, snapshot.views, snapshot.prevHash, snapshot.hash, isFinal ? 1 : 0
+    snapshot.neutral, snapshot.ballots, serializeOptionCounts(snapshot.optionCounts),
+    snapshot.views, snapshot.prevHash, snapshot.hash, isFinal ? 1 : 0
   ).run();
 }

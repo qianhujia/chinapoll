@@ -119,8 +119,9 @@ login endpoint) or an `Authorization: Bearer <session-token>` header.
 | `DELETE` | `/api/admin/session` | Logout |
 | `POST` | `/api/admin/setup` | Create the first admin user when none exist |
 | `GET` | `/api/admin/overview` | Dashboard counts and recent submissions |
-| `GET` | `/api/admin/polls` | List polls including pending submissions (`status`, `page`, `pageSize`, `q`) |
-| `POST` | `/api/admin/polls/:id/status` | Set poll status (`{ "status": "open" }`) |
+| `GET` | `/api/admin/polls` | List polls including pending submissions (`status`, `page`, `pageSize`, `q`); each row carries `pollType`, `durationSeconds`, and the option list with counts |
+| `POST` | `/api/admin/polls/:id/status` | Set poll status (`{ "status": "open" }`); opening a deadline poll stamps `end_at` from `duration_seconds` |
+| `PUT` | `/api/admin/polls/:id/options` | Replace the option set of a **pending** choice poll (`{ "options": [{ "position": 1, "label": "…" }] }`); writes a `poll.options` audit entry |
 | `GET` | `/api/admin/reports` | List polls with reports, priority first (`status=open\|resolved\|all`, `page`, `pageSize`) |
 | `POST` | `/api/admin/reports/:pollId/resolve` | Resolve every open report for a poll (`{ "resolution": "dismissed" \| "action_taken" }`) |
 | `GET` | `/api/admin/comments` | List comments (`pollId`, `page`, `pageSize`, `q`) |
@@ -167,8 +168,25 @@ changes, unlocks and deletions, admin user management, and report resolution
 actor) when a poll trips an automatic report-hide threshold. Secret setting values
 are never written. Client IP addresses are never stored.
 
-## Reports
+## Polls
 
+The Polls tab lists every poll, pending submissions first when the status filter
+is set to `pending`. Each row shows the poll type (verdict, single choice, or
+multiple choice) next to the mode. Choice polls also show a one-line option
+summary with the count per option, and a **Show options** toggle that opens an
+editor. Saving the editor calls `PUT /api/admin/polls/:id/options` with the
+position/label pairs, which replaces the set and writes a `poll.options` audit
+entry. Editing is only allowed while the poll is still **pending**: once a poll is
+open its labels are part of the published question and of the counts that the
+signed snapshot chain covers. Setting a choice poll to `open` is refused with
+`422` when it has no options.
+
+Opening a deadline poll stamps `end_at` as `duration_seconds` after the moment it
+opens (unless an end date already exists), so a poll that waited for review still
+gets its full duration. There is no separate "scheduled" state: new polls carry a
+duration rather than a start time.
+
+## Reports
 The Reports tab lists one row per poll that has reports. Each row shows the poll
 title, the open and total report counts, an eight-label reason breakdown sorted by
 count, and the newest free-text notes for the `other` reason. Polls with an open

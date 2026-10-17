@@ -16,6 +16,14 @@ export enum VoteOption {
   Neutral = 3
 }
 
+// Ballot shape of a poll. Type 1 keeps the verdict behaviour; types 2 and 3 use
+// the `poll_options` table instead of the `votes.option` column.
+export enum PollType {
+  Verdict = 1,
+  SingleChoice = 2,
+  MultiChoice = 3
+}
+
 // Reasons a visitor can report a poll. Codes 5, 6, and 7 (personal information,
 // harassment, illegal content) are treated as high priority by moderation.
 export enum PollReportReason {
@@ -38,6 +46,7 @@ export enum ReportResolution {
 export type PollModeLabel = 'deadline' | 'evergreen';
 export type PollStatusLabel = 'open' | 'closed' | 'archived';
 export type VoteOptionLabel = 'approve' | 'oppose' | 'neutral';
+export type PollTypeLabel = 'verdict' | 'single_choice' | 'multi_choice';
 export type PollReportReasonLabel =
   | 'spam'
   | 'inappropriate'
@@ -76,6 +85,25 @@ export function getPollStatusLabel(value: number): PollStatusLabel {
     case PollStatus.Closed: return 'closed';
     case PollStatus.Archived: return 'archived';
     default: throw new Error(`Unknown poll status code: ${value}`);
+  }
+}
+
+// Ballot shapes a proposal can select.
+export function getPollTypeCode(value: unknown): PollType | null {
+  switch (value) {
+    case 'verdict': return PollType.Verdict;
+    case 'single_choice': return PollType.SingleChoice;
+    case 'multi_choice': return PollType.MultiChoice;
+    default: return null;
+  }
+}
+
+export function getPollTypeLabel(value: number): PollTypeLabel {
+  switch (value) {
+    case PollType.Verdict: return 'verdict';
+    case PollType.SingleChoice: return 'single_choice';
+    case PollType.MultiChoice: return 'multi_choice';
+    default: throw new Error(`Unknown poll type code: ${value}`);
   }
 }
 
@@ -146,6 +174,54 @@ export function getReportResolutionLabel(value: number): ReportResolutionLabel {
 
 export function toUnixSeconds(isoDate: string): number {
   return Math.floor(Date.parse(isoDate) / 1000);
+}
+
+// The proposal form offers a fixed set of durations instead of a start and end
+// time. The mapping lives here so the Worker and the frontend cannot drift
+// apart (src/lib/poll.ts re-exports it).
+export const POLL_DURATION_DAYS: Readonly<Record<PollDuration, number | null>> = {
+  none: null,
+  '1d': 1,
+  '3d': 3,
+  '7d': 7,
+  '14d': 14,
+  '1m': 30,
+  '1y': 365
+};
+
+export type PollDuration = 'none' | '1d' | '3d' | '7d' | '14d' | '1m' | '1y';
+
+export type PollDurationOption = { value: PollDuration; label: string };
+
+// Order in which the durations are offered in the form.
+export const POLL_DURATIONS: ReadonlyArray<PollDuration> = [
+  'none',
+  '1d',
+  '3d',
+  '7d',
+  '14d',
+  '1m',
+  '1y'
+];
+
+export const POLL_DURATION_OPTIONS: ReadonlyArray<PollDurationOption> = POLL_DURATIONS.map((value) => ({
+  value,
+  label: value
+}));
+
+export function isPollDuration(value: unknown): value is PollDuration {
+  return typeof value === 'string' && Object.prototype.hasOwnProperty.call(POLL_DURATION_DAYS, value);
+}
+
+// Seconds a duration stands for, or null when the poll never ends.
+export function durationSeconds(value: PollDuration): number | null {
+  const days = POLL_DURATION_DAYS[value];
+  return days === null ? null : days * 86400;
+}
+
+// `none` is an evergreen poll; every other duration is a deadline poll.
+export function durationMode(value: PollDuration): PollMode {
+  return value === 'none' ? PollMode.Evergreen : PollMode.Deadline;
 }
 
 export function toIsoDate(unixSeconds: number | null): string | null {

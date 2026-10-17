@@ -1,7 +1,11 @@
 // Public read-only access to the signed statistics snapshot chain.
 
 import type { HandlerEnv } from '../index';
-import { verifySnapshotHash, type SnapshotRecord } from '../services/snapshot';
+import {
+  parseOptionCounts,
+  verifySnapshotHash,
+  type SnapshotRecord
+} from '../services/snapshot';
 
 interface SnapshotRow {
   poll_id: number;
@@ -9,6 +13,8 @@ interface SnapshotRow {
   approve: number;
   oppose: number;
   neutral: number;
+  ballots: number;
+  option_counts: string | null;
   views: number;
   prev_hash: string;
   hash: string;
@@ -24,6 +30,8 @@ function toRecord(row: SnapshotRow): SnapshotRecord {
     approve: Number(row.approve),
     oppose: Number(row.oppose),
     neutral: Number(row.neutral),
+    ballots: Number(row.ballots ?? 0),
+    optionCounts: parseOptionCounts(row.option_counts),
     views: Number(row.views),
     prevHash: row.prev_hash,
     hash: row.hash
@@ -34,7 +42,8 @@ function toRecord(row: SnapshotRow): SnapshotRecord {
 // cursor, ordered ascending.
 async function fetchPage(env: HandlerEnv, pollId: number, after: number, limit: number): Promise<SnapshotRow[]> {
   const result = await env.DB.prepare(
-    `SELECT poll_id, ts_hour, approve, oppose, neutral, views, prev_hash, hash, final
+    `SELECT poll_id, ts_hour, approve, oppose, neutral, ballots, option_counts,
+            views, prev_hash, hash, final
      FROM stats_snapshots WHERE poll_id = ? AND ts_hour > ?
      ORDER BY ts_hour ASC LIMIT ?`
   ).bind(pollId, after, limit).all<SnapshotRow>();
@@ -106,12 +115,17 @@ export async function handleSnapshotRequest(request: Request, url: URL, env: Han
         approve: snapshot.approve,
         oppose: snapshot.oppose,
         neutral: snapshot.neutral,
+        // `ballots` is the number of ballots at that hour for every poll type,
+        // and `optionCounts` carries the per-option counts of a choice poll.
+        ballots: snapshot.ballots,
+        optionCounts: snapshot.optionCounts,
         views: snapshot.views,
         prevHash: snapshot.prevHash,
         hash: snapshot.hash,
         // `final` marks the terminal snapshot written when the poll closed. It
         // is reported for verifiers and the publish script; the hash above
-        // covers the counts, the cumulative views, and the chain link.
+        // covers the counts, the ballots, the option counts, the cumulative
+        // views, and the chain link.
         final: Number(row.final) === 1
       };
     }),
