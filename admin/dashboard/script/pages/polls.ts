@@ -33,12 +33,13 @@ export const scriptPolls = `  function statusOptions(selected, includeAll, inclu
             '<div class="small muted">' + esc(item.mode) + '</div></td>' +
             '<td><span class="badge ' + esc(item.status) + '">' + esc(item.status) + '</span></td>' +
             '<td class="small">' + esc(item.counts.approve) + ' / ' + esc(item.counts.neutral) + ' / ' + esc(item.counts.oppose) + '</td>' +
+            '<td class="small">' + esc(item.views) + '</td>' +
             '<td style="min-width:150px">' + selector + '</td></tr>';
         }).join('')
-      : '<tr><td colspan="5"><div class="empty">No polls match this filter.</div></td></tr>';
+      : '<tr><td colspan="6"><div class="empty">No polls match this filter.</div></td></tr>';
 
     view.innerHTML = '<section class="card"><h2>Polls</h2>' + toolbar +
-      '<table><thead><tr><th>ID</th><th>Title</th><th>Status</th><th>Approve / Neutral / Oppose</th><th>Change status</th></tr></thead>' +
+      '<table><thead><tr><th>ID</th><th>Title</th><th>Status</th><th>Approve / Neutral / Oppose</th><th>Views</th><th>Change status</th></tr></thead>' +
       '<tbody>' + rows + '</tbody></table>' +
       '<div class="pager">' +
       '<span>Page ' + esc(data.page) + ' of ' + esc(data.totalPages) + ' · ' + esc(data.total) + ' total</span>' +

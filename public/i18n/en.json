@@ -200,5 +200,6 @@
   "reportSubmit": "Send report",
   "reportCancel": "Cancel",
   "reportThanks": "Thank you. The report has been sent for review.",
-  "reportAlreadySent": "You reported this poll"
+  "reportAlreadySent": "You reported this poll",
+  "views": "views"
 }

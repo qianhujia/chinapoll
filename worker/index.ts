@@ -13,6 +13,7 @@ import { handleVoteRequest, handleVoteStatusRequest } from './api/vote';
 import { handleCommentsRequest } from './api/comments';
 import { handlePollsRequest } from './api/polls';
 import { handleReportRequest } from './api/reports';
+import { handleViewRequest } from './api/views';
 import { handleSnapshotRequest } from './api/snapshots';
 import {
   DEFAULT_PUBLIC_SETTINGS,
@@ -159,9 +160,12 @@ async function route(request: Request, env: Env): Promise<Response> {
       return handleStatsRequest(request, url, envWithSettings);
     }
     if (url.pathname.startsWith('/api/polls/')) {
-      // Poll sub-resource: reporting.
+      // Poll sub-resources: reporting and view counting.
       if (url.pathname.endsWith('/report')) {
         return handleReportRequest(request, url, envWithSettings);
+      }
+      if (url.pathname.endsWith('/view')) {
+        return handleViewRequest(request, url, envWithSettings);
       }
     }
     if (url.pathname === '/api/polls' || url.pathname.startsWith('/api/polls/')) {

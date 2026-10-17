@@ -200,5 +200,6 @@
   "reportSubmit": "发送举报",
   "reportCancel": "取消",
   "reportThanks": "谢谢。举报已提交审核。",
-  "reportAlreadySent": "你已举报此投票"
+  "reportAlreadySent": "你已举报此投票",
+  "views": "次浏览"
 }

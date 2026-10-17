@@ -7,6 +7,7 @@ import {
   VoteOption,
   toIsoDate
 } from '../enums.js';
+import { loadViewCounts, publicViews } from './views';
 
 const MAX_PAGE_SIZE = 100;
 const MAX_QUERY_LENGTH = 100;
@@ -121,6 +122,8 @@ export async function handlePollsRequest(request: Request, url: URL, env: Handle
   // Vote totals below the threshold are withheld so a small sample cannot reveal
   // how an individual voted.
   const threshold = Number(env.min_votes_to_display ?? 0);
+  const viewsThreshold = Number(env.min_views_to_display ?? 0);
+  const viewCounts = await loadViewCounts(env.DB, (result.results ?? []).map((row) => Number(row.id)));
   const polls = (result.results ?? []).map((row) => {
     const counts = {
       approve: Number(row.approve),
@@ -145,7 +148,8 @@ export async function handlePollsRequest(request: Request, url: URL, env: Handle
         hidden,
         threshold,
         voted: false
-      }
+      },
+      views: publicViews(viewCounts.get(Number(row.id)), viewsThreshold)
     };
   });
 
@@ -223,13 +227,16 @@ async function getPoll(pollIdText: string, env: HandlerEnv): Promise<Response> {
     return Response.json({ message: 'poll not found' }, { status: 404 });
   }
 
+  const viewCounts = await loadViewCounts(env.DB, [pollId]);
+  const views = publicViews(viewCounts.get(pollId), Number(env.min_views_to_display ?? 0));
+
   return Response.json({ poll: {
     ...poll,
     mode: getPollModeLabel(poll.mode),
     start_at: toIsoDate(poll.start_at),
     end_at: toIsoDate(poll.end_at),
     status: getPollStatusLabel(poll.status)
-  } }, {
+  }, views }, {
     headers: { 'cache-control': 'no-store' }
   });
 }

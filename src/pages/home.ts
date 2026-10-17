@@ -21,7 +21,8 @@ import {
   renderVoteButton,
   showToast,
   t,
-  updateVoteGroup
+  updateVoteGroup,
+  viewIconMarkup
 } from '../ui';
 
 export async function mountHome(app: HTMLElement, page: number, bindNavigation: () => void, settings?: Record<string, any>): Promise<void> {
@@ -125,7 +126,7 @@ export async function mountHome(app: HTMLElement, page: number, bindNavigation: 
         <section class="border-t border-border">
           ${pollStats.length === 0
     ? `<p class="py-6 text-center text-muted">${searchQuery ? t('searchNoResults') : t('noPolls')}</p>`
-    : pollStats.map(({ poll, stats }) => {
+    : pollStats.map(({ poll, stats, views }) => {
             const counts = stats.counts;
             const total = counts ? counts.approve + counts.oppose + counts.neutral : 0;
             const voteState = pollVoteStates.get(poll.id) ?? { voted: false, error: '' };
@@ -142,6 +143,7 @@ export async function mountHome(app: HTMLElement, page: number, bindNavigation: 
 
                 <div class="col-start-2 row-start-1 flex items-center justify-center gap-5 max-[700px]:col-start-1">
                   <span class="shrink-0 whitespace-nowrap text-xs leading-[1.2] text-muted" data-home-total="${poll.id}">${stats.hidden ? '' : `${total} ${t('votes')}`}</span>
+                  ${views ? `<span class="inline-flex shrink-0 items-center gap-1 text-xs leading-[1.2] text-muted" title="${t('views')}">${viewIconMarkup('h-3.5 w-3.5')}${views.total}</span>` : ''}
                   ${stats.hidden
                     ? `<p class="m-0 max-w-[300px] text-center text-xs text-muted">${t('resultsHidden').replace('{n}', String(stats.threshold))}</p>`
                     : `<div class="flex w-full max-w-[300px] overflow-hidden rounded-xl border border-border max-[700px]:col-start-1" role="group" aria-label="${t('vote')}" data-vote-group="${poll.id}">

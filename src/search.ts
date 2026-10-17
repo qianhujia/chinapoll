@@ -63,7 +63,7 @@ async function submitSearch(rawValue: string): Promise<void> {
   // A pure number is treated as a poll ID: jump straight to that poll when it exists.
   if (/^\d+$/.test(value)) {
     try {
-      const poll = await getPoll(Number(value));
+      const { poll } = await getPoll(Number(value));
       navigateTo(`/poll/${poll.id}`);
       return;
     } catch (error) {

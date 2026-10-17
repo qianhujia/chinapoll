@@ -1,4 +1,5 @@
 import { PollStatus } from '../../worker/enums';
+import { last7DayCutoff, todayBucket } from '../../worker/api/views';
 import type { AdminEnv } from '../auth';
 
 interface CountRow {
@@ -10,7 +11,7 @@ export async function handleOverviewRequest(request: Request, env: AdminEnv): Pr
     return Response.json({ message: 'method not allowed' }, { status: 405 });
   }
 
-  const [pending, open, closed, archived, votes, comments, users, settings, adminUsers, auditEntries, openReports] = await Promise.all([
+  const [pending, open, closed, archived, votes, comments, users, settings, adminUsers, auditEntries, views24h, views7d, openReports] = await Promise.all([
     count(env, 'SELECT COUNT(*) AS total FROM polls WHERE status = ?', PollStatus.Pending),
     count(env, 'SELECT COUNT(*) AS total FROM polls WHERE status = ?', PollStatus.Open),
     count(env, 'SELECT COUNT(*) AS total FROM polls WHERE status = ?', PollStatus.Closed),
@@ -21,6 +22,8 @@ export async function handleOverviewRequest(request: Request, env: AdminEnv): Pr
     count(env, 'SELECT COUNT(*) AS total FROM settings'),
     count(env, 'SELECT COUNT(*) AS total FROM admin_users'),
     count(env, 'SELECT COUNT(*) AS total FROM admin_audit_log'),
+    sum(env, 'SELECT COALESCE(SUM(views), 0) AS total FROM poll_views WHERE ts_day >= ?', todayBucket()),
+    sum(env, 'SELECT COALESCE(SUM(views), 0) AS total FROM poll_views WHERE ts_day >= ?', last7DayCutoff()),
     count(env, 'SELECT COUNT(*) AS total FROM poll_reports WHERE resolved_at IS NULL')
   ]);
 
@@ -44,6 +47,8 @@ export async function handleOverviewRequest(request: Request, env: AdminEnv): Pr
       settings,
       adminUsers,
       auditEntries,
+      views24h,
+      views7d,
       openReports,
       recentPending: (recentPending.results ?? []).map((row) => ({
         id: row.id,
@@ -62,3 +67,6 @@ async function count(env: AdminEnv, sql: string, ...binds: unknown[]): Promise<n
   const row = await statement.first<CountRow>();
   return Number(row?.total ?? 0);
 }
+
+// Reads a single aggregate value (COUNT or SUM) as a number.
+const sum = count;

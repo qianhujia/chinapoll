@@ -23,6 +23,9 @@ const ATTEMPT_RETENTION_SECONDS = 30 * 24 * 60 * 60;
 // Resolved reports are deleted 90 days after `resolved_at`. Reports are removed
 // with the poll by the foreign key cascade.
 const REPORT_RETENTION_SECONDS = 90 * 24 * 60 * 60;
+// View rows older than 90 days are rolled up into one row per poll (ts_day = 0)
+// so long-term totals survive while daily resolution is dropped.
+const VIEW_ROLLUP_SECONDS = 90 * 24 * 60 * 60;
 // A poll that closed within this window still needs its terminal snapshot
 // written if an earlier close path could not write one.
 const FINAL_SNAPSHOT_WINDOW_SECONDS = 3600;
@@ -47,12 +50,13 @@ const SNAPSHOT_POLLS_SQL = `SELECT id, status FROM polls
 // upsert keeps the terminal marker and the counts correct when an open snapshot
 // written earlier in the same hour is followed by a close.
 const INSERT_SNAPSHOT_SQL = `INSERT INTO stats_snapshots
-   (poll_id, ts_hour, approve, oppose, neutral, prev_hash, hash, final)
-   VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+   (poll_id, ts_hour, approve, oppose, neutral, views, prev_hash, hash, final)
+   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
    ON CONFLICT(poll_id, ts_hour) DO UPDATE SET
      approve = excluded.approve,
      oppose = excluded.oppose,
      neutral = excluded.neutral,
+     views = excluded.views,
      prev_hash = excluded.prev_hash,
      hash = excluded.hash,
      final = excluded.final`;
@@ -129,6 +133,20 @@ export async function runMaintenanceTasks(env: MaintenanceEnv): Promise<void> {
       'DELETE FROM poll_reports WHERE resolved_at IS NOT NULL AND resolved_at <= ?'
     ).bind(now - REPORT_RETENTION_SECONDS)
   ]);
+
+  // Roll up view rows older than 90 days into a single row per poll so daily
+  // resolution is dropped while the long-term total survives, then drop the
+  // individual daily rows. The insert must run before the delete.
+  const viewCutoff = Math.floor((now - VIEW_ROLLUP_SECONDS) / 86400) * 86400;
+  await env.DB.batch([
+    env.DB.prepare(
+      `INSERT INTO poll_views (poll_id, ts_day, views)
+       SELECT poll_id, 0, SUM(views) FROM poll_views WHERE ts_day > 0 AND ts_day < ?
+       GROUP BY poll_id
+       ON CONFLICT(poll_id, ts_day) DO UPDATE SET views = views + excluded.views`
+    ).bind(viewCutoff),
+    env.DB.prepare('DELETE FROM poll_views WHERE ts_day > 0 AND ts_day < ?').bind(viewCutoff)
+  ]);
 }
 
 // Writes one snapshot per poll that needs one in three queries total (poll ids,
@@ -173,6 +191,16 @@ async function writeSnapshots(env: MaintenanceEnv, tsHour: number, now: number):
     previous.set(Number(row.poll_id), row.hash);
   }
 
+  // Cumulative views per poll, carried into the signed snapshot.
+  const viewsByPoll = new Map<number, number>();
+  const viewsRows = await env.DB.prepare(
+    `SELECT poll_id, COALESCE(SUM(views), 0) AS views FROM poll_views
+     WHERE poll_id IN (${placeholders}) GROUP BY poll_id`
+  ).bind(...pollIds).all<{ poll_id: number; views: number }>();
+  for (const row of viewsRows.results ?? []) {
+    viewsByPoll.set(Number(row.poll_id), Number(row.views));
+  }
+
   const insert = env.DB.prepare(INSERT_SNAPSHOT_SQL);
 
   const statements: D1PreparedStatement[] = [];
@@ -181,11 +209,12 @@ async function writeSnapshots(env: MaintenanceEnv, tsHour: number, now: number):
       pollId: entry.id,
       tsHour,
       counts: counts.get(entry.id) ?? emptyCounts(),
+      views: viewsByPoll.get(entry.id) ?? 0,
       prevHash: previous.get(entry.id) ?? null
     });
     statements.push(insert.bind(
       snapshot.pollId, snapshot.tsHour, snapshot.approve, snapshot.oppose,
-      snapshot.neutral, snapshot.prevHash, snapshot.hash, entry.final ? 1 : 0
+      snapshot.neutral, snapshot.views, snapshot.prevHash, snapshot.hash, entry.final ? 1 : 0
     ));
   }
 
@@ -214,15 +243,20 @@ export async function writeSnapshotForPoll(
      WHERE poll_id = ? AND ts_hour < ? ORDER BY ts_hour DESC LIMIT 1`
   ).bind(pollId, tsHour).first<{ hash: string }>();
 
+  const viewsRow = await env.DB.prepare(
+    'SELECT COALESCE(SUM(views), 0) AS views FROM poll_views WHERE poll_id = ?'
+  ).bind(pollId).first<{ views: number }>();
+
   const snapshot = await makeSnapshot({
     pollId,
     tsHour,
     counts,
+    views: Number(viewsRow?.views ?? 0),
     prevHash: previous?.hash ?? null
   });
 
   await env.DB.prepare(INSERT_SNAPSHOT_SQL).bind(
     snapshot.pollId, snapshot.tsHour, snapshot.approve, snapshot.oppose,
-    snapshot.neutral, snapshot.prevHash, snapshot.hash, isFinal ? 1 : 0
+    snapshot.neutral, snapshot.views, snapshot.prevHash, snapshot.hash, isFinal ? 1 : 0
   ).run();
 }

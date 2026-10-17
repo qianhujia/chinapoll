@@ -57,6 +57,20 @@ bucket, no user id — and the report id is never returned by the public API. Ra
 limiting uses the keyed daily network hash in the Durable Object, which is never
 written here. Reports are removed with the poll by the foreign key cascade.
 
+## poll_views
+
+| Column | Contents | Readers | Retention |
+| --- | --- | --- | --- |
+| poll_id | poll reference | Public (aggregated), Admin | until the poll is deleted |
+| ts_day | UTC day bucket start, or 0 for the long-term rollup | Public (aggregated), Admin | 90 days at daily resolution, then rolled up |
+| views | view counter for that day | Public (aggregated), Admin | as above |
+
+Note: `poll_views` holds only per-poll daily counters. There are no per-view rows
+anywhere, so a view cannot be attributed to a viewer, and no network value is
+stored. Rows older than 90 days are rolled up into a single `ts_day = 0` row per
+poll so long-term totals survive while daily resolution is dropped. Rows are
+removed with the poll by the foreign key cascade.
+
 ## users
 
 | Column | Contents | Readers | Retention |
@@ -99,6 +113,7 @@ by design; the hash chain makes rewriting detectable.
 | --- | --- | --- | --- |
 | poll_id, ts_hour | poll reference and hour bucket | Public | forever |
 | approve, oppose, neutral | counts at that hour | Public | forever |
+| views | cumulative view total at that hour | Public | forever |
 | prev_hash, hash | chain link and record hash | Public | forever |
 | final | 1 on the terminal snapshot written when the poll closed, 0 otherwise | Public | forever |
 
@@ -118,5 +133,6 @@ IP address. Read only by the admin Worker.
 - Per-network account-cap counters only as keyed hashes; the raw address cannot
   be recovered without `SERVER_HMAC_KEY`. Because the cap hash rotates per calendar
   month, rows sharing a hash are linkable within one month.
-- Reports reveal nothing about who filed them: `poll_reports` stores no reporter
-  identifier and only an hour-coarsened timestamp.
+- Reports and views reveal nothing about who acted: `poll_reports` stores no
+  reporter identifier and only an hour-coarsened timestamp, and `poll_views` is a
+  per-poll daily counter with no per-view rows and no network value.

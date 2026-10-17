@@ -1,4 +1,4 @@
-import { ArrowBigDown, ArrowBigUp, CircleAlert, CircleCheck, Minus, Search, X, type IconNode } from 'lucide';
+import { ArrowBigDown, ArrowBigUp, CircleAlert, CircleCheck, Eye, Minus, Search, X, type IconNode } from 'lucide';
 import { DEFAULT_LOCALE, getLocaleText } from './i18n';
 import { getComments, type CommentsResponse, type PollSummary, type VoteOption } from './lib/poll';
 import { getCurrentUser } from './lib/session';
@@ -38,6 +38,11 @@ export function searchIconMarkup(cssClass: string): string {
 
 export function closeIconMarkup(cssClass: string): string {
   return iconMarkup(X, cssClass);
+}
+
+// Eye icon used next to a poll's view count.
+export function viewIconMarkup(cssClass: string): string {
+  return iconMarkup(Eye, cssClass);
 }
 
 const toastIcons: Record<'success' | 'error', IconNode> = {

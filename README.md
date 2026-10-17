@@ -19,7 +19,7 @@ The local start command builds the frontend and Worker before starting them with
 
 Application settings are stored in the local D1 `settings` table and served to the front end by `/api/settings/public`. The `settings` table is the single source of truth for feature flags: read-only mode (`read_only_mode`), Turnstile (`turnstile_enable` plus the private `turnstile_secret_key`, which is never exposed by the public endpoint), rate limits (`vote_rate_limit`, `comment_rate_limit`, `proposal_rate_limit`, `report_rate_limit` in `"<count>/<unit>"` format with unit `w|d|h|m|s`), and the homepage hero (`hero_title`, `hero_subtitle`, `hero_background_color` — a CSS color (hex, rgb/a, hsl/a, or named) or CSS gradient; empty means no background). `.dev.vars` still holds local Worker secrets, and Turnstile is disabled locally by default (`turnstile_enable=false`).
 
-Public application settings use these self-explanatory keys: `default_locale` (`en`, `zh-CN`, or `zh-TW`), `site_name`, `site_slogan`, `data_repository_url`, `polls_per_page`, `comments_per_page`, `page_max_width_px`, `hero_title`, `hero_subtitle`, `hero_background_color`, `read_only_mode`, `turnstile_enable`, `turnstile_site_key`, `min_votes_to_display`, `report_rate_limit`, `report_auto_hide_threshold`, `report_auto_hide_priority_threshold`, `vote_rate_limit`, `comment_rate_limit`, and `proposal_rate_limit`. Page sizes are limited to 1–100; the page width is in pixels; `min_votes_to_display` (default 10) hides vote totals until a poll reaches that many votes. Missing or invalid settings fall back to built-in defaults. The locale supports `en`, `zh-CN`, and `zh-TW`; translations are loaded from `public/i18n/en.json`, `public/i18n/zh.json`, and `public/i18n/zh-TW.json`.
+Public application settings use these self-explanatory keys: `default_locale` (`en`, `zh-CN`, or `zh-TW`), `site_name`, `site_slogan`, `data_repository_url`, `polls_per_page`, `comments_per_page`, `page_max_width_px`, `hero_title`, `hero_subtitle`, `hero_background_color`, `read_only_mode`, `turnstile_enable`, `turnstile_site_key`, `min_votes_to_display`, `min_views_to_display`, `report_rate_limit`, `report_auto_hide_threshold`, `report_auto_hide_priority_threshold`, `vote_rate_limit`, `comment_rate_limit`, and `proposal_rate_limit`. Page sizes are limited to 1–100; the page width is in pixels; `min_votes_to_display` (default 10) hides vote totals until a poll reaches that many votes and `min_views_to_display` (default 20) hides view totals until a poll reaches that many views. Missing or invalid settings fall back to built-in defaults. The locale supports `en`, `zh-CN`, and `zh-TW`; translations are loaded from `public/i18n/en.json`, `public/i18n/zh.json`, and `public/i18n/zh-TW.json`.
 
 User-account settings are also stored in the `settings` table and served by the same endpoint: `user_poll_delay_hours` (default 48) and `user_comment_delay_hours` (default 24) set how long a new account must wait before it can submit a poll or post a comment, `max_accounts_per_ip` (default 4) caps how many accounts one anonymized network bucket may create, `login_max_failed_attempts` (default 5) and `login_lock_minutes` (default 15) control the lock after repeated failed sign-ins, and `login_rate_limit` (default `10/h`) and `register_rate_limit` (default `5/d`) rate limit sign-in and sign-up attempts per network bucket. Delay values are whole hours; the rate limits use the shared `"<count>/<unit>"` format with unit `w|d|h|m|s`. `login_badge_enable` (default `false`) is an optional navbar flag: when set to `true`, a small "Optional" badge is shown on the top-right corner of the login and sign-up links next to the header search to make clear that signing in is not required. `auto_approve_polls` (default `false`) controls moderation: when `true`, a submitted poll is published immediately; when `false`, it stays pending until an admin approves it from the dashboard's Polls tab.
 
@@ -59,7 +59,7 @@ This keeps schema changes reproducible across local development. Future schema u
 
 Review and publish pending submissions from the dashboard's Polls tab: set a poll's status to `open` to approve it or to `closed` to reject it. A poll keeps the same ID from submission through approval.
 
-## Poll reports
+## Poll reports and view counts
 
 Visitors can report a poll from the poll page without an account:
 `POST /api/polls/:id/report` accepts `{ "reason": "<label>", "note"?: "<text>" }`.
@@ -78,8 +78,19 @@ reached the poll is set back to pending with `reviewed_at` cleared so it leaves
 public listings until an admin reviews it, and an audit entry with action
 `poll.auto_hidden` is written. Setting a threshold to `0` disables that rule.
 
-Retention: resolved reports are deleted 90 days after `resolved_at`, and reports
-are removed with the poll by the foreign key cascade.
+Each poll also counts how often it is opened, without recording who opened it:
+`POST /api/polls/:id/view` increments one per-poll, per-UTC-day counter
+(`poll_views`). The browser calls it once per tab session, and the server rate
+limits the call at `60/h` through the Durable Object, always answering `204` so
+the response reveals nothing. `GET /api/polls/:id` and the poll list report
+`views: { total, last7Days } | null`, where the value is `null` below
+`min_views_to_display` (default 20). Cumulative views are included in the signed
+hourly snapshot chain.
+
+Retention: resolved reports are deleted 90 days after `resolved_at`, and view
+rows older than 90 days are rolled up into a single per-poll row so long-term
+totals survive while daily resolution is dropped. Both are removed with the poll
+by the foreign key cascade.
 
 ## Admin Worker
 
@@ -124,10 +135,11 @@ records admin actions without client IP addresses. Deploy with
   rejection, the cron snapshot chain including the close-hour terminal snapshot,
   the Content Security Policy on a deep link, a full `verify` of a chain
   longer than one API page, poll reporting (validation, the hourly timestamp, the
-  report rate limit, and both auto-hide thresholds), and the admin report list and
-  resolve handlers. Every migration is applied to the isolated test database in
-  order (`migrations/0001_initial.sql`, then
-  `migrations/0002_reports_and_views.sql`).
+  report rate limit, and both auto-hide thresholds), view counting (the daily
+  counter, the display threshold, the 7-day window, and the always-204 rate
+  limit), and the admin report list and resolve handlers. Every migration is
+  applied to the isolated test database in order (`migrations/0001_initial.sql`,
+  then `migrations/0002_reports_and_views.sql`).
 
 ```bash
 npm test              # unit + integration

@@ -200,5 +200,6 @@
   "reportSubmit": "傳送檢舉",
   "reportCancel": "取消",
   "reportThanks": "謝謝。檢舉已提交審核。",
-  "reportAlreadySent": "你已檢舉此投票"
+  "reportAlreadySent": "你已檢舉此投票",
+  "views": "次瀏覽"
 }

@@ -2,6 +2,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { env } from 'cloudflare:test';
 import type { AdminActor } from '../../admin/auth';
 import { handleReportsRequest } from '../../admin/api/reports';
+import { handleOverviewRequest } from '../../admin/api/overview';
 import { applySchema, reportRequest, seedPoll } from './helpers';
 
 // The admin Worker is deployed separately and has no test harness of its own, so
@@ -130,5 +131,25 @@ describe('admin report moderation', () => {
       new Request(listUrl('?page=0').toString()), listUrl('?page=0'), env, ACTOR
     );
     expect(badPage.status).toBe(400);
+  });
+
+  it('reports view totals and the open-report count on the overview', async () => {
+    const pollId = await seedPoll({ title: 'Overview poll' });
+    const today = Math.floor(Date.now() / 1000 / 86400) * 86400;
+    await env.DB.batch([
+      env.DB.prepare('INSERT INTO poll_views (poll_id, ts_day, views) VALUES (?, ?, ?)').bind(pollId, today, 40),
+      // A long-term rollup row is excluded from the recent windows.
+      env.DB.prepare('INSERT INTO poll_views (poll_id, ts_day, views) VALUES (?, 0, ?)').bind(pollId, 100)
+    ]);
+    await reportRequest(pollId, 'spam');
+
+    const response = await handleOverviewRequest(
+      new Request('https://admin.example.com/api/admin/overview'), env
+    );
+    expect(response.status).toBe(200);
+    const body = await response.json() as any;
+    expect(body.overview.views24h).toBe(40);
+    expect(body.overview.views7d).toBe(40);
+    expect(body.overview.openReports).toBeGreaterThanOrEqual(1);
   });
 });

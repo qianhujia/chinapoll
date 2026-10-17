@@ -6,6 +6,7 @@ import { normalizeRecoveryCode } from '../worker/services/recovery';
 import { checkAccountAge, validateUserPassword } from '../worker/services/users';
 import { enforceSameOrigin } from '../worker/services/csrf';
 import { validateProposal } from '../worker/api/proposal';
+import { dayBucket, last7DayCutoff, publicViews, todayBucket } from '../worker/api/views';
 import {
   getPollReportReasonCode,
   getPollReportReasonLabel,
@@ -108,16 +109,24 @@ describe('hashedNetworkBucket', () => {
 
 describe('makeSnapshot', () => {
   it('chains the previous hash and is deterministic', async () => {
-    const first = await makeSnapshot({ pollId: 1, tsHour: 100, counts: { approve: 3, oppose: 1, neutral: 0 }, prevHash: null });
+    const first = await makeSnapshot({ pollId: 1, tsHour: 100, counts: { approve: 3, oppose: 1, neutral: 0 }, views: 7, prevHash: null });
     expect(first.prevHash).toBe('GENESIS');
+    expect(first.views).toBe(7);
     expect(first.hash).toMatch(/^[0-9a-f]{64}$/);
     const recomputed = await verifySnapshotHash({
       pollId: first.pollId, tsHour: first.tsHour, approve: first.approve,
-      oppose: first.oppose, neutral: first.neutral, prevHash: first.prevHash
+      oppose: first.oppose, neutral: first.neutral, views: first.views, prevHash: first.prevHash
     });
     expect(recomputed).toBe(first.hash);
 
-    const second = await makeSnapshot({ pollId: 1, tsHour: 101, counts: { approve: 4, oppose: 1, neutral: 0 }, prevHash: first.hash });
+    // The cumulative views are part of the hashed payload.
+    const tampered = await verifySnapshotHash({
+      pollId: first.pollId, tsHour: first.tsHour, approve: first.approve,
+      oppose: first.oppose, neutral: first.neutral, views: first.views + 1, prevHash: first.prevHash
+    });
+    expect(tampered).not.toBe(first.hash);
+
+    const second = await makeSnapshot({ pollId: 1, tsHour: 101, counts: { approve: 4, oppose: 1, neutral: 0 }, views: 9, prevHash: first.hash });
     expect(second.prevHash).toBe(first.hash);
     expect(second.hash).not.toBe(first.hash);
   });
@@ -225,5 +234,25 @@ describe('poll report enums', () => {
     expect(getReportResolutionCode('action_taken')).toBe(ReportResolution.ActionTaken);
     expect(getReportResolutionCode('nope')).toBeNull();
     expect(getReportResolutionLabel(ReportResolution.ActionTaken)).toBe('action_taken');
+  });
+});
+
+describe('view day buckets', () => {
+  it('floors a timestamp to the UTC day', () => {
+    expect(dayBucket(0)).toBe(0);
+    expect(dayBucket(86_399)).toBe(0);
+    expect(dayBucket(86_400)).toBe(86_400);
+    expect(todayBucket(86_400 * 1000 * 3 + 5_000)).toBe(86_400 * 3);
+  });
+
+  it('starts the 7-day window six buckets before today', () => {
+    expect(last7DayCutoff(86_400 * 1000 * 10)).toBe(86_400 * 4);
+  });
+
+  it('withholds view counts below the display threshold', () => {
+    expect(publicViews({ total: 5, last7Days: 5 }, 20)).toBeNull();
+    expect(publicViews({ total: 20, last7Days: 12 }, 20)).toEqual({ total: 20, last7Days: 12 });
+    expect(publicViews(undefined, 0)).toBeNull();
+    expect(publicViews({ total: 1, last7Days: 1 }, 0)).toEqual({ total: 1, last7Days: 1 });
   });
 });

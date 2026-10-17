@@ -22,6 +22,11 @@ export const REPORT_REASONS: readonly ReportReason[] = [
   'other'
 ];
 
+export interface PollViewCounts {
+  total: number;
+  last7Days: number;
+}
+
 export interface PollSummary {
   id: number;
   title: string;
@@ -41,6 +46,7 @@ export interface PollWithStats {
     threshold: number;
     voted: boolean;
   };
+  views: PollViewCounts | null;
 }
 
 export interface VoteResponse {
@@ -120,9 +126,24 @@ export async function getPolls(page: number, pageSize: number, query = ''): Prom
   return fetchJson(`/api/polls?${params}`);
 }
 
-export async function getPoll(pollId: number): Promise<PollSummary> {
-  const response = await fetchJson<{ poll: PollSummary }>(`/api/polls/${pollId}`);
-  return response.poll;
+export async function getPoll(pollId: number): Promise<{ poll: PollSummary; views: PollViewCounts | null }> {
+  return fetchJson(`/api/polls/${pollId}`);
+}
+
+// Records one view for a poll at most once per tab session. View counting is
+// best-effort: a failure is never surfaced to the visitor.
+export async function recordViewOnce(pollId: number): Promise<void> {
+  try {
+    if (sessionStorage.getItem(`chinapoll.viewed.${pollId}`) === '1') return;
+    sessionStorage.setItem(`chinapoll.viewed.${pollId}`, '1');
+  } catch {
+    // Ignore storage failures and still record the view.
+  }
+  try {
+    await fetch(`/api/polls/${pollId}/view`, { method: 'POST' });
+  } catch {
+    // View counting is best-effort; the page must not fail because of it.
+  }
 }
 
 export async function submitReport(payload: {

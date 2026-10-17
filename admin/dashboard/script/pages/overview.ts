@@ -27,6 +27,8 @@ export const scriptOverview = `  function statCard(value, label) {
       statCard(o.closed, 'Closed polls') +
       statCard(o.archived, 'Archived polls') +
       statCard(o.votes, 'Total votes') +
+      statCard(o.views24h, 'Views (24h)') +
+      statCard(o.views7d, 'Views (7d)') +
       statCard(o.comments, 'Total comments') +
       reportsCard(o.openReports) +
       statCard(o.users, 'Public users') +

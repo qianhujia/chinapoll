@@ -22,6 +22,8 @@ the schema or the network handling changes.
   in `auth_attempts`. The raw address is never stored.
 - Poll reports: only the poll reference, the reason code, an optional free-text
   note, and an hour-coarsened timestamp. There is no reporter identifier at all.
+- Poll views: one counter per poll per UTC day. There are no per-view rows, so a
+  view cannot be attributed to a viewer.
 
 ## Adversaries and mitigations
 
@@ -37,9 +39,12 @@ the schema or the network handling changes.
   rotating the recovery code or deleting the account both require the current
   password.
 - **Content tampering**: hourly signed snapshots form an append-only hash chain
-  published for external verification.
+  published for external verification. Each record's hash covers the poll id, the
+  hour, the approve/oppose/neutral counts, the cumulative view total, and the
+  previous record's hash, so rewriting either a count or a view total is
+  detectable.
 
-## Reports
+## Reports and views
 
 Reporting is anonymous: `POST /api/polls/:id/report` stores no address, no network
 bucket, no user id, and only an hour-coarsened `created_at`, and the report id is
@@ -53,6 +58,16 @@ reports in total, it is set back to pending with `reviewed_at` cleared so it
 leaves public listings until an admin reviews it. Setting a threshold to 0
 disables that rule. Resolving a report never changes the poll status; an admin
 does that from the Polls tab.
+
+View counting is deliberately coarse. `POST /api/polls/:id/view` increments one
+per-poll, per-UTC-day counter; there are no per-view rows anywhere, no network
+value is stored, and the endpoint always answers `204` so the response reveals
+nothing whether or not the rate limit was hit. The browser also deduplicates
+itself per tab session. Counts are approximate and that is acceptable: they are
+published only as an aggregate `{ total, last7Days }`, and only once the poll
+passes `min_views_to_display` (default 20), so a poll with a couple of views and
+one vote cannot be used to guess the voter. View rows older than 90 days are
+rolled up into a single per-poll row, dropping daily resolution.
 
 ## Explicit non-goals
 
@@ -82,8 +97,9 @@ does that from the Polls tab.
   migration.
 - Poll ownership moved to a one-way owner hash; comments carry no owner; the
   account-cap hash rotates per calendar month and is linkable within a month.
-- Added anonymous poll reports: no reporter identifier, hour-coarsened
-  timestamps, and priority auto-hide thresholds.
+- Added anonymous poll reports (no reporter identifier, hour-coarsened timestamps,
+  priority auto-hide thresholds) and coarse per-poll daily view counters; the
+  signed snapshot hash now also covers the cumulative view total.
 
 ## Known trade-offs
 

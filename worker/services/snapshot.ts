@@ -14,6 +14,7 @@ export interface SnapshotRecord {
   approve: number;
   oppose: number;
   neutral: number;
+  views: number;
   prevHash: string;
   hash: string;
 }
@@ -22,6 +23,7 @@ export interface SnapshotInput {
   pollId: number;
   tsHour: number;
   counts: Record<VoteOption, number>;
+  views: number;
   prevHash: string | null;
 }
 
@@ -34,17 +36,19 @@ function canonicalJson(input: Omit<SnapshotRecord, 'hash'>): string {
     approve: input.approve,
     oppose: input.oppose,
     neutral: input.neutral,
+    views: input.views,
     prevHash: input.prevHash
   });
 }
 
-export async function makeSnapshot({ pollId, tsHour, counts, prevHash }: SnapshotInput): Promise<SnapshotRecord> {
+export async function makeSnapshot({ pollId, tsHour, counts, views, prevHash }: SnapshotInput): Promise<SnapshotRecord> {
   const record = {
     pollId,
     tsHour,
     approve: counts.approve ?? 0,
     oppose: counts.oppose ?? 0,
     neutral: counts.neutral ?? 0,
+    views: views ?? 0,
     prevHash: prevHash ?? 'GENESIS'
   };
   const hash = await sha256Hex(`${record.prevHash}:${canonicalJson(record)}`);

@@ -105,6 +105,11 @@ export function validateSettingValue(key: string, value: string): SettingValidat
         return { ok: false, error: 'min_votes_to_display must be an integer from 0 to 1000.' };
       }
       break;
+    case 'min_views_to_display':
+      if (!/^\d+$/.test(value) || Number(value) > 1000) {
+        return { ok: false, error: 'min_views_to_display must be an integer from 0 to 1000.' };
+      }
+      break;
     case 'report_auto_hide_threshold':
       if (!/^\d+$/.test(value) || Number(value) > 1000) {
         return { ok: false, error: 'report_auto_hide_threshold must be an integer from 0 to 1000.' };

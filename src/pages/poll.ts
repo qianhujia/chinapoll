@@ -9,11 +9,13 @@ import {
   hashToken,
   markReportedLocally,
   markVotedLocally,
+  recordViewOnce,
   REPORT_REASONS,
   submitComment,
   submitReport,
   submitVote,
   type PollSummary,
+  type PollViewCounts,
   type ReportReason
 } from '../lib/poll';
 import { getCurrentUser } from '../lib/session';
@@ -32,7 +34,8 @@ import {
   showToast,
   t,
   updateComments,
-  updateVoteGroup
+  updateVoteGroup,
+  viewIconMarkup
 } from '../ui';
 
 // i18n key for each report reason, in the order the reasons are shown.
@@ -50,8 +53,11 @@ const REPORT_REASON_LABELS: Record<ReportReason, string> = {
 export async function mountVotePage(pollId: number, app: HTMLElement, bindNavigation: () => void): Promise<void> {
   const commentsPerPage = getCommentsPerPage();
   let poll: PollSummary;
+  let views: PollViewCounts | null = null;
   try {
-    poll = await getPoll(pollId);
+    const loaded = await getPoll(pollId);
+    poll = loaded.poll;
+    views = loaded.views;
   } catch (error) {
     const message = getErrorMessage(error);
     app.innerHTML = `
@@ -64,6 +70,10 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
     bindNavigation();
     return;
   }
+
+  // Count this open once the poll has loaded. The browser deduplicates itself
+  // per tab session; the call is fire-and-forget.
+  void recordViewOnce(poll.id);
 
   const token = createToken();
   // The base token identifies the browser; mixing in the poll id means the
@@ -106,6 +116,11 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
       hasVoted ? t('alreadyVoted') : t(option)
     )).join('')
     : '';
+  // The view count is shown next to the vote total when it clears the display
+  // threshold; otherwise `views` is null and nothing is rendered.
+  const viewsLine = views
+    ? `<span class="inline-flex items-center gap-1">${viewIconMarkup('h-3.5 w-3.5')}${views.total} ${t('views')}</span>`
+    : '';
   const alreadyReported = hasReportedLocally(poll.id);
 
   app.innerHTML = `
@@ -128,6 +143,13 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
             </div>
           ` : stats?.hidden ? `
             <p class="mt-6 mb-0 text-center text-sm text-muted">${t('resultsHidden').replace('{n}', String(stats.threshold))}</p>
+          ` : ''}
+
+          ${voteCounts || viewsLine ? `
+            <p class="m-0 mt-3 flex items-center justify-center gap-3 text-center text-xs text-muted">
+              ${voteCounts ? `<span>${voteTotal} ${t('votes')}</span>` : ''}
+              ${viewsLine}
+            </p>
           ` : ''}
 
           ${turnstileSiteKey() ? '<div class="mx-auto mt-4 flex justify-center" data-turnstile-vote></div>' : ''}

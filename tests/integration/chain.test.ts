@@ -18,13 +18,14 @@ describe('snapshot chain', () => {
         pollId,
         tsHour: 1_000_000 + index,
         counts: { approve: index, oppose: 0, neutral: 0 },
+        views: index,
         prevHash
       });
       prevHash = snapshot.hash;
       batch.push(
         env.DB.prepare(
-          'INSERT INTO stats_snapshots (poll_id, ts_hour, approve, oppose, neutral, prev_hash, hash, final) VALUES (?, ?, ?, ?, ?, ?, ?, 0)'
-        ).bind(pollId, snapshot.tsHour, snapshot.approve, snapshot.oppose, snapshot.neutral, snapshot.prevHash, snapshot.hash)
+          'INSERT INTO stats_snapshots (poll_id, ts_hour, approve, oppose, neutral, views, prev_hash, hash, final) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)'
+        ).bind(pollId, snapshot.tsHour, snapshot.approve, snapshot.oppose, snapshot.neutral, snapshot.views, snapshot.prevHash, snapshot.hash)
       );
       if (batch.length === 100) {
         await env.DB.batch(batch);

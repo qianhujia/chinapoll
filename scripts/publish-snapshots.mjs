@@ -10,6 +10,10 @@
 //   * new snapshots are appended to the existing poll file, and a poll file is
 //     never deleted.
 //
+// Each stored snapshot carries the poll id, the hour, the approve/oppose/neutral
+// counts, the cumulative view total (`views`), the chain link, and the `final`
+// flag, exactly as returned by /api/snapshots/:id.
+//
 // Environment:
 //   API_BASE         base URL of the public Worker (for example https://chinapoll.org)
 //   DATA_REPO_PATH   checkout directory of the data repository (default: .)

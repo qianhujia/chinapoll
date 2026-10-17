@@ -18,6 +18,7 @@ interface AdminPollRow {
   approve: number;
   neutral: number;
   oppose: number;
+  views: number;
   created_at: number;
   updated_at: number;
 }
@@ -85,7 +86,8 @@ async function listPolls(url: URL, env: AdminEnv): Promise<Response> {
             i.created_at, i.updated_at,
             COALESCE(SUM(CASE WHEN v.option = ? THEN 1 ELSE 0 END), 0) AS approve,
             COALESCE(SUM(CASE WHEN v.option = ? THEN 1 ELSE 0 END), 0) AS neutral,
-            COALESCE(SUM(CASE WHEN v.option = ? THEN 1 ELSE 0 END), 0) AS oppose
+            COALESCE(SUM(CASE WHEN v.option = ? THEN 1 ELSE 0 END), 0) AS oppose,
+            (SELECT COALESCE(SUM(pv.views), 0) FROM poll_views pv WHERE pv.poll_id = i.id) AS views
      FROM page
      JOIN polls i ON i.id = page.id
      LEFT JOIN votes v ON v.poll_id = i.id
@@ -108,6 +110,7 @@ async function listPolls(url: URL, env: AdminEnv): Promise<Response> {
       endAt: toIso(row.end_at),
       createdAt: toIso(row.created_at),
       updatedAt: toIso(row.updated_at),
+      views: Number(row.views),
       counts: {
         approve: Number(row.approve),
         neutral: Number(row.neutral),

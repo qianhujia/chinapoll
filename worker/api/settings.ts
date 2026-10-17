@@ -50,6 +50,9 @@ export const DEFAULT_PUBLIC_SETTINGS = {
   register_rate_limit: '5/d',
   // Vote totals below this number are hidden until the poll gathers more votes.
   min_votes_to_display: 10,
+  // View totals below this number are hidden until the poll gathers more views,
+  // so a poll with a couple of views and one vote cannot be used to guess a voter.
+  min_views_to_display: 20,
   // Automatic protection: a poll is hidden for review once it collects this many
   // open reports in total, or this many open reports with a high-priority reason.
   // Setting a threshold to 0 disables that rule.
@@ -148,6 +151,7 @@ export async function loadPublicSettings(db: D1Database): Promise<PublicSettings
         settings.login_lock_minutes = Number(value);
         break;
       case 'min_votes_to_display':
+      case 'min_views_to_display':
       case 'report_auto_hide_threshold':
       case 'report_auto_hide_priority_threshold':
         if (!isInteger(value, 0, 1000)) invalid(row.key, 'must be an integer from 0 to 1000');
