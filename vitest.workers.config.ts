@@ -13,6 +13,11 @@ export default defineConfig({
   plugins: [
     cloudflareTest({
       wrangler: { configPath: './wrangler.toml' },
+      // The AI binding has no local simulator, so the pool would try to open a
+      // remote session (which needs a Cloudflare API token). Remote bindings are
+      // turned off here: the integration tests stub `env.AI` themselves and the
+      // real binding is never called.
+      remoteBindings: false,
       miniflare: {
         // The pool bundles a workerd build whose newest supported compatibility
         // date is earlier than the production one, so tests pin a date it accepts.

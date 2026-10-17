@@ -24,6 +24,7 @@ export interface PublicSettings {
   login_rate_limit: string;
   register_rate_limit: string;
   report_rate_limit: string;
+  ai_enable: boolean;
   min_votes_to_display: number;
   min_views_to_display: number;
   report_auto_hide_threshold: number;
@@ -54,6 +55,7 @@ const defaultSettings: PublicSettings = {
   login_rate_limit: '10/h',
   register_rate_limit: '5/d',
   report_rate_limit: '3/d',
+  ai_enable: false,
   min_votes_to_display: 10,
   min_views_to_display: 20,
   report_auto_hide_threshold: 5,
@@ -87,6 +89,7 @@ export async function loadPublicSettings(): Promise<PublicSettings> {
     || typeof result.login_rate_limit !== 'string'
     || typeof result.register_rate_limit !== 'string'
     || typeof result.report_rate_limit !== 'string'
+    || typeof result.ai_enable !== 'boolean'
     || !Number.isSafeInteger(result.min_votes_to_display) || result.min_votes_to_display < 0
     || !Number.isSafeInteger(result.min_views_to_display) || result.min_views_to_display < 0
     || !Number.isSafeInteger(result.report_auto_hide_threshold) || result.report_auto_hide_threshold < 0

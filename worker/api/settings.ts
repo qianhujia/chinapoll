@@ -57,7 +57,13 @@ export const DEFAULT_PUBLIC_SETTINGS = {
   // open reports in total, or this many open reports with a high-priority reason.
   // Setting a threshold to 0 disables that rule.
   report_auto_hide_threshold: 5,
-  report_auto_hide_priority_threshold: 2
+  report_auto_hide_priority_threshold: 2,
+  // Optional AI assistance. `ai_enable` is off by default, so the /api/ai
+  // endpoints answer 404 and the frontend hides the buttons. Only `ai_enable`
+  // is exposed publicly; the model and the rate limit stay in the database.
+  ai_enable: false,
+  ai_model: '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
+  ai_rate_limit: '10/h'
 };
 
 export type PublicSettings = typeof DEFAULT_PUBLIC_SETTINGS;
@@ -162,7 +168,8 @@ export async function loadPublicSettings(db: D1Database): Promise<PublicSettings
       case 'proposal_rate_limit':
       case 'report_rate_limit':
       case 'login_rate_limit':
-      case 'register_rate_limit': {
+      case 'register_rate_limit':
+      case 'ai_rate_limit': {
         const normalized = value.trim().toLowerCase();
         if (!RATE_LIMIT_PATTERN.test(normalized)) invalid(row.key, 'must be in format "N/w|d|h|m|s"');
         (settings as Record<string, unknown>)[row.key] = normalized;
@@ -184,10 +191,15 @@ export async function loadPublicSettings(db: D1Database): Promise<PublicSettings
         break;
       case 'login_badge_enable':
       case 'auto_approve_polls':
+      case 'ai_enable':
       case 'read_only_mode':
       case 'turnstile_enable':
         if (value !== 'true' && value !== 'false') invalid(row.key, 'must be "true" or "false"');
         (settings as Record<string, unknown>)[row.key] = value === 'true';
+        break;
+      case 'ai_model':
+        if (!value.trim() || value.length > 100) invalid(row.key, 'must contain 1 to 100 characters');
+        settings.ai_model = value;
         break;
       case 'turnstile_secret_key':
         if (value && !/^[0-9a-f]{64}$/i.test(value)) invalid(row.key, 'must be a 64-character hex string');
@@ -204,9 +216,16 @@ export async function loadPublicSettings(db: D1Database): Promise<PublicSettings
 }
 
 // Secrets such as the Turnstile secret key stay in the database for the Worker
-// only; they are never served publicly. The site key is public by design.
+// only; they are never served publicly. The site key is public by design, and
+// so is the `ai_enable` flag the frontend needs to show or hide the AI buttons;
+// `ai_model` and `ai_rate_limit` stay private.
 function stripPrivateSettings(settings: PublicSettings): Record<string, unknown> {
-  const { turnstile_secret_key: _secretKey, ...publicSettings } = settings;
+  const {
+    turnstile_secret_key: _secretKey,
+    ai_model: _aiModel,
+    ai_rate_limit: _aiRateLimit,
+    ...publicSettings
+  } = settings;
   return publicSettings;
 }
 

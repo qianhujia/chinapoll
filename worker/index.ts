@@ -8,6 +8,7 @@
 // Content Security Policy on every route, including deep links such as /poll/12.
 
 import { handleProposalRequest } from './api/proposal';
+import { handleAiRequest } from './api/ai';
 import { handleStatsRequest } from './api/stats';
 import { handleVoteRequest, handleVoteStatusRequest } from './api/vote';
 import { handleCommentsRequest } from './api/comments';
@@ -31,6 +32,8 @@ export interface Env {
   DB: D1Database;
   RATE_LIMITER: DurableObjectNamespace;
   ASSETS: Fetcher;
+  /** Cloudflare Workers AI binding, used only by the optional AI assistance. */
+  AI: Ai;
   SERVER_HMAC_KEY?: string;
   /** Legacy name for SERVER_HMAC_KEY, accepted as a fallback for one release. */
   IP_HASH_KEY?: string;
@@ -182,6 +185,9 @@ async function route(request: Request, env: Env): Promise<Response> {
     }
     if (url.pathname === '/api/proposal') {
       return handleProposalRequest(request, envWithSettings);
+    }
+    if (url.pathname.startsWith('/api/ai/')) {
+      return handleAiRequest(request, url, envWithSettings);
     }
     if (url.pathname === '/api/snapshots' || url.pathname.startsWith('/api/snapshots/')) {
       return handleSnapshotRequest(request, url, envWithSettings);

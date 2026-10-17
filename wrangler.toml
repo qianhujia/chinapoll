@@ -22,6 +22,11 @@ not_found_handling = "single-page-application"
 # Security Policy on every route, including deep links such as /poll/12.
 run_worker_first = true
 
+# Cloudflare Workers AI, used only by the optional AI assistance endpoints. The
+# feature is off unless the `ai_enable` setting is turned on.
+[ai]
+binding = "AI"
+
 [vars]
 
 [[d1_databases]]
@@ -45,11 +50,15 @@ migrations_dir = "./migrations"
 migrations_table = "migrations"
 
 # vars and durable_objects are not inherited from the top level, so they are
-# repeated here. The Durable Object migration list is per environment.
+# repeated here. The Durable Object migration list and the AI binding are per
+# environment as well.
 [env.production.vars]
 
 [env.production.durable_objects]
 bindings = [{ name = "RATE_LIMITER", class_name = "RateLimiter" }]
+
+[env.production.ai]
+binding = "AI"
 
 [[env.production.migrations]]
 tag = "v1"
