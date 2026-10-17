@@ -61,3 +61,30 @@ describe('mergeSnapshots', () => {
     expect(merged.at(-1)?.hash).toBe('b2');
   });
 });
+describe('snapshot schema version', () => {
+  it('merges a version 1 chain with the new fields without dropping it', () => {
+    // A chain copied out before the poll types release has no ballots or option
+    // counts. A later run must keep those rows and add the new ones.
+    const legacy = [
+      { tsHourEpoch: 100, approve: 1, oppose: 0, neutral: 0, prevHash: 'GENESIS', hash: 'v1', final: false }
+    ];
+    const added = [
+      {
+        tsHourEpoch: 101,
+        approve: 2,
+        oppose: 0,
+        neutral: 0,
+        ballots: 2,
+        optionCounts: null,
+        prevHash: 'v1',
+        hash: 'v2',
+        final: false
+      }
+    ];
+    const merged = mergeSnapshots(legacy, added);
+    expect(merged).toHaveLength(2);
+    // The legacy row is untouched: no `ballots` field is invented for it.
+    expect(merged[0]).not.toHaveProperty('ballots');
+    expect(merged[1]).toMatchObject({ ballots: 2 });
+  });
+});

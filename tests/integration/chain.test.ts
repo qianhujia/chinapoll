@@ -1,5 +1,6 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { env, SELF } from 'cloudflare:test';
+import { sha256Hex } from '../../shared/crypto';
 import { makeSnapshot, serializeOptionCounts } from '../../worker/services/snapshot';
 import { ORIGIN, applySchema, seedPoll } from './helpers';
 
@@ -82,6 +83,7 @@ describe('snapshot chain', () => {
     expect(verify.count).toBe(2);
 
     const chain = await (await SELF.fetch(`${ORIGIN}/api/snapshots/${pollId}`)).json() as any;
+    expect(chain.schemaVersion).toBe(2);
     expect(chain.snapshots[0].ballots).toBe(3);
     expect(chain.snapshots[0].optionCounts).toEqual([{ position: 1, count: 2 }, { position: 2, count: 1 }]);
     expect(chain.snapshots[1].ballots).toBe(4);
@@ -90,6 +92,48 @@ describe('snapshot chain', () => {
     // Rewriting one stored option count breaks the chain.
     await env.DB.prepare('UPDATE stats_snapshots SET option_counts = ? WHERE poll_id = ? AND ts_hour = ?')
       .bind(JSON.stringify([{ position: 1, count: 3 }, { position: 2, count: 1 }]), pollId, 2_000_000).run();
+    const tampered = await (await SELF.fetch(`${ORIGIN}/api/snapshots/${pollId}/verify`)).json() as { valid: boolean };
+    expect(tampered.valid).toBe(false);
+  });
+
+  // A chain published before the poll types release has no ballots or option
+  // counts. It must still verify, so an old published chain is never reported
+  // as tampered with.
+  it('verifies a version 1 chain published before the new fields existed', async () => {
+    const pollId = await seedPoll({ title: 'Legacy chain poll' });
+    let prevHash = 'GENESIS';
+    let batch: D1PreparedStatement[] = [];
+
+    for (let index = 0; index < 3; index += 1) {
+      // The precise version 1 payload: poll id, hour, the three verdict counts,
+      // the cumulative views, and the chain link.
+      const tsHour = 3_000_000 + index;
+      const link = prevHash;
+      const payload = JSON.stringify({
+        pollId,
+        tsHour,
+        approve: index,
+        oppose: 0,
+        neutral: 0,
+        views: index,
+        prevHash: link
+      });
+      const hash = await sha256Hex(`${link}:${payload}`);
+      prevHash = hash;
+      batch.push(env.DB.prepare(
+        `INSERT INTO stats_snapshots
+         (poll_id, ts_hour, approve, oppose, neutral, ballots, option_counts, views, prev_hash, hash, final)
+         VALUES (?, ?, ?, ?, 0, 0, NULL, ?, ?, ?, 0)`
+      ).bind(pollId, tsHour, index, 0, index, link, hash));
+    }
+    await env.DB.batch(batch);
+
+    const verify = await (await SELF.fetch(`${ORIGIN}/api/snapshots/${pollId}/verify`)).json() as { valid: boolean };
+    expect(verify.valid).toBe(true);
+
+    // Rewriting a legacy record is still detected.
+    await env.DB.prepare('UPDATE stats_snapshots SET approve = 99 WHERE poll_id = ? AND ts_hour = ?')
+      .bind(pollId, 3_000_000).run();
     const tampered = await (await SELF.fetch(`${ORIGIN}/api/snapshots/${pollId}/verify`)).json() as { valid: boolean };
     expect(tampered.valid).toBe(false);
   });

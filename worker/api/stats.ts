@@ -1,15 +1,25 @@
+// Public vote totals for one poll.
+//
+// Every poll type answers with the same results shape from the shared engine:
+// the ballot total and one entry per option, or `options: null` below the
+// display threshold. A verdict poll keeps its legacy `counts` object so existing
+// clients keep reading it the same way.
+
 import type { HandlerEnv } from '../index';
-import { getVoteOptionLabel, PollType, VoteOption as VoteOptionCode, type PollTypeLabel, type VoteOptionLabel } from '../enums.js';
-import { choiceCounts, isChoicePollType, pollTypeLabel, type ChoiceCounts } from '../services/pollType.js';
+import { PollType } from '../enums.js';
+import {
+  countPollBallots,
+  getPollOptions,
+  isChoicePollType,
+  legacyVerdictCounts,
+  toPublicResults,
+  type PublicResults
+} from '../services/options.js';
 
-export type VoteOption = VoteOptionLabel;
-
-export interface StatsResponse {
+export interface StatsResponse extends PublicResults {
   pollId: number;
-  pollType: PollTypeLabel;
-  counts: Record<VoteOption, number> | ChoiceCounts | null;
-  hidden: boolean;
-  threshold: number;
+  /** Legacy verdict counts; null for a choice poll or while the results are hidden. */
+  counts: { approve: number; neutral: number; oppose: number } | null;
   voted: boolean;
 }
 
@@ -28,65 +38,21 @@ export async function handleStatsRequest(request: Request, url: URL, env: Handle
     return Response.json({ message: 'invalid poll ID' }, { status: 400 });
   }
 
-  const poll = await env.DB.prepare('SELECT poll_type FROM polls WHERE id = ?')
-    .bind(pollId).first<{ poll_type: number }>();
+  const poll = await env.DB.prepare('SELECT id, poll_type FROM polls WHERE id = ?')
+    .bind(pollId).first<{ id: number; poll_type: number }>();
   const pollType = Number(poll?.poll_type ?? PollType.Verdict);
+
+  const options = await getPollOptions(env, { id: pollId, poll_type: pollType });
+  const tally = await countPollBallots(env, { id: pollId, poll_type: pollType });
   const threshold = Number(env.min_votes_to_display ?? 0);
+  const results = toPublicResults({ poll_type: pollType }, options, tally, threshold);
 
-  const base = {
+  return new Response(JSON.stringify({
     pollId,
-    threshold,
+    ...results,
+    counts: isChoicePollType(pollType) || results.hidden ? null : legacyVerdictCounts(tally),
     voted: false
-  };
-
-  // A choice poll reports the ballot total and one entry per option. The
-  // threshold applies to the number of ballots, so every option count below it
-  // is withheld together.
-  if (isChoicePollType(pollType)) {
-    const ballotsRow = await env.DB.prepare(
-      'SELECT COUNT(*) AS total FROM votes WHERE poll_id = ?'
-    ).bind(pollId).first<{ total: number }>();
-    const optionsResult = await env.DB.prepare(
-      `SELECT o.id, o.label, o.position, COALESCE(COUNT(vs.vote_id), 0) AS count
-       FROM poll_options o
-       LEFT JOIN vote_selections vs ON vs.option_id = o.id
-       WHERE o.poll_id = ?
-       GROUP BY o.id
-       ORDER BY o.position ASC`
-    ).bind(pollId).all<{ id: number; label: string; position: number; count: number }>();
-
-    const visible = choiceCounts(Number(ballotsRow?.total ?? 0), optionsResult.results ?? [], threshold);
-    return json({
-      ...base,
-      pollType: pollTypeLabel(pollType),
-      counts: visible.counts,
-      hidden: visible.hidden
-    } satisfies StatsResponse);
-  }
-
-  const counts: Record<VoteOption, number> = { approve: 0, oppose: 0, neutral: 0 };
-
-  const result: { results?: Array<{ option: VoteOptionCode; count: number }> } = await env.DB.prepare(
-    `SELECT option, COUNT(*) as count FROM votes WHERE poll_id = ? AND option IS NOT NULL GROUP BY option`
-  ).bind(pollId).all();
-
-  for (const row of result.results ?? []) {
-    counts[getVoteOptionLabel(row.option)] = Number(row.count ?? 0);
-  }
-
-  const total = counts.approve + counts.oppose + counts.neutral;
-  const hidden = threshold > 0 && total < threshold;
-
-  return json({
-    ...base,
-    pollType: 'verdict',
-    counts: hidden ? null : counts,
-    hidden
-  } satisfies StatsResponse);
-}
-
-function json(body: StatsResponse): Response {
-  return new Response(JSON.stringify(body), {
+  } satisfies StatsResponse), {
     headers: {
       'content-type': 'application/json',
       'cache-control': 'no-store'

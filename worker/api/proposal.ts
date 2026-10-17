@@ -169,7 +169,11 @@ export function validateProposal(body: Record<string, unknown>): ProposalValidat
   }
   const description = trimmedDescription.length > 0 ? trimmedDescription : null;
 
-  const pollType = getPollTypeCode(body.pollType);
+  // `pollType` is optional and defaults to verdict so a client that predates the
+  // poll types release keeps working.
+  const pollType = body.pollType === undefined
+    ? PollType.Verdict
+    : getPollTypeCode(body.pollType);
   if (pollType === null) {
     return { ok: false, message: 'a poll needs a valid type' };
   }
@@ -178,12 +182,15 @@ export function validateProposal(body: Record<string, unknown>): ProposalValidat
     return { ok: false, message: `duration must be one of ${POLL_DURATIONS.join(', ')}` };
   }
 
+  // Options are required for a choice poll and forbidden for a verdict poll. A
+  // plain string array is accepted as well as `{ position, label }` entries, so
+  // the client can submit the rows in order.
   let options: ParsedOption[] = [];
   if (pollType !== PollType.Verdict) {
     const optionValidation = validatePollOptions(body.options);
     if (!optionValidation.ok) return { ok: false, message: optionValidation.message };
     options = optionValidation.options;
-  } else if (body.options !== undefined && body.options !== null && Array.isArray(body.options) && body.options.length > 0) {
+  } else if (Array.isArray(body.options) && body.options.length > 0) {
     return { ok: false, message: 'a verdict poll does not accept options' };
   }
 

@@ -1,12 +1,22 @@
 import { describe, expect, it } from 'vitest';
 import { parseRateLimit } from '../worker/services/rateLimit';
 import { ipBucket, hashedNetworkBucket, isValidServerKey } from '../worker/services/ip';
-import { makeSnapshot, verifySnapshotHash } from '../worker/services/snapshot';
+import { makeSnapshot, verifySnapshotHash, SNAPSHOT_SCHEMA_VERSION } from '../worker/services/snapshot';
 import { normalizeRecoveryCode } from '../worker/services/recovery';
 import { checkAccountAge, validateUserPassword } from '../worker/services/users';
 import { enforceSameOrigin } from '../worker/services/csrf';
 import { validateProposal } from '../worker/api/proposal';
 import { choiceCounts, validatePollOptions } from '../worker/services/pollType';
+import {
+  VERDICT_OPTIONS,
+  legacyVerdictCounts,
+  toPublicResults,
+  validateSelections,
+  verdictOptionId,
+  verdictOptionLabel,
+  type PollOption,
+  type PollTally
+} from '../worker/services/options';
 import { dayBucket, last7DayCutoff, publicViews, todayBucket } from '../worker/api/views';
 import {
   durationMode,
@@ -257,8 +267,12 @@ describe('validateProposal', () => {
     }
   });
 
-  it('requires a valid poll type', () => {
-    expect(validateProposal({ title: 'No type', duration: 'none' }).ok).toBe(false);
+  it('requires a valid poll type and defaults to verdict when absent', () => {
+    // An omitted `pollType` defaults to verdict so older clients keep working.
+    const defaulted = validateProposal({ title: 'Defaulted type', duration: 'none' });
+    expect(defaulted.ok).toBe(true);
+    if (defaulted.ok) expect(defaulted.input.pollType).toBe(PollType.Verdict);
+
     expect(validateProposal({ title: 'Bad type', pollType: 'ranked', duration: 'none' }).ok).toBe(false);
   });
 
@@ -428,5 +442,184 @@ describe('view day buckets', () => {
     expect(publicViews({ total: 20, last7Days: 12 }, 20)).toEqual({ total: 20, last7Days: 12 });
     expect(publicViews(undefined, 0)).toBeNull();
     expect(publicViews({ total: 1, last7Days: 1 }, 0)).toEqual({ total: 1, last7Days: 1 });
+  });
+});
+
+describe('shared options engine', () => {
+  const verdict = { id: 1, poll_type: 1 };
+  const single = { id: 2, poll_type: 2 };
+
+  // Stored options as the engine returns them for a choice poll.
+  const stored: PollOption[] = [
+    { id: 11, position: 1, label: 'Bus', virtual: false },
+    { id: 12, position: 2, label: 'Metro', virtual: false },
+    { id: 13, position: 3, label: 'Bike', virtual: false }
+  ];
+
+  it('exposes three virtual options for a verdict poll using the i18n keys', () => {
+    expect(VERDICT_OPTIONS).toHaveLength(3);
+    // The labels are i18n keys the frontend translates, and every entry is
+    // flagged virtual so it is never treated as stored text.
+    expect(VERDICT_OPTIONS.map((option) => option.label)).toEqual(['approve', 'neutral', 'oppose']);
+    expect(VERDICT_OPTIONS.every((option) => option.virtual)).toBe(true);
+    // Display order is approve, neutral, oppose, with positions 1, 2, 3.
+    expect(VERDICT_OPTIONS.map((option) => option.position)).toEqual([1, 2, 3]);
+    // The IDs are the pre-existing verdict codes: approve 1, oppose 2, neutral 3.
+    expect(VERDICT_OPTIONS.map((option) => option.id)).toEqual([1, 3, 2]);
+  });
+
+  it('keeps the fixed verdict codes stable', () => {
+    // Approve 1, oppose 2, neutral 3 are the pre-existing codes and must not be
+    // renumbered: a stored ballot keeps its meaning across the change.
+    expect(verdictOptionId('approve')).toBe(1);
+    expect(verdictOptionId('oppose')).toBe(2);
+    expect(verdictOptionId('neutral')).toBe(3);
+    expect(verdictOptionId('nonsense')).toBeNull();
+    expect(verdictOptionLabel(1)).toBe('approve');
+    expect(verdictOptionLabel(2)).toBe('oppose');
+    expect(verdictOptionLabel(3)).toBe('neutral');
+  });
+
+  it('accepts a verdict as either the legacy label or one virtual option id', () => {
+    const byLabel = validateSelections(verdict, [...VERDICT_OPTIONS], { option: 'oppose' });
+    expect(byLabel).toEqual({ ok: true, optionIds: [2] });
+
+    const byId = validateSelections(verdict, [...VERDICT_OPTIONS], { optionIds: [3] });
+    expect(byId).toEqual({ ok: true, optionIds: [3] });
+
+    // The two forms must agree when both are supplied.
+    expect(validateSelections(verdict, [...VERDICT_OPTIONS], { option: 'neutral', optionIds: [3] }).ok).toBe(true);
+    expect(validateSelections(verdict, [...VERDICT_OPTIONS], { option: 'neutral', optionIds: [1] }).ok).toBe(false);
+
+    // Exactly one selection, and only a known verdict code.
+    expect(validateSelections(verdict, [...VERDICT_OPTIONS], { optionIds: [1, 2] }).ok).toBe(false);
+    expect(validateSelections(verdict, [...VERDICT_OPTIONS], { optionIds: [9] }).ok).toBe(false);
+    expect(validateSelections(verdict, [...VERDICT_OPTIONS], {}).ok).toBe(false);
+  });
+
+  it('requires exactly one stored option for a single choice poll', () => {
+    expect(validateSelections(single, stored, { optionIds: [12] })).toEqual({ ok: true, optionIds: [12] });
+    expect(validateSelections(single, stored, { optionIds: [] }).ok).toBe(false);
+    expect(validateSelections(single, stored, { optionIds: [11, 12] }).ok).toBe(false);
+    expect(rejectionMessage(validateSelections(single, stored, { optionIds: [11, 11] }))).toBe('duplicate option');
+    // A verdict label is not accepted on a choice poll.
+    expect(rejectionMessage(validateSelections(single, stored, { option: 'approve' }))).toBe('this poll does not accept a verdict');
+    // An option that does not belong to the poll is rejected.
+    expect(rejectionMessage(validateSelections(single, stored, { optionIds: [999] }))).toBe('unknown option');
+  });
+});
+
+describe('shared options engine results', () => {
+  const verdict = { id: 1, poll_type: 1 };
+  const stored: PollOption[] = [
+    { id: 11, position: 1, label: 'Bus', virtual: false },
+    { id: 12, position: 2, label: 'Metro', virtual: false },
+    { id: 13, position: 3, label: 'Bike', virtual: false }
+  ];
+
+  it('accepts one to many stored options for a multiple choice poll', () => {
+    const multi = { id: 3, poll_type: 3 };
+    expect(validateSelections(multi, stored, { optionIds: [11] })).toEqual({ ok: true, optionIds: [11] });
+    expect(validateSelections(multi, stored, { optionIds: [11, 13] })).toEqual({ ok: true, optionIds: [11, 13] });
+    expect(validateSelections(multi, stored, { optionIds: [] }).ok).toBe(false);
+    // Duplicates and unknown ids are refused.
+    expect(validateSelections(multi, stored, { optionIds: [11, 11] }).ok).toBe(false);
+    expect(rejectionMessage(validateSelections(multi, stored, { optionIds: [11, 999] }))).toBe('unknown option');
+    // A non-array payload is a bad request rather than a crash.
+    expect(validateSelections(multi, stored, { optionIds: 'nope' }).ok).toBe(false);
+  });
+
+  it('returns one results shape for every type and hides all counts below the threshold', () => {
+    const tally: PollTally = { ballots: 4, counts: new Map([[11, 3], [12, 1]]) };
+    const visible = toPublicResults({ poll_type: 2 }, stored, tally, 4);
+    expect(visible).toEqual({
+      pollType: 'single_choice',
+      ballots: 4,
+      hidden: false,
+      threshold: 4,
+      options: [
+        { id: 11, position: 1, label: 'Bus', virtual: false, count: 3 },
+        { id: 12, position: 2, label: 'Metro', virtual: false, count: 1 },
+        { id: 13, position: 3, label: 'Bike', virtual: false, count: 0 }
+      ]
+    });
+
+    // Below the threshold every option count is withheld together, while the
+    // ballot total is still reported.
+    const hidden = toPublicResults({ poll_type: 2 }, stored, tally, 10);
+    expect(hidden.hidden).toBe(true);
+    expect(hidden.options).toBeNull();
+    expect(hidden.ballots).toBe(4);
+
+    // A verdict poll uses the same shape, with virtual options. The tally maps
+    // ID 1 (approve) to 5 and ID 3 (neutral) to 2.
+    const verdictTally: PollTally = { ballots: 7, counts: new Map([[1, 5], [3, 2]]) };
+    const verdictResults = toPublicResults(verdict, [...VERDICT_OPTIONS], verdictTally, 0);
+    expect(verdictResults.pollType).toBe('verdict');
+    expect(verdictResults.options?.map((option) => [option.label, option.virtual, option.count])).toEqual([
+      ['approve', true, 5],
+      ['neutral', true, 2],
+      ['oppose', true, 0]
+    ]);
+  });
+
+  it('builds the legacy verdict counts from the same tally', () => {
+    const tally: PollTally = { ballots: 7, counts: new Map([[1, 5], [3, 2]]) };
+    expect(legacyVerdictCounts(tally)).toEqual({ approve: 5, neutral: 2, oppose: 0 });
+    expect(legacyVerdictCounts({ ballots: 0, counts: new Map() })).toEqual({ approve: 0, neutral: 0, oppose: 0 });
+  });
+});
+
+// Reads the rejection message of a selection result, failing the test if the
+// selection was accepted.
+function rejectionMessage(result: { ok: true; optionIds: number[] } | { ok: false; message: string }): string {
+  expect(result.ok).toBe(false);
+  return result.ok ? '' : result.message;
+}
+
+
+describe('snapshot schema version', () => {
+  it('writes version 2 and still verifies a version 1 record', async () => {
+    // A record written now carries the new fields, so it hashes with the
+    // version 2 payload.
+    const modern = await makeSnapshot({
+      pollId: 5,
+      tsHour: 10,
+      counts: { approve: 2, oppose: 1, neutral: 0 },
+      views: 3,
+      prevHash: null
+    });
+    expect(SNAPSHOT_SCHEMA_VERSION).toBe(2);
+    expect(modern.ballots).toBe(3);
+    expect(await verifySnapshotHash({
+      pollId: modern.pollId,
+      tsHour: modern.tsHour,
+      approve: modern.approve,
+      oppose: modern.oppose,
+      neutral: modern.neutral,
+      ballots: modern.ballots,
+      optionCounts: modern.optionCounts,
+      views: modern.views,
+      prevHash: modern.prevHash
+    })).toBe(modern.hash);
+
+    // A chain published before the poll types release has no ballots or option
+    // counts. Such a record must verify against the original (version 1)
+    // payload, so an old chain is never reported as tampered with.
+    const legacyRecord = {
+      pollId: 5,
+      tsHour: 10,
+      approve: 2,
+      oppose: 1,
+      neutral: 0,
+      views: 3,
+      prevHash: 'GENESIS'
+    };
+    const legacyHash = await verifySnapshotHash(legacyRecord);
+    expect(legacyHash).toMatch(/^[0-9a-f]{64}$/);
+    // The version 1 hash differs from the version 2 hash of the same counts.
+    expect(legacyHash).not.toBe(modern.hash);
+    // Recomputing it is stable.
+    expect(await verifySnapshotHash(legacyRecord)).toBe(legacyHash);
   });
 });

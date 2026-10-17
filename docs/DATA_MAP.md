@@ -34,10 +34,13 @@ full duration.
 | position | display position, 1 to 7 | Public | as above |
 | label | option text, 1 to 80 characters | Public | as above |
 
-Note: only choice polls (`poll_type` 2 and 3) have rows here. The labels are part
-of the published question and are shown in every result list, so they carry no
-extra exposure. Admins may edit labels only while the poll is still pending, and
-every edit writes an audit entry.
+Note: only choice polls (`poll_type` 2 and 3) have rows here. A verdict poll's
+three options are **virtual**: they are never stored, they exist only as the fixed
+codes 1, 2, 3 with the i18n keys `approve`, `neutral`, `oppose` as their public
+labels. The labels are part of the published question and are shown in every
+result list, so they carry no extra exposure. Admins may edit labels only while
+the poll is still pending and only for a choice poll, and every edit writes an
+audit entry.
 
 
 
@@ -47,8 +50,13 @@ every edit writes an audit entry.
 | --- | --- | --- | --- |
 | poll_id | poll reference | Admin (counts only published publicly) | 30 days after close |
 | voter_token_hash | SHA-256 of a per-poll browser token | none | as above |
-| option | approve/oppose/neutral, or NULL for a choice ballot | Public (aggregated) | as above |
+| option | a single small integer: the fixed verdict code (approve 1, oppose 2, neutral 3), or NULL for a choice ballot | Public (aggregated) | as above |
 | created_at | hour-coarsened timestamp | none | as above |
+
+Note: a verdict ballot carries **only a single small integer** in `option`; it
+never stores an option id, a label, or anything derived from the token beyond the
+hash. The value is one of three fixed codes, so the row reveals nothing beyond the
+verdict itself, which is published as an aggregate anyway.
 
 ## vote_selections
 

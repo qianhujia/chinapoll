@@ -11,8 +11,15 @@
 //     never deleted.
 //
 // Each stored snapshot carries the poll id, the hour, the approve/oppose/neutral
-// counts, the cumulative view total (`views`), the chain link, and the `final`
-// flag, exactly as returned by /api/snapshots/:id.
+// counts, the number of ballots, the per-option counts of a choice poll
+// (`optionCounts`, null for a verdict poll), the cumulative view total (`views`),
+// the chain link, and the `final` flag, exactly as returned by
+// /api/snapshots/:id.
+//
+// Schema version: the chain added `ballots` and `optionCounts` in schema version
+// 2. A file written by an older run has no `schemaVersion` field (version 1) and
+// still verifies against the original payload, so an old chain is never
+// rewritten or dropped.
 //
 // Environment:
 //   API_BASE         base URL of the public Worker (for example https://chinapoll.org)
@@ -26,6 +33,10 @@ const apiBase = process.env.API_BASE;
 const outputDir = process.env.DATA_REPO_PATH ?? '.';
 const PAGE_SIZE = 100;
 const CLOSED_DAYS = 35;
+// The chain schema version this script copies out. The server adds `ballots` and
+// `optionCounts` to every snapshot in version 2; a file written before that is
+// version 1 and stays readable.
+const SNAPSHOT_SCHEMA_VERSION = 2;
 
 async function getJson(path) {
   const response = await fetch(new URL(path, apiBase));
@@ -135,7 +146,14 @@ async function main() {
     const snapshots = mergeSnapshots(stored, added);
     await writeFile(
       join(outputDir, `${pollId}.json`),
-      JSON.stringify({ pollId, updatedAt: new Date().toISOString(), snapshots }, null, 2)
+      JSON.stringify({
+        pollId,
+        // The schema version of the copied chain, so a verifier can tell whether
+        // the file predates the `ballots` and `optionCounts` fields.
+        schemaVersion: SNAPSHOT_SCHEMA_VERSION,
+        updatedAt: new Date().toISOString(),
+        snapshots
+      }, null, 2)
     );
     updated += 1;
   }

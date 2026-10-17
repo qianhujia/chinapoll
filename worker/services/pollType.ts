@@ -55,12 +55,15 @@ export type PollOptionsValidation =
   | { ok: false; message: string };
 
 // Validates an option list: 2 to 7 rows, 1 to 80 characters each after
-// trimming, position 1..7, and no duplicates.
+// trimming, position 1..7, and no duplicates. A plain string array is accepted
+// as well as `{ position, label }` entries; a string entry takes its position
+// from its index, so a client can submit the rows in order.
 export function validatePollOptions(value: unknown): PollOptionsValidation {
-  if (!Array.isArray(value)) {
+  const entries = toOptionEntries(value);
+  if (entries === null) {
     return { ok: false, message: 'a choice poll needs 2 to 7 options' };
   }
-  if (value.length < MIN_POLL_OPTIONS || value.length > MAX_POLL_OPTIONS) {
+  if (entries.length < MIN_POLL_OPTIONS || entries.length > MAX_POLL_OPTIONS) {
     return { ok: false, message: `a choice poll needs ${MIN_POLL_OPTIONS} to ${MAX_POLL_OPTIONS} options` };
   }
 
@@ -68,9 +71,9 @@ export function validatePollOptions(value: unknown): PollOptionsValidation {
   const seenLabels = new Set<string>();
   const seenPositions = new Set<number>();
 
-  for (const entry of value) {
-    const raw = typeof entry === 'object' && entry !== null ? entry as Record<string, unknown> : {};
-    const position = Number(raw.position);
+  for (const entry of entries) {
+    const raw = entry as Record<string, unknown>;
+    const position = typeof entry === 'string' ? options.length + 1 : Number(raw.position);
     if (!Number.isSafeInteger(position) || position < 1 || position > MAX_POLL_OPTIONS) {
       return { ok: false, message: `option positions must be between 1 and ${MAX_POLL_OPTIONS}` };
     }
@@ -79,7 +82,7 @@ export function validatePollOptions(value: unknown): PollOptionsValidation {
     }
     seenPositions.add(position);
 
-    const label = validateOptionLabel(raw.label, position);
+    const label = validateOptionLabel(typeof entry === 'string' ? entry : raw.label, position);
     if (!label.ok) return { ok: false, message: label.message };
 
     const key = label.label.toLowerCase();
@@ -92,6 +95,13 @@ export function validatePollOptions(value: unknown): PollOptionsValidation {
 
   options.sort((left, right) => left.position - right.position);
   return { ok: true, options };
+}
+
+// Normalizes the accepted option shapes to a list of entries, or null when the
+// value is not a usable array.
+function toOptionEntries(value: unknown): unknown[] | null {
+  if (!Array.isArray(value)) return null;
+  return value.filter((entry) => typeof entry === 'string' || (typeof entry === 'object' && entry !== null));
 }
 
 // Builds the public `counts` shape of a choice poll: the number of ballots and

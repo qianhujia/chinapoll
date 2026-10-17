@@ -63,36 +63,31 @@ Review and publish pending submissions from the dashboard's Polls tab: set a pol
 
 A poll is one of three ballot shapes, selected on the proposal form and stored in `polls.poll_type`:
 
-| Code | `poll_type` | Ballot |
-| --- | --- | --- |
-| 1 | `verdict` | approve, neutral, or oppose (the original behaviour) |
-| 2 | `single_choice` | exactly one of 2 to 7 options |
-| 3 | `multi_choice` | one or more of 2 to 7 options |
+| Code | `poll_type` | Options | Selections per ballot |
+| --- | --- | --- | --- |
+| 1 | `verdict` | virtual: approve (1), neutral (2), oppose (3) | exactly 1 |
+| 2 | `single_choice` | 2 to 7 stored rows | exactly 1 |
+| 3 | `multi_choice` | 2 to 7 stored rows | 1 to all |
 
-The options live in `poll_options` (position 1–7, label 1–80 characters, unique per
-position). A ballot is still **one row per (poll, token)** in `votes`, so the
-existing unique index keeps enforcing one ballot per browser; a choice ballot
-stores `NULL` in `votes.option` and its selections in the `vote_selections` child
-table, written in the same batch as the ballot.
+### One engine, three types
 
-`POST /api/vote` accepts `{ pollId, tokenHash, turnstileToken?, option?, optionIds? }`.
-A verdict poll requires `option` and rejects `optionIds`; a single choice poll
-requires exactly one `optionIds` entry; a multiple choice poll requires 1 to 7
-distinct entries. Every referenced id must belong to the same poll, otherwise the
-request is rejected with `400`. `POST /api/vote/status` returns `option` for a
-verdict ballot and `optionIds` for a choice ballot.
+The three types stay distinct **in the schema** because the verdict scale is fixed, translated from the i18n files, and comparable across polls: a verdict poll keeps its answer in `votes.option`, and the values are the long-standing codes approve 1, oppose 2, neutral 3, which are never renumbered. A choice poll keeps its rows in `poll_options` and its selections in `vote_selections`.
 
-Responses are shaped by type: a verdict poll keeps `{ approve, oppose, neutral }`,
-and a choice poll returns `{ ballots, options: [{ id, label, position, count }] }`.
-`min_votes_to_display` is applied to the **number of ballots**, and below it every
-option count is withheld together. `GET /api/stats/:id`, `GET /api/polls/:id`, and
-the poll list all report `pollType` and, for a choice poll, the `options` array.
-The option counts of a page of polls are read with one `GROUP BY option_id` query
-over `vote_selections` (paginate, then aggregate).
+In **code** there is one engine, `worker/services/options.ts`, and every poll goes through it:
 
-Public responses show per-option counts only. Which options were chosen together
-on one ballot is never published and is only visible to a database reader, who
-still sees anonymous ballots (see `docs/THREAT_MODEL.md`).
+- **Every poll exposes a list of options.** `getPollOptions` returns the three fixed entries for a verdict poll with `id` 1/2/3, `label` set to the i18n keys `approve`, `neutral`, `oppose`, and `virtual: true`; a choice poll returns its stored rows with `virtual: false`. The frontend translates a virtual label and shows a stored label as-is.
+- **Every ballot is a set of selected option IDs.** `validateSelections` accepts `{ option?: "approve" | "neutral" | "oppose", optionIds?: number[] }`. Type 1 takes either the legacy `option` label or `optionIds` with one virtual ID; type 2 requires exactly one stored ID; type 3 requires 1 to 7 distinct stored IDs. Every ID must belong to the poll, so a caller cannot vote with another poll's option.
+- **One counting function.** `countBallots` returns `{ ballots, counts: Map<optionId, count> }` per poll from a fixed number of aggregate queries (paginate, then aggregate): one `GROUP BY poll_id, option` query for the verdict group and one `vote_selections`-joined query for the choice group.
+- **One results shape.** `toPublicResults` returns `{ pollType, ballots, hidden, threshold, options: [{ id, position, label, virtual, count }] | null }` for every type. Below `min_votes_to_display` **every** option count is withheld together while the ballot total is still returned.
+- **One snapshot shape.** See the snapshot section below.
+
+A ballot stays **one row per (poll, token)** in `votes`, so the existing unique index keeps enforcing one ballot per browser; a choice ballot stores `NULL` in `votes.option` and its selections in the `vote_selections` child table, written in the same batch as the ballot.
+
+### Endpoints
+
+`POST /api/vote` accepts `{ pollId, tokenHash, turnstileToken?, option?, optionIds? }`. `POST /api/vote/status` returns `optionIds` for every type, plus `option` for a verdict poll. `GET /api/stats/:id`, `GET /api/polls/:id`, and the poll list return `pollType`, `options`, and the results shape above; a verdict poll additionally keeps the legacy `counts: { approve, oppose, neutral }` object so existing clients keep working.
+
+Public responses show per-option counts only. Which options were chosen together on one ballot is never published and is only visible to a database reader, who still sees anonymous ballots (see `docs/THREAT_MODEL.md`).
 
 ## Duration model
 
@@ -150,6 +145,19 @@ answer is `502`, a model that does not answer within 15 seconds is `504`. The
 prompt and the response are never logged and never written to D1: the validated
 suggestions go straight back to the caller. The frontend states this in one line
 under the buttons, and `docs/THREAT_MODEL.md` documents the data flow.
+
+## Snapshot chain and its schema version
+
+The hourly snapshot chain is the tamper-evident record of published results. Each record's hash covers the poll id, the hour, the approve/oppose/neutral counts, the number of ballots, the per-option counts of a choice poll, the cumulative view total, and the previous record's hash.
+
+The canonical payload carries a `schemaVersion`:
+
+- **Version 1** — poll id, hour, the three verdict counts, the cumulative views, and the chain link. Chains published before the poll types release have this shape.
+- **Version 2** — adds `ballots` and `optionCounts`. `makeSnapshot` always writes version 2.
+
+`verifySnapshotHash` accepts a record without the new fields as version 1, and the `/api/snapshots/:id/verify` walk reproduces the stored hash under either version, so a chain copied out before the release still verifies and is never reported as tampered with. `/api/snapshots/:id` and the publish script both report the schema version alongside the snapshots.
+
+For a verdict poll `optionCounts` is `null` and the three verdict columns keep their original meaning, so the published data format does not change for the polls that already exist. For a choice poll those three columns are `0` and `optionCounts` carries the per-position counts as JSON in `stats_snapshots.option_counts`. `ballots` is filled for every type.
 
 ## Poll reports and view counts
 

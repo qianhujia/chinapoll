@@ -8,7 +8,15 @@ import {
   VoteOption,
   toIsoDate
 } from '../enums.js';
-import { choiceCounts, isChoicePollType, pollTypeLabel } from '../services/pollType.js';
+import {
+  countBallots,
+  getOptionsForPolls,
+  isChoicePollType,
+  legacyVerdictCounts,
+  pollTypeLabel,
+  toPublicResults,
+  type PollOption
+} from '../services/options.js';
 import { loadViewCounts, publicViews } from './views';
 
 const MAX_PAGE_SIZE = 100;
@@ -128,49 +136,44 @@ export async function handlePollsRequest(request: Request, url: URL, env: Handle
   // how an individual voted.
   const threshold = Number(env.min_votes_to_display ?? 0);
   const viewsThreshold = Number(env.min_views_to_display ?? 0);
-  const viewCounts = await loadViewCounts(env.DB, (result.results ?? []).map((row) => Number(row.id)));
-  // The option counts of every choice poll on this page are read with one
-  // aggregate query over `vote_selections`, following the paginate-then-
-  // aggregate pattern used above.
-  const optionCounts = await loadPageOptionCounts(env, (result.results ?? [])
-    .filter((row) => isChoicePollType(Number(row.poll_type)))
-    .map((row) => Number(row.id)));
+  const pageRows = (result.results ?? []).map((row) => ({
+    id: Number(row.id),
+    poll_type: Number(row.poll_type ?? PollType.Verdict)
+  }));
+  const viewCounts = await loadViewCounts(env.DB, pageRows.map((row) => row.id));
+  // The options and the tally of every poll on this page are read with a fixed
+  // number of aggregate queries (paginate, then aggregate), so the cost does not
+  // grow with the number of ballots.
+  const optionsByPoll = await getOptionsForPolls(env, pageRows);
+  const tallies = await countBallots(env, pageRows);
 
   const polls = (result.results ?? []).map((row) => {
+    const pollId = Number(row.id);
     const pollType = Number(row.poll_type ?? PollType.Verdict);
-    const counts = {
-      approve: Number(row.approve),
-      neutral: Number(row.neutral),
-      oppose: Number(row.oppose)
-    };
-    const voteTotal = counts.approve + counts.neutral + counts.oppose;
-    const choice = choiceCounts(Number(row.ballots), optionCounts.get(Number(row.id)) ?? [], threshold);
-    const hidden = isChoicePollType(pollType) ? choice.hidden : threshold > 0 && voteTotal < threshold;
+    const options = optionsByPoll.get(pollId) ?? [];
+    const tally = tallies.get(pollId) ?? { ballots: 0, counts: new Map<number, number>() };
+    // The legacy verdict counts keep working for the existing home-page buttons.
+    const counts = legacyVerdictCounts(tally);
+    const results = toPublicResults({ poll_type: pollType }, options, tally, threshold);
     return {
       poll: {
         id: row.id,
         title: row.title,
         description: row.description,
         mode: getPollModeLabel(row.mode),
-        pollType: pollTypeLabel(pollType),
-        options: isChoicePollType(pollType)
-          ? (optionCounts.get(Number(row.id)) ?? []).map((option) => ({
-            id: option.id, label: option.label, position: option.position
-          }))
-          : [],
+        pollType: results.pollType,
+        options: options.map(publicOption),
         start_at: toIsoDate(row.start_at),
         end_at: toIsoDate(row.end_at),
         status: getPollStatusLabel(row.status)
       },
       stats: {
         pollId: row.id,
-        pollType: pollTypeLabel(pollType),
-        counts: hidden ? null : (isChoicePollType(pollType) ? choice.counts : counts),
-        hidden,
-        threshold,
+        ...results,
+        counts: isChoicePollType(pollType) || results.hidden ? null : counts,
         voted: false
       },
-      views: publicViews(viewCounts.get(Number(row.id)), viewsThreshold)
+      views: publicViews(viewCounts.get(pollId), viewsThreshold)
     };
   });
 
@@ -220,6 +223,17 @@ export async function loadPageOptionCounts(
     counts.set(pollId, entry);
   }
   return counts;
+}
+
+// The public option shape: identity, order, label, and whether the label is an
+// i18n key (a virtual verdict option) rather than submitter text.
+function publicOption(option: PollOption): { id: number; position: number; label: string; virtual: boolean } {
+  return {
+    id: option.id,
+    position: option.position,
+    label: option.label,
+    virtual: option.virtual
+  };
 }
 
 // Lists polls that closed within the last `days` days so the snapshot publisher
@@ -288,18 +302,16 @@ async function getPoll(pollIdText: string, env: HandlerEnv): Promise<Response> {
   const viewCounts = await loadViewCounts(env.DB, [pollId]);
   const views = publicViews(viewCounts.get(pollId), Number(env.min_views_to_display ?? 0));
 
-  const pollType = Number(poll.poll_type ?? PollType.Verdict);
-  const options = isChoicePollType(pollType)
-    ? (await loadPageOptionCounts(env, [pollId])).get(pollId) ?? []
-    : [];
+  // The options come from the shared engine, so a verdict poll also exposes its
+  // three virtual entries here.
+  const options = await getOptionsForPolls(env, [{ id: pollId, poll_type: poll.poll_type }]);
+  const pollOptions = options.get(pollId) ?? [];
 
   return Response.json({ poll: {
     ...poll,
     mode: getPollModeLabel(poll.mode),
-    pollType: pollTypeLabel(pollType),
-    options: options.map((option) => ({
-      id: option.id, label: option.label, position: option.position
-    })),
+    pollType: pollTypeLabel(Number(poll.poll_type ?? PollType.Verdict)),
+    options: pollOptions.map(publicOption),
     start_at: toIsoDate(poll.start_at),
     end_at: toIsoDate(poll.end_at),
     status: getPollStatusLabel(poll.status)

@@ -8,77 +8,32 @@
 // A ballot is always one row in `votes`. A verdict poll stores its answer in
 // `votes.option`; a choice poll stores NULL there and keeps its selections in
 // the child table `vote_selections`, so the same unique index still enforces
-// one ballot per (poll, token).
+// one ballot per (poll, token). All three types are validated, counted, and
+// rendered through the shared engine in worker/services/options.ts.
 
 import type { HandlerEnv } from '../index';
 import { checkRateLimit } from '../services/rateLimit';
 import { clientAddress, hashedNetworkBucket, serverHmacKey } from '../services/ip';
 import { verifyTurnstile } from '../services/turnstile';
 import {
-  choiceCounts,
+  countPollBallots,
+  getPollOptions,
   isChoicePollType,
-  MAX_POLL_OPTIONS,
-  requiredSelectionCount,
-  type ChoiceCounts
-} from '../services/pollType';
+  legacyVerdictCounts,
+  toPublicResults,
+  validateSelections,
+  type PublicResults
+} from '../services/options';
 import {
-  getVoteOptionCode,
   getVoteOptionLabel,
   PollMode,
   PollStatus,
   PollType,
-  type PollTypeLabel,
-  VoteOption as VoteOptionCode,
-  type VoteOptionLabel
+  VoteOption as VoteOptionCode
 } from '../enums';
-
-export type VoteOption = VoteOptionLabel;
 
 const DEFAULT_VOTE_RATE_LIMIT = '5/h';
 const TOKEN_HASH_PATTERN = /^[0-9a-f]{64}$/i;
-
-// Counts below the configured threshold are withheld so a tiny sample cannot be
-// used to infer how one person voted.
-function buildCounts(
-  counts: Record<VoteOption, number>,
-  threshold: number
-): { counts: Record<VoteOption, number> | null; hidden: boolean; threshold: number } {
-  const total = counts.approve + counts.oppose + counts.neutral;
-  if (threshold > 0 && total < threshold) {
-    return { counts: null, hidden: true, threshold };
-  }
-  return { counts, hidden: false, threshold };
-}
-
-// Loads the option list of a choice poll, including the count per option, in
-// one aggregate query.
-async function loadOptionCounts(
-  env: HandlerEnv,
-  pollId: number
-): Promise<Array<{ id: number; label: string; position: number; count: number }>> {
-  const result = await env.DB.prepare(
-    `SELECT o.id, o.label, o.position, COALESCE(COUNT(vs.vote_id), 0) AS count
-     FROM poll_options o
-     LEFT JOIN vote_selections vs ON vs.option_id = o.id
-     WHERE o.poll_id = ?
-     GROUP BY o.id
-     ORDER BY o.position ASC`
-  ).bind(pollId).all<{ id: number; label: string; position: number; count: number }>();
-  return (result.results ?? []).map((row) => ({
-    id: Number(row.id),
-    label: row.label,
-    position: Number(row.position),
-    count: Number(row.count)
-  }));
-}
-
-// Number of ballots cast on a poll. The threshold applies to ballots.
-async function countBallots(env: HandlerEnv, pollId: number): Promise<number> {
-  const row = await env.DB.prepare(
-    'SELECT COUNT(*) AS total FROM votes WHERE poll_id = ?'
-  ).bind(pollId).first<{ total: number }>();
-  return Number(row?.total ?? 0);
-}
 
 export async function handleVoteStatusRequest(request: Request, env: HandlerEnv): Promise<Response> {
   if (request.method !== 'POST') {
@@ -102,14 +57,18 @@ export async function handleVoteStatusRequest(request: Request, env: HandlerEnv)
     'SELECT id, option FROM votes WHERE poll_id = ? AND voter_token_hash = ? LIMIT 1'
   ).bind(pollId, tokenHash).first();
 
-  // A choice ballot reports its option ids so the page can restore the
-  // selection; a verdict ballot reports its single verdict.
+  // Every type reports the stored selections as option IDs. A verdict poll also
+  // reports its single verdict, so the two views agree.
   let optionIds: number[] = [];
   if (vote) {
-    const selections = await env.DB.prepare(
-      'SELECT option_id FROM vote_selections WHERE vote_id = ? ORDER BY option_id ASC'
-    ).bind(vote.id).all<{ option_id: number }>();
-    optionIds = (selections.results ?? []).map((row) => Number(row.option_id));
+    if (vote.option !== null) {
+      optionIds = [Number(vote.option)];
+    } else {
+      const selections = await env.DB.prepare(
+        'SELECT option_id FROM vote_selections WHERE vote_id = ? ORDER BY option_id ASC'
+      ).bind(vote.id).all<{ option_id: number }>();
+      optionIds = (selections.results ?? []).map((row) => Number(row.option_id));
+    }
   }
 
   return Response.json({
@@ -145,8 +104,9 @@ export async function handleVoteRequest(request: Request, env: HandlerEnv): Prom
   }
 
   const poll = await env.DB.prepare(
-    'SELECT status, mode, start_at, end_at, poll_type FROM polls WHERE id = ?'
+    'SELECT id, status, mode, start_at, end_at, poll_type FROM polls WHERE id = ?'
   ).bind(pollId).first<{
+    id: number;
     status: number;
     mode: number;
     start_at: number | null;
@@ -158,23 +118,14 @@ export async function handleVoteRequest(request: Request, env: HandlerEnv): Prom
   }
 
   const pollType = Number(poll.poll_type ?? PollType.Verdict);
-  const selection = readSelection(body, pollType);
+  const options = await getPollOptions(env, poll);
+  const selection = validateSelections(poll, options, body);
   if (!selection.ok) {
     return Response.json({ ok: false, message: selection.message }, { status: 400 });
   }
-
-  // Every referenced option must belong to this poll.
-  let optionIds: number[] = [];
-  if (isChoicePollType(pollType)) {
-    optionIds = selection.optionIds;
-    const placeholders = optionIds.map(() => '?').join(', ');
-    const owned = await env.DB.prepare(
-      `SELECT COUNT(*) AS total FROM poll_options WHERE poll_id = ? AND id IN (${placeholders})`
-    ).bind(pollId, ...optionIds).first<{ total: number }>();
-    if (Number(owned?.total ?? 0) !== optionIds.length) {
-      return Response.json({ ok: false, message: 'unknown option' }, { status: 400 });
-    }
-  }
+  // A verdict ballot stores its verdict in `votes.option`; a choice ballot
+  // stores NULL there and its selections in `vote_selections`.
+  const verdictCode = isChoicePollType(pollType) ? null : selection.optionIds[0];
 
   // Turnstile is enforced only when it is enabled and fully configured.
   if (env.turnstile_enable && env.turnstile_secret_key) {
@@ -210,103 +161,35 @@ export async function handleVoteRequest(request: Request, env: HandlerEnv): Prom
     `INSERT INTO votes (poll_id, voter_token_hash, option, created_at)
      VALUES (?, ?, ?, ?)
      ON CONFLICT(poll_id, voter_token_hash) DO NOTHING`
-  ).bind(pollId, tokenHash, selection.option, coarseNow).run();
+  ).bind(pollId, tokenHash, verdictCode, coarseNow).run();
 
   if (!insertResult.meta.changes) {
     return Response.json({ ok: false, message: 'duplicate vote' }, { status: 409 });
   }
 
-  // The selections are written in one batch right after the ballot, keyed by
-  // the ballot row that was just inserted.
-  if (optionIds.length > 0) {
+  // The ballot and, for a choice poll, its selections are written as one batch,
+  // keyed by the ballot row that was just inserted.
+  if (isChoicePollType(pollType) && selection.optionIds.length > 0) {
     const voteId = Number(insertResult.meta.last_row_id);
     if (voteId > 0) {
-      await env.DB.batch(optionIds.map((optionId) => env.DB.prepare(
+      await env.DB.batch(selection.optionIds.map((optionId) => env.DB.prepare(
         'INSERT INTO vote_selections (vote_id, option_id) VALUES (?, ?)'
       ).bind(voteId, optionId)));
     }
   }
 
+  // One results shape for every type; the threshold applies to the number of
+  // ballots, so every option count is withheld together below it.
   const threshold = Number(env.min_votes_to_display ?? 0);
+  const tally = await countPollBallots(env, { id: pollId, poll_type: pollType });
+  const results: PublicResults = toPublicResults(poll, options, tally, threshold);
 
-  // A choice poll answers with the ballot total and one entry per option; the
-  // threshold applies to the number of ballots.
-  if (isChoicePollType(pollType)) {
-    const ballots = await countBallots(env, pollId);
-    const visible = choiceCounts(ballots, await loadOptionCounts(env, pollId), threshold);
-    return Response.json({
-      ok: true,
-      message: 'vote accepted',
-      counts: visible.counts,
-      hidden: visible.hidden,
-      threshold: visible.threshold,
-      voted: true
-    });
-  }
-
-  const countsResult: any = await env.DB.prepare(
-    'SELECT option, COUNT(*) as count FROM votes WHERE poll_id = ? GROUP BY option'
-  ).bind(pollId).all();
-
-  const counts: Record<VoteOption, number> = { approve: 0, oppose: 0, neutral: 0 };
-  for (const row of countsResult.results ?? []) {
-    // A NULL option belongs to a choice ballot and is not a verdict.
-    if (row.option === null) continue;
-    counts[getVoteOptionLabel(Number(row.option))] = Number(row.count ?? 0);
-  }
-
-  const visible = buildCounts(counts, threshold);
   return Response.json({
     ok: true,
     message: 'vote accepted',
-    counts: visible.counts,
-    hidden: visible.hidden,
-    threshold: visible.threshold,
+    ...results,
+    // Kept so existing clients keep reading the verdict counts the same way.
+    counts: isChoicePollType(pollType) || results.hidden ? null : legacyVerdictCounts(tally),
     voted: true
   });
 }
-
-type SelectionResult =
-  | { ok: true; option: VoteOptionCode | null; optionIds: number[] }
-  | { ok: false; message: string };
-
-// Validates the ballot against the poll type: type 1 requires `option` and
-// rejects `optionIds`; type 2 requires exactly one distinct id; type 3 requires
-// 1 to 7 distinct ids.
-function readSelection(body: any, pollType: number): SelectionResult {
-  const optionIdsRaw = body?.optionIds;
-  if (optionIdsRaw !== undefined && !Array.isArray(optionIdsRaw)) {
-    return { ok: false, message: 'bad request' };
-  }
-
-  if (!isChoicePollType(pollType)) {
-    const option = getVoteOptionCode(body?.option);
-    if (option === null) {
-      return { ok: false, message: 'bad request' };
-    }
-    if (Array.isArray(optionIdsRaw) && optionIdsRaw.length > 0) {
-      return { ok: false, message: 'this poll does not accept option ids' };
-    }
-    return { ok: true, option, optionIds: [] };
-  }
-
-  if (body?.option !== undefined) {
-    return { ok: false, message: 'this poll does not accept a verdict' };
-  }
-  const ids = (optionIdsRaw as unknown[] | undefined ?? []).map((value) => Number(value));
-  if (ids.some((id) => !Number.isSafeInteger(id) || id < 1)) {
-    return { ok: false, message: 'bad request' };
-  }
-  const distinct = [...new Set(ids)];
-  if (distinct.length !== ids.length) {
-    return { ok: false, message: 'duplicate option' };
-  }
-  const required = requiredSelectionCount(pollType);
-  if (!required || distinct.length < required.min
-    || distinct.length > Math.min(required.max, MAX_POLL_OPTIONS)) {
-    return { ok: false, message: 'bad request' };
-  }
-  return { ok: true, option: null, optionIds: distinct };
-}
-
-export type { ChoiceCounts, PollTypeLabel };

@@ -69,14 +69,23 @@ passes `min_views_to_display` (default 20), so a poll with a couple of views and
 one vote cannot be used to guess the voter. View rows older than 90 days are
 rolled up into a single per-poll row, dropping daily resolution.
 
-## Poll types and option counts
+## Poll types, the options engine, and snapshots
 
 A poll is one of three ballot shapes: a verdict poll (approve, neutral, oppose),
-a single choice poll, or a multiple choice poll. A choice poll keeps its options
-in `poll_options` and its ballot selections in `vote_selections`, while a verdict
-poll keeps using `votes.option`. A ballot stays **one row per (poll, token)** in
-`votes`, so the existing unique index still enforces one ballot per browser and a
-choice vote cannot be split across several rows.
+a single choice poll, or a multiple choice poll. The three stay distinct in the
+schema because the verdict scale is fixed, translated from the i18n files, and
+comparable across polls, but **one engine** (`worker/services/options.ts`) serves
+all three: every poll exposes a list of options, every ballot is a set of selected
+option IDs, and one counting function, one results shape, and one snapshot shape
+are used throughout. A verdict poll's options are **virtual**: three fixed entries
+with codes 1, 2, 3 whose public labels are i18n keys. They are never stored in
+`poll_options`, so a verdict ballot still carries **only a single small integer** in
+`votes.option` and nothing more. A choice ballot stores `NULL` there and one row
+per selected option in `vote_selections`, written in the same batch as the ballot.
+
+A ballot stays **one row per (poll, token)** in `votes`, so the existing unique
+index still enforces one ballot per browser and a choice vote cannot be split
+across several rows.
 
 Two exposures are worth stating explicitly:
 
@@ -93,17 +102,27 @@ Two exposures are worth stating explicitly:
   infer how one person voted, because no option count is published at all below
   the threshold.
 
-## The snapshot hash and choice polls
+## The snapshot hash, what it covers, and its schema version
 
-The canonical payload that `makeSnapshot` hashes (and `verifySnapshotHash`
+The canonical payload that `makeSnapshot` hashes (and that verification
 recomputes) now covers the number of ballots and the per-option counts of a
-choice poll, in addition to the verdict counts, the cumulative view total, and
-the previous record's hash. `option_counts` is stored as JSON in
+choice poll, in addition to the verdict counts, the cumulative view total, and the
+previous record's hash. `optionCounts` is stored as JSON in
 `stats_snapshots.option_counts` and `ballots` in `stats_snapshots.ballots`; both
 are normalized (sorted by position, numeric) before hashing so the chain is
-stable. For a verdict poll `option_counts` is `NULL` and the three verdict columns
-keep their original meaning. Rewriting a published ballot total or option count
-after the fact therefore breaks verification.
+stable. For a verdict poll `optionCounts` is `NULL` and the three verdict columns
+keep their original meaning, so the published format for existing polls is
+unchanged. Rewriting a published ballot total or option count after the fact
+therefore breaks verification.
+
+The payload carries a **schema version**. Version 1 is the original shape (poll
+id, hour, the three verdict counts, the cumulative views, and the chain link);
+version 2 adds `ballots` and `optionCounts` and is what the Worker writes from now
+on. Verification accepts a record without the new fields as version 1 and
+reproduces the stored hash under either version, so a chain copied out before this
+release still verifies and is never falsely reported as tampered with. The version
+is included in the `/api/snapshots/:id` response and in the published JSON file,
+so an external verifier can tell which payload a given chain was hashed with.
 
 ## Workers AI data flow
 
@@ -160,6 +179,11 @@ When it is on:
   replaced the proposal start/end times with a fixed duration, and extended the
   snapshot hash to cover ballots and per-option counts. Documented the
   combination-per-anonymous-ballot exposure and the optional Workers AI data flow.
+- Unified the three poll types behind one options engine, so a verdict poll now
+  exposes three **virtual** options and a verdict ballot still stores only a single
+  small integer. Added `schemaVersion` to the canonical snapshot payload (version
+  2) and taught verification to accept version 1 chains, so chains published before
+  this release still verify.
 
 ## Known trade-offs
 

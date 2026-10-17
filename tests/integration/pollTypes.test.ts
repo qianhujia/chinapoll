@@ -41,8 +41,12 @@ describe('single choice polls', () => {
     expect(response.status).toBe(200);
     // The default display threshold is 10 ballots, so the first ballot is hidden.
     const hidden = await response.json() as any;
-    expect(hidden.counts).toBeNull();
+    expect(hidden.pollType).toBe('single_choice');
+    expect(hidden.options).toBeNull();
+    expect(hidden.ballots).toBe(1);
     expect(hidden.hidden).toBe(true);
+    // The legacy verdict counts are not part of a choice response.
+    expect(hidden.counts).toBeNull();
 
     // Nine more ballots reveal the counts and keep one row per option.
     const statements = [];
@@ -57,12 +61,12 @@ describe('single choice polls', () => {
     const stats = await statsFor(pollId);
     expect(stats.pollType).toBe('single_choice');
     expect(stats.hidden).toBe(false);
-    expect(stats.counts.ballots).toBe(10);
+    expect(stats.ballots).toBe(10);
     // Only the first ballot has a selection, so one option carries one count.
-    expect(stats.counts.options.map((option: any) => [option.position, option.count])).toEqual([
-      [1, 0], [2, 1], [3, 0]
+    expect(stats.options.map((option: any) => [option.position, option.count, option.virtual])).toEqual([
+      [1, 0, false], [2, 1, false], [3, 0, false]
     ]);
-    expect(stats.counts.options[1].label).toBe('Metro');
+    expect(stats.options[1].label).toBe('Metro');
   });
 
   it('rejects a ballot with no option, two options, a duplicate, and a verdict', async () => {
@@ -104,8 +108,11 @@ describe('single choice polls', () => {
       { position: 2, label: 'B' }
     ]);
 
+    // A verdict poll accepts one virtual ID, one legacy label, or both in
+    // agreement; anything else is refused.
     expect((await choiceVoteRequest(pollId, TOKENS(3), [ids.get(1)!])).status).toBe(400);
-    expect((await voteRequest(pollId, TOKENS(3), 'approve')).status).toBe(200);
+    expect((await choiceVoteRequest(pollId, TOKENS(3), [1, 2])).status).toBe(400);
+    expect((await choiceVoteRequest(pollId, TOKENS(3), [1])).status).toBe(200);
     expect((await voteRequest(pollId, TOKENS(3), 'oppose')).status).toBe(409);
 
     expect((await choiceVoteRequest(choicePoll, TOKENS(4), [ids.get(1)!])).status).toBe(200);
@@ -165,14 +172,16 @@ describe('choice poll responses', () => {
     const detail = await (await SELF.fetch(`${ORIGIN}/api/polls/${pollId}`)).json() as any;
     expect(detail.poll.pollType).toBe('single_choice');
     expect(detail.poll.options).toEqual([
-      { id: ids.get(1), label: 'Keep', position: 1 },
-      { id: ids.get(2), label: 'Change', position: 2 }
+      { id: ids.get(1), label: 'Keep', position: 1, virtual: false },
+      { id: ids.get(2), label: 'Change', position: 2, virtual: false }
     ]);
 
     const listing = await listingFor(pollId);
     expect(listing.poll.pollType).toBe('single_choice');
     expect(listing.poll.options).toHaveLength(2);
     expect(listing.stats.pollType).toBe('single_choice');
+    expect(listing.stats.ballots).toBe(1);
+    expect(listing.stats.counts).toBeNull();
 
     const status = await (await voteStatusRequest(pollId, TOKENS(8))).json() as any;
     expect(status.voted).toBe(true);
@@ -184,19 +193,37 @@ describe('choice poll responses', () => {
     expect(noVote.optionIds).toEqual([]);
   });
 
-  it('keeps a verdict poll response unchanged', async () => {
+  it('reports the three virtual options and an optionIds ballot for a verdict poll', async () => {
     const pollId = await seedPoll({ title: 'Verdict response shape' });
     await voteRequest(pollId, TOKENS(10), 'oppose');
+    // A verdict can also be cast as one virtual option ID.
+    await choiceVoteRequest(pollId, TOKENS(11), [2]);
 
     const detail = await (await SELF.fetch(`${ORIGIN}/api/polls/${pollId}`)).json() as any;
     expect(detail.poll.pollType).toBe('verdict');
-    expect(detail.poll.options).toEqual([]);
+    // The three entries are virtual and carry i18n keys as their labels.
+    expect(detail.poll.options).toEqual([
+      { id: 1, label: 'approve', position: 1, virtual: true },
+      { id: 3, label: 'neutral', position: 2, virtual: true },
+      { id: 2, label: 'oppose', position: 3, virtual: true }
+    ]);
 
     const stats = await statsFor(pollId);
     expect(stats.pollType).toBe('verdict');
+    // The same results shape as a choice poll, plus the legacy counts. Two
+    // ballots are below the default threshold of 10, so every option count is
+    // withheld while the ballot total is still reported.
+    expect(stats.ballots).toBe(2);
+    expect(stats.hidden).toBe(true);
+    expect(stats.options).toBeNull();
+    expect(stats.counts).toBeNull();
 
-    const status = await (await voteStatusRequest(pollId, TOKENS(10))).json() as any;
-    expect(status.option).toBe('oppose');
-    expect(status.optionIds).toEqual([]);
+    // Both spellings of the verdict resolve to the same stored code.
+    const byLabel = await (await voteStatusRequest(pollId, TOKENS(10))).json() as any;
+    expect(byLabel.option).toBe('oppose');
+    expect(byLabel.optionIds).toEqual([2]);
+    const byId = await (await voteStatusRequest(pollId, TOKENS(11))).json() as any;
+    expect(byId.option).toBe('oppose');
+    expect(byId.optionIds).toEqual([2]);
   });
 });

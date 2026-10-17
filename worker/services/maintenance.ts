@@ -10,9 +10,12 @@
 //
 // Retention is keyed on `polls.closed_at`, not `updated_at`, so editing a closed
 // poll does not restart its retention clock.
+//
+// Counting goes through the shared engine in worker/services/options.ts, so a
+// verdict poll and a choice poll are tallied the same way.
 
 import { PollMode, PollStatus, PollType } from '../enums';
-import { isChoicePollType } from './pollType';
+import { getOptionsForPolls, isChoicePollType, countBallots, type PollOption } from './options';
 import { makeSnapshot, serializeOptionCounts, type SnapshotOptionCount } from './snapshot';
 
 interface MaintenanceEnv {
@@ -74,57 +77,68 @@ function emptyCounts(): Counts {
   return { approve: 0, oppose: 0, neutral: 0 };
 }
 
+// Fills one of the three verdict columns from a fixed option code.
 function applyCount(counts: Counts, option: number, count: number): void {
   if (option === 1) counts.approve = count;
   else if (option === 2) counts.oppose = count;
   else if (option === 3) counts.neutral = count;
 }
 
-// Per-option counts of a choice poll, keyed by poll id and ordered by position.
+// Per-option counts of a poll, keyed by poll id and ordered by position.
 type OptionCountMap = Map<number, SnapshotOptionCount[]>;
 
-// Reads the option counts and the ballot total of every choice poll in the set
-// with two aggregate queries, plus the ballot total of a mixed set of polls in
-// one more query.
-async function loadBallotsAndOptionCounts(
+// Reads the counts of a set of polls through the shared engine, then shapes them
+// for the snapshot: a verdict poll fills the three existing columns so the
+// published data format does not change, and a choice poll zeroes them and
+// carries its per-position counts in `optionCounts`.
+async function loadSnapshotCounts(
   env: MaintenanceEnv,
-  pollTypes: Map<number, number>
-): Promise<{ ballots: Map<number, number>; optionCounts: OptionCountMap }> {
+  polls: Array<{ id: number; poll_type: number }>
+): Promise<{
+  counts: Map<number, Counts>;
+  ballots: Map<number, number>;
+  optionCounts: OptionCountMap;
+}> {
+  const counts = new Map<number, Counts>();
   const ballots = new Map<number, number>();
   const optionCounts: OptionCountMap = new Map();
-  const pollIds = [...pollTypes.keys()];
-  if (pollIds.length === 0) return { ballots, optionCounts };
+  if (polls.length === 0) return { counts, ballots, optionCounts };
 
-  const placeholders = pollIds.map(() => '?').join(', ');
+  const tallies = await countBallots(env, polls);
+  const optionsByPoll = await getOptionsForPolls(env, polls);
 
-  // One row per poll: the number of ballots is the number of vote rows.
-  const ballotRows = await env.DB.prepare(
-    `SELECT poll_id, COUNT(*) AS ballots FROM votes
-     WHERE poll_id IN (${placeholders}) GROUP BY poll_id`
-  ).bind(...pollIds).all<{ poll_id: number; ballots: number }>();
-  for (const row of ballotRows.results ?? []) {
-    ballots.set(Number(row.poll_id), Number(row.ballots));
+  for (const poll of polls) {
+    const pollId = Number(poll.id);
+    const tally = tallies.get(pollId) ?? { ballots: 0, counts: new Map<number, number>() };
+    ballots.set(pollId, tally.ballots);
+
+    if (isChoicePollType(Number(poll.poll_type))) {
+      // A choice poll leaves the verdict columns at zero and publishes the
+      // per-position counts instead.
+      counts.set(pollId, emptyCounts());
+      optionCounts.set(pollId, perPositionCounts(optionsByPoll.get(pollId) ?? [], tally.counts));
+    } else {
+      counts.set(pollId, verdictCounts(tally.counts));
+    }
   }
 
-  const choicePollIds = pollIds.filter((id) => isChoicePollType(Number(pollTypes.get(id))));
-  if (choicePollIds.length === 0) return { ballots, optionCounts };
+  return { counts, ballots, optionCounts };
+}
 
-  const choicePlaceholders = choicePollIds.map(() => '?').join(', ');
-  const optionRows = await env.DB.prepare(
-    `SELECT o.poll_id, o.position, COUNT(vs.vote_id) AS count
-     FROM poll_options o
-     LEFT JOIN vote_selections vs ON vs.option_id = o.id
-     WHERE o.poll_id IN (${choicePlaceholders})
-     GROUP BY o.poll_id, o.position
-     ORDER BY o.poll_id ASC, o.position ASC`
-  ).bind(...choicePollIds).all<{ poll_id: number; position: number; count: number }>();
-  for (const row of optionRows.results ?? []) {
-    const pollId = Number(row.poll_id);
-    const entry = optionCounts.get(pollId) ?? [];
-    entry.push({ position: Number(row.position), count: Number(row.count) });
-    optionCounts.set(pollId, entry);
-  }
-  return { ballots, optionCounts };
+// Maps the tally of a verdict poll onto the three stored columns.
+function verdictCounts(tally: Map<number, number>): Counts {
+  const counts = emptyCounts();
+  for (const [option, count] of tally) applyCount(counts, option, count);
+  return counts;
+}
+
+// Reduces a choice poll's per-option tally to the per-position counts the
+// snapshot stores, ordered by position. Selections always belong to the poll, so
+// every counted option is present in the option list.
+function perPositionCounts(options: PollOption[], tally: Map<number, number>): SnapshotOptionCount[] {
+  return options
+    .map((option) => ({ position: option.position, count: Number(tally.get(option.id) ?? 0) }))
+    .sort((left, right) => left.position - right.position);
 }
 
 export async function runMaintenanceTasks(env: MaintenanceEnv): Promise<void> {
@@ -221,22 +235,12 @@ async function writeSnapshots(env: MaintenanceEnv, tsHour: number, now: number):
   const pollIds = entries.map((entry) => entry.id);
   const placeholders = pollIds.map(() => '?').join(', ');
 
-  const counts = new Map<number, Counts>();
-  const countsRows = await env.DB.prepare(
-    `SELECT poll_id, option, COUNT(*) AS count
-     FROM votes WHERE poll_id IN (${placeholders}) AND option IS NOT NULL
-     GROUP BY poll_id, option`
-  ).bind(...pollIds).all<{ poll_id: number; option: number; count: number }>();
-  for (const row of countsRows.results ?? []) {
-    const pollId = Number(row.poll_id);
-    const entry = counts.get(pollId) ?? emptyCounts();
-    applyCount(entry, Number(row.option), Number(row.count));
-    counts.set(pollId, entry);
-  }
-
-  // Ballots and per-option counts, for every poll type.
-  const pollTypes = new Map(entries.map((entry) => [entry.id, entry.pollType]));
-  const { ballots, optionCounts } = await loadBallotsAndOptionCounts(env, pollTypes);
+  // Every type is counted through the shared engine; the helper shapes the
+  // result for the snapshot columns.
+  const { counts, ballots, optionCounts } = await loadSnapshotCounts(
+    env,
+    entries.map((entry) => ({ id: entry.id, poll_type: entry.pollType }))
+  );
 
   const previous = new Map<number, string>();
   const hashRows = await env.DB.prepare(
@@ -293,21 +297,10 @@ export async function writeSnapshotForPoll(
   tsHour: number,
   isFinal: boolean
 ): Promise<void> {
-  const counts = emptyCounts();
-  const countsRows = await env.DB.prepare(
-    'SELECT option, COUNT(*) AS count FROM votes WHERE poll_id = ? AND option IS NOT NULL GROUP BY option'
-  ).bind(pollId).all<{ option: number; count: number }>();
-  for (const row of countsRows.results ?? []) {
-    applyCount(counts, Number(row.option), Number(row.count));
-  }
-
-  const pollRow = await env.DB.prepare('SELECT poll_type FROM polls WHERE id = ?')
-    .bind(pollId).first<{ poll_type: number }>();
+  const pollRow = await env.DB.prepare('SELECT id, poll_type FROM polls WHERE id = ?')
+    .bind(pollId).first<{ id: number; poll_type: number }>();
   const pollType = Number(pollRow?.poll_type ?? PollType.Verdict);
-  const { ballots, optionCounts } = await loadBallotsAndOptionCounts(
-    env,
-    new Map([[pollId, pollType]])
-  );
+  const { counts, ballots, optionCounts } = await loadSnapshotCounts(env, [{ id: pollId, poll_type: pollType }]);
 
   const previous = await env.DB.prepare(
     `SELECT hash FROM stats_snapshots
@@ -321,7 +314,7 @@ export async function writeSnapshotForPoll(
   const snapshot = await makeSnapshot({
     pollId,
     tsHour,
-    counts,
+    counts: counts.get(pollId) ?? emptyCounts(),
     ballots: ballots.get(pollId) ?? 0,
     optionCounts: optionCounts.get(pollId) ?? null,
     views: Number(viewsRow?.views ?? 0),

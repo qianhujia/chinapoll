@@ -2,8 +2,9 @@
 
 import type { HandlerEnv } from '../index';
 import {
+  SNAPSHOT_SCHEMA_VERSION,
+  matchesStoredHash,
   parseOptionCounts,
-  verifySnapshotHash,
   type SnapshotRecord
 } from '../services/snapshot';
 
@@ -85,7 +86,10 @@ export async function handleSnapshotRequest(request: Request, url: URL, env: Han
       for (const row of rows) {
         const record = toRecord(row);
         if (record.prevHash !== prevHash) { valid = false; break; }
-        if (await verifySnapshotHash(record) !== record.hash) { valid = false; break; }
+        // A record may be a version 2 row or one published before the new
+        // fields existed, so either payload is accepted when it reproduces the
+        // stored hash.
+        if (!await matchesStoredHash(record)) { valid = false; break; }
         prevHash = record.hash;
         total += 1;
       }
@@ -107,6 +111,7 @@ export async function handleSnapshotRequest(request: Request, url: URL, env: Han
 
   return Response.json({
     pollId,
+    schemaVersion: SNAPSHOT_SCHEMA_VERSION,
     snapshots: rows.map((row) => {
       const snapshot = toRecord(row);
       return {
