@@ -14,12 +14,14 @@ import {
   submitComment,
   submitReport,
   submitVote,
-  type ChoiceCounts,
+  type PollOption,
+  type PollResults,
   type PollSummary,
   type PollType,
   type PollViewCounts,
   type ReportReason,
-  type VoteOption
+  type VoteOption,
+  type VoteResponse
 } from '../lib/poll';
 import { getCurrentUser } from '../lib/session';
 import { renderTurnstile, resetTurnstile, turnstileSiteKey, turnstileToken } from '../lib/turnstile';
@@ -54,11 +56,11 @@ const REPORT_REASON_LABELS: Record<ReportReason, string> = {
   other: 'reportReasonOther'
 };
 
-// Radio (single choice) or checkbox (multi choice) list for a choice poll. The
-// submit button stays disabled until the ballot is complete.
+// Radio (single choice) or checkbox (multi choice) list. The submit button stays
+// disabled until the ballot is complete.
 function renderChoiceInputs(
   pollType: Exclude<PollType, 'verdict'>,
-  options: Array<{ id: number; label: string }>,
+  options: PollOption[],
   hasVoted: boolean
 ): string {
   const inputType = pollType === 'single_choice' ? 'radio' : 'checkbox';
@@ -69,7 +71,7 @@ function renderChoiceInputs(
         ${options.map((option) => `
           <label class="flex cursor-pointer items-center gap-2.5 rounded-[14px] border border-border bg-[#f9fbff] px-3.5 py-2.5">
             <input class="accent-primary" type="${inputType}" name="option" value="${option.id}" data-choice-option ${hasVoted ? 'disabled' : ''}>
-            <span>${escapeHtml(option.label)}</span>
+            <span>${escapeHtml(optionLabel(option))}</span>
           </label>
         `).join('')}
       </fieldset>
@@ -78,24 +80,31 @@ function renderChoiceInputs(
   `;
 }
 
+// The label shown for an option: a virtual verdict option carries an i18n key,
+// so it is translated; a stored option carries the submitter's text.
+function optionLabel(option: PollOption): string {
+  return option.virtual ? t(option.label) : option.label;
+}
+
 // One horizontal bar per option, sorted by position, showing the count and the
-// share of ballots. A choice poll never shows which options were picked
-// together on one ballot.
-function renderChoiceResults(counts: ChoiceCounts): string {
-  const options = [...counts.options].sort((left, right) => left.position - right.position);
+// share of ballots. This is the single results renderer for every poll type; it
+// never shows which options were picked together on one ballot.
+function renderResults(results: PollResults): string {
+  const options = [...(results.options ?? [])].sort((left, right) => left.position - right.position);
+  if (options.length === 0) return '';
   return `
-    <div class="mx-auto mt-4 grid w-full max-w-[420px] gap-2.5" data-choice-results>
+    <div class="mx-auto mt-4 grid w-full max-w-[420px] gap-2.5" data-results>
       ${options.map((option) => {
     const count = Number(option.count ?? 0);
-    const percent = counts.ballots > 0 ? count / counts.ballots * 100 : 0;
+    const percent = results.ballots > 0 ? count / results.ballots * 100 : 0;
     return `
-        <div class="grid gap-1">
+        <div class="grid gap-1" data-result-option="${option.id}">
           <div class="flex items-baseline justify-between gap-3 text-sm">
-            <span class="min-w-0 truncate">${escapeHtml(option.label)}</span>
-            <span class="shrink-0 tabular-nums text-muted">${count} · ${percent.toFixed(1)}%</span>
+            <span class="min-w-0 truncate">${escapeHtml(optionLabel(option))}</span>
+            <span class="shrink-0 tabular-nums text-muted" data-result-count>${count} · ${percent.toFixed(1)}%</span>
           </div>
           <div class="h-2 w-full overflow-hidden rounded-full bg-[#edf0f4]">
-            <div class="h-full rounded-full bg-primary" style="width:${percent.toFixed(1)}%"></div>
+            <div class="h-full rounded-full bg-primary" data-result-bar style="width:${percent.toFixed(1)}%"></div>
           </div>
         </div>
       `;
@@ -159,13 +168,22 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
   const voteCounts = stats?.counts;
   const pollType: PollType = poll.pollType ?? stats?.pollType ?? 'verdict';
   const isChoice = pollType !== 'verdict';
-  const choiceCounts: ChoiceCounts | null = isChoice && voteCounts && 'ballots' in voteCounts
-    ? voteCounts
+  // The options come from the server for every type: a verdict poll's three
+  // entries are virtual and carry an i18n key as their label.
+  const pollOptions = poll.options ?? stats?.options ?? [];
+  const results: PollResults | null = stats
+    ? {
+      pollType,
+      ballots: stats.ballots,
+      hidden: stats.hidden,
+      threshold: stats.threshold,
+      options: stats.options
+    }
     : null;
   const verdictCounts = !isChoice && voteCounts
     ? voteCounts as Record<VoteOption, number>
     : null;
-  const voteTotal = verdictCounts
+  const verdictTotal = verdictCounts
     ? verdictCounts.approve + verdictCounts.neutral + verdictCounts.oppose
     : 0;
   const canComment = getCurrentUser() !== null;
@@ -175,16 +193,23 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
     ? (['approve', 'neutral', 'oppose'] as const).map((option) => renderVoteButton(
       option,
       verdictCounts[option],
-      voteTotal,
+      verdictTotal,
       hasVoted || Boolean(voteStatusError),
       hasVoted ? t('alreadyVoted') : t(option)
     )).join('')
     : '';
-  const choiceOptions = poll.options ?? [];
-  const choiceInputs = isChoice && choiceOptions.length > 0
+  // The stored options drive the choice inputs; the virtual verdict entries are
+  // not selectable as a list because they use the three buttons above.
+  const choiceOptions = isChoice ? pollOptions : [];
+  const choiceInputs = choiceOptions.length > 0
     ? renderChoiceInputs(pollType as Exclude<PollType, 'verdict'>, choiceOptions, hasVoted)
     : '';
-  const choiceResults = choiceCounts ? renderChoiceResults(choiceCounts) : '';
+  // One results renderer for every type; below the threshold the server sends
+  // `options: null` and only the message is shown.
+  const resultsMarkup = results && !results.hidden
+    ? renderResults({ ...results, options: pollOptions })
+    : '';
+  const ballotTotal = results ? results.ballots : verdictTotal;
   // The view count is shown next to the vote total when it clears the display
   // threshold; otherwise `views` is null and nothing is rendered.
   const viewsLine = views
@@ -221,16 +246,15 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
 
           ${choiceInputs}
 
-          ${choiceResults}
+          ${resultsMarkup}
 
           ${stats?.hidden ? `
             <p class="mt-6 mb-0 text-center text-sm text-muted">${t('resultsHidden').replace('{n}', String(stats.threshold))}</p>
           ` : ''}
 
-          ${verdictCounts || (choiceCounts && choiceCounts.ballots >= 0) || viewsLine ? `
+          ${results || viewsLine ? `
             <p class="m-0 mt-3 flex items-center justify-center gap-3 text-center text-xs text-muted">
-              ${verdictCounts ? `<span>${voteTotal} ${t('votes')}</span>` : ''}
-              ${choiceCounts ? `<span>${choiceCounts.ballots} ${t('ballots')}</span>` : ''}
+              <span data-ballot-total>${ballotTotal} ${isChoice ? t('ballots') : t('votes')}</span>
               ${viewsLine}
             </p>
           ` : ''}
@@ -381,6 +405,24 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
     return result;
   };
 
+  // The server returns the same results shape for every type, so one refresh
+  // path updates the bars and the ballot total after any ballot.
+  const refreshResults = (result: VoteResponse) => {
+    if (result.hidden || !result.options) return;
+    const markup = renderResults(result);
+    const existing = document.querySelector<HTMLElement>('[data-results]');
+    if (existing) existing.outerHTML = markup;
+    else {
+      const anchor = document.querySelector('[data-vote-group]') ?? document.querySelector('[data-choice-form]');
+      anchor?.insertAdjacentHTML('afterend', markup);
+    }
+    const total = document.querySelector<HTMLElement>('[data-ballot-total]');
+    if (total) {
+      const label = isChoice ? t('ballots') : t('votes');
+      total.textContent = `${result.ballots} ${label}`;
+    }
+  };
+
   document.querySelectorAll<HTMLButtonElement>('[data-option]').forEach((button) => {
     button.addEventListener('click', async () => {
       if (hasVoted || voteStatusError || statsError) return;
@@ -392,7 +434,7 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
       const message = `${t('voteRecord')}: ${statusText}`;
       if (result.ok) {
         const voteGroup = document.querySelector<HTMLElement>(`[data-vote-group="${poll.id}"]`);
-        if (voteGroup && result.counts && 'approve' in result.counts) {
+        if (voteGroup && result.counts) {
           updateVoteGroup(voteGroup, result.counts);
         }
         hasVoted = true;
@@ -400,8 +442,8 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
         document.querySelectorAll<HTMLButtonElement>('[data-vote-group] [data-option]').forEach((voteButton) => {
           voteButton.disabled = true;
         });
-        const choices = document.querySelector<HTMLElement>(`[data-vote-group="${poll.id}"]`);
-        if (choices) choices.setAttribute('title', t('alreadyVoted'));
+        const group = document.querySelector<HTMLElement>(`[data-vote-group="${poll.id}"]`);
+        if (group) group.setAttribute('title', t('alreadyVoted'));
       }
       showToast(message, result.ok ? 'success' : 'error');
     });
@@ -440,12 +482,7 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
         if (submitButton) submitButton.disabled = true;
         const stack = document.querySelector<HTMLElement>('.choice-stack');
         if (stack) stack.setAttribute('title', t('alreadyVoted'));
-        if (result.counts && 'ballots' in result.counts) {
-          const results = document.querySelector<HTMLElement>('[data-choice-results]');
-          const markup = renderChoiceResults(result.counts);
-          if (results) results.outerHTML = markup;
-          else choiceForm.insertAdjacentHTML('afterend', markup);
-        }
+        refreshResults(result);
       }
       showToast(message, result.ok ? 'success' : 'error');
     });

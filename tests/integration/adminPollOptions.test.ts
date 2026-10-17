@@ -139,9 +139,29 @@ describe('admin poll listing', () => {
     const row = body.polls.find((entry: any) => entry.id === pollId);
     expect(row.pollType).toBe('single_choice');
     expect(row.durationSeconds).toBe(86_400);
+    expect(row.ballots).toBe(1);
     expect(row.options).toEqual([
-      { id: ids.get(1), label: 'First', position: 1, count: 1 },
-      { id: ids.get(2), label: 'Second', position: 2, count: 0 }
+      { id: ids.get(1), label: 'First', position: 1, virtual: false, count: 1 },
+      { id: ids.get(2), label: 'Second', position: 2, virtual: false, count: 0 }
+    ]);
+  });
+
+  it('shows the three virtual options of a verdict poll', async () => {
+    const pollId = await seedPoll({ title: 'Listed verdict poll' });
+    await env.DB.prepare(
+      'INSERT INTO votes (poll_id, voter_token_hash, option, created_at) VALUES (?, ?, 1, unixepoch())'
+    ).bind(pollId, 'e'.repeat(64)).run();
+
+    const response = await listRequest();
+    const body = await response.json() as any;
+    const row = body.polls.find((entry: any) => entry.id === pollId);
+    expect(row.pollType).toBe('verdict');
+    expect(row.ballots).toBe(1);
+    expect(row.counts).toEqual({ approve: 1, neutral: 0, oppose: 0 });
+    expect(row.options).toEqual([
+      { id: 1, label: 'approve', position: 1, virtual: true, count: 1 },
+      { id: 3, label: 'neutral', position: 2, virtual: true, count: 0 },
+      { id: 2, label: 'oppose', position: 3, virtual: true, count: 0 }
     ]);
   });
 });

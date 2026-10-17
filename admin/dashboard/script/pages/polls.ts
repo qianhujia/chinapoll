@@ -13,6 +13,11 @@ export const scriptPolls = `  function statusOptions(selected, includeAll, inclu
   // Option labels may only be edited while a poll is still pending, and only for
   // a choice poll. Saving replaces the set by position.
   function optionEditor(item) {
+    if (item.pollType === 'verdict') {
+      // A verdict poll's options are virtual (fixed and translated), so they are
+      // shown read-only with their counts.
+      return '<div class="small muted">' + optionSummary(item) + '</div>';
+    }
     var rows = item.options.map(function (option) {
       return '<div class="option-row" data-option-position="' + esc(option.position) + '">' +
         '<input class="grow" data-option-label value="' + esc(option.label) + '" maxlength="80">' +
@@ -22,6 +27,14 @@ export const scriptPolls = `  function statusOptions(selected, includeAll, inclu
     return '<div class="option-editor" data-option-editor="' + esc(item.id) + '">' + rows +
       '<div class="toolbar"><button class="primary" data-action="save-poll-options" data-id="' + esc(item.id) + '">Save options</button>' +
       '<span class="small muted">Editable while the poll is pending. The count column is read-only.</span></div></div>';
+  }
+
+  function optionSummary(item) {
+    if (!item.options || item.options.length === 0) return '';
+    var list = item.options.map(function (option) {
+      return esc(option.position) + '. ' + esc(option.label) + ' (' + esc(option.count) + ')';
+    }).join(' · ');
+    return '<div class="small muted">' + list + '</div>';
   }
 
   function optionSummary(item) {

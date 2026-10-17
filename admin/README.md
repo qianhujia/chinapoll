@@ -119,9 +119,9 @@ login endpoint) or an `Authorization: Bearer <session-token>` header.
 | `DELETE` | `/api/admin/session` | Logout |
 | `POST` | `/api/admin/setup` | Create the first admin user when none exist |
 | `GET` | `/api/admin/overview` | Dashboard counts and recent submissions |
-| `GET` | `/api/admin/polls` | List polls including pending submissions (`status`, `page`, `pageSize`, `q`); each row carries `pollType`, `durationSeconds`, and the option list with counts |
+| `GET` | `/api/admin/polls` | List polls including pending submissions (`status`, `page`, `pageSize`, `q`); each row carries `pollType`, `durationSeconds`, `ballots`, and the option list with counts (virtual options for a verdict poll) |
 | `POST` | `/api/admin/polls/:id/status` | Set poll status (`{ "status": "open" }`); opening a deadline poll stamps `end_at` from `duration_seconds` |
-| `PUT` | `/api/admin/polls/:id/options` | Replace the option set of a **pending** choice poll (`{ "options": [{ "position": 1, "label": "…" }] }`); writes a `poll.options` audit entry |
+| `PUT` | `/api/admin/polls/:id/options` | Replace the option set of a **pending choice** poll (`{ "options": [{ "position": 1, "label": "…" }] }`); rejected for a verdict poll (`409`) and for a poll that is not pending (`409`); writes a `poll.options` audit entry |
 | `GET` | `/api/admin/reports` | List polls with reports, priority first (`status=open\|resolved\|all`, `page`, `pageSize`) |
 | `POST` | `/api/admin/reports/:pollId/resolve` | Resolve every open report for a poll (`{ "resolution": "dismissed" \| "action_taken" }`) |
 | `GET` | `/api/admin/comments` | List comments (`pollId`, `page`, `pageSize`, `q`) |
@@ -176,10 +176,12 @@ multiple choice) next to the mode. Choice polls also show a one-line option
 summary with the count per option, and a **Show options** toggle that opens an
 editor. Saving the editor calls `PUT /api/admin/polls/:id/options` with the
 position/label pairs, which replaces the set and writes a `poll.options` audit
-entry. Editing is only allowed while the poll is still **pending**: once a poll is
-open its labels are part of the published question and of the counts that the
-signed snapshot chain covers. Setting a choice poll to `open` is refused with
-`422` when it has no options.
+entry. Editing is only allowed while the poll is still **pending** and only for a
+**choice** poll: a verdict poll's three options are virtual (fixed and
+translated), so they are shown read-only, and once a poll is open its labels are
+part of the published question and of the counts that the signed snapshot chain
+covers. Setting a choice poll to `open` is refused with `422` when it has no
+options.
 
 Opening a deadline poll stamps `end_at` as `duration_seconds` after the moment it
 opens (unless an end date already exists), so a poll that waited for review still

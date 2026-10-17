@@ -74,16 +74,31 @@ export interface PollOption {
   id: number;
   label: string;
   position: number;
+  /**
+   * True for a verdict poll's fixed options, whose `label` is an i18n key
+   * (`approve`, `neutral`, `oppose`) rather than text the submitter wrote.
+   */
+  virtual?: boolean;
   count?: number;
 }
 
-// Counts of a choice poll: the number of ballots and one entry per option.
-export interface ChoiceCounts {
+// The single results shape returned for every poll type: the ballot total and
+// one entry per option, or `options: null` below the display threshold.
+export interface PollResults {
+  pollType?: PollType;
   ballots: number;
-  options: PollOption[];
+  hidden: boolean;
+  threshold: number;
+  options: PollOption[] | null;
 }
 
-export type PollCounts = Record<VoteOption, number> | ChoiceCounts | null;
+/**
+ * Legacy verdict counts, still returned for a verdict poll. Kept so older code
+ * paths (and the pre-existing integration tests) keep working.
+ */
+export type VerdictCounts = Record<VoteOption, number>;
+
+export type PollCounts = VerdictCounts | null;
 
 export interface PollSummary {
   id: number;
@@ -99,23 +114,18 @@ export interface PollSummary {
 
 export interface PollWithStats {
   poll: PollSummary;
-  stats: {
+  stats: PollResults & {
     pollId: number;
-    pollType?: PollType;
     counts: PollCounts;
-    hidden: boolean;
-    threshold: number;
     voted: boolean;
   };
   views: PollViewCounts | null;
 }
 
-export interface VoteResponse {
+export interface VoteResponse extends PollResults {
   ok: boolean;
   message: string;
   counts: PollCounts;
-  hidden?: boolean;
-  threshold?: number;
   voted: boolean;
   alreadyVoted?: boolean;
 }
@@ -164,12 +174,9 @@ export async function fetchJson<T>(input: string, init?: RequestInit): Promise<T
   return response.json() as Promise<T>;
 }
 
-export async function getStats(pollId: number): Promise<{
+export async function getStats(pollId: number): Promise<PollResults & {
   pollId: number;
-  pollType?: PollType;
   counts: PollCounts;
-  hidden: boolean;
-  threshold: number;
   voted: boolean;
 }> {
   return fetchJson(`/api/stats/${pollId}`);

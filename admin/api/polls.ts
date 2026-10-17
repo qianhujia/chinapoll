@@ -1,5 +1,11 @@
 import { PollMode, PollStatus, PollType, VoteOption } from '../../worker/enums';
 import { currentHour, writeSnapshotForPoll } from '../../worker/services/maintenance';
+import {
+  countBallots,
+  getOptionsForPolls,
+  legacyVerdictCounts,
+  type PollOption
+} from '../../worker/services/options';
 import { validatePollOptions } from '../../worker/services/pollType';
 import type { AdminActor, AdminEnv } from '../auth';
 import { logAudit } from '../lib/audit';
@@ -125,33 +131,47 @@ async function listPolls(url: URL, env: AdminEnv): Promise<Response> {
     VoteOption.Approve, VoteOption.Neutral, VoteOption.Oppose
   ).all<AdminPollRow>();
 
-  // The option counts of every choice poll on this page are read with one
-  // aggregate query over `vote_selections` (paginate, then aggregate).
-  const optionCounts = await loadAdminOptionCounts(env, (result.results ?? [])
-    .filter((row) => Number(row.poll_type) !== PollType.Verdict)
-    .map((row) => Number(row.id)));
+  // The options and the tally of every poll on this page come from the shared
+  // engine (paginate, then aggregate), so a verdict poll also exposes its three
+  // virtual entries with their counts.
+  const pageRows = (result.results ?? []).map((row) => ({
+    id: Number(row.id),
+    poll_type: Number(row.poll_type ?? PollType.Verdict)
+  }));
+  const optionsByPoll = await getOptionsForPolls(env, pageRows);
+  const tallies = await countBallots(env, pageRows);
 
   return Response.json({
-    polls: (result.results ?? []).map((row) => ({
-      id: row.id,
-      title: row.title,
-      description: row.description,
-      mode: row.mode === PollMode.Evergreen ? 'evergreen' : 'deadline',
-      pollType: pollTypeLabel(Number(row.poll_type)),
-      durationSeconds: row.duration_seconds === null ? null : Number(row.duration_seconds),
-      status: pollStatusLabel(row.status),
-      startAt: toIso(row.start_at),
-      endAt: toIso(row.end_at),
-      createdAt: toIso(row.created_at),
-      updatedAt: toIso(row.updated_at),
-      views: Number(row.views),
-      counts: {
-        approve: Number(row.approve),
-        neutral: Number(row.neutral),
-        oppose: Number(row.oppose)
-      },
-      options: optionCounts.get(Number(row.id)) ?? []
-    })),
+    polls: (result.results ?? []).map((row) => {
+      const pollId = Number(row.id);
+      const pollType = Number(row.poll_type ?? PollType.Verdict);
+      const tally = tallies.get(pollId) ?? { ballots: 0, counts: new Map<number, number>() };
+      return {
+        id: row.id,
+        title: row.title,
+        description: row.description,
+        mode: row.mode === PollMode.Evergreen ? 'evergreen' : 'deadline',
+        pollType: pollTypeLabel(pollType),
+        durationSeconds: row.duration_seconds === null ? null : Number(row.duration_seconds),
+        status: pollStatusLabel(row.status),
+        startAt: toIso(row.start_at),
+        endAt: toIso(row.end_at),
+        createdAt: toIso(row.created_at),
+        updatedAt: toIso(row.updated_at),
+        views: Number(row.views),
+        ballots: tally.ballots,
+        counts: legacyVerdictCounts(tally),
+        // The labels are shown with their counts; a virtual verdict option keeps
+        // its i18n key as the label, so the dashboard shows it as-is.
+        options: (optionsByPoll.get(pollId) ?? []).map((option: PollOption) => ({
+          id: option.id,
+          position: option.position,
+          label: option.label,
+          virtual: option.virtual,
+          count: Number(tally.counts.get(option.id) ?? 0)
+        }))
+      };
+    }),
     page: currentPage,
     pageSize,
     total,
@@ -161,38 +181,6 @@ async function listPolls(url: URL, env: AdminEnv): Promise<Response> {
   }, {
     headers: { 'cache-control': 'no-store' }
   });
-}
-
-// Reads the options of several choice polls with one aggregate query.
-async function loadAdminOptionCounts(
-  env: AdminEnv,
-  pollIds: number[]
-): Promise<Map<number, AdminOptionCount[]>> {
-  const counts = new Map<number, AdminOptionCount[]>();
-  if (pollIds.length === 0) return counts;
-
-  const placeholders = pollIds.map(() => '?').join(', ');
-  const result = await env.DB.prepare(
-    `SELECT o.poll_id, o.id, o.label, o.position, COUNT(vs.vote_id) AS count
-     FROM poll_options o
-     LEFT JOIN vote_selections vs ON vs.option_id = o.id
-     WHERE o.poll_id IN (${placeholders})
-     GROUP BY o.id
-     ORDER BY o.poll_id ASC, o.position ASC`
-  ).bind(...pollIds).all<{ poll_id: number } & AdminOptionCount>();
-
-  for (const row of result.results ?? []) {
-    const pollId = Number(row.poll_id);
-    const entry = counts.get(pollId) ?? [];
-    entry.push({
-      id: Number(row.id),
-      label: row.label,
-      position: Number(row.position),
-      count: Number(row.count)
-    });
-    counts.set(pollId, entry);
-  }
-  return counts;
 }
 
 async function updatePollStatus(pollId: number, request: Request, env: AdminEnv, actor: AdminActor): Promise<Response> {
