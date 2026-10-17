@@ -12,6 +12,10 @@ are run from the repository root.
    edit one that has already been applied, and add every schema change as a new
    numbered file. Only a **fresh** database is supported; create the production
    database empty and apply `0001_initial.sql` (plus any later files) in order.
+   `0002_reports_and_views.sql` adds anonymous reports and view counting, and
+   `0003_poll_types_and_options.sql` adds the poll types, the per-poll options,
+   the choice ballot tables, the duration column, and the ballots/option count
+   columns of the snapshot chain.
 2. Set the required secret before the first deploy:
    `npx wrangler secret put SERVER_HMAC_KEY --env production` (a fresh 64-character hex value).
 3. Build the SPA: `npm run build` (outputs to `dist/web`).
@@ -60,6 +64,13 @@ Turnstile secret from the dashboard and the admin Settings tab. The legacy
 
 ## Release notes
 
+- **Optional AI assistance:** the public Worker binds Cloudflare Workers AI as
+  `AI` (`[ai] binding = "AI"`, repeated under `[env.production]`). The feature is
+  **off** by default: `ai_enable` is a normal setting in the `settings` table and
+  can be turned on from the admin Settings tab. When it is off, `/api/ai/*`
+  returns `404` and the frontend hides the buttons. `ai_model` and
+  `ai_rate_limit` stay private and are never served by the public settings
+  endpoint.
 - **Next release:** the one-release `IP_HASH_KEY` fallback is dropped. Rename the
   secret to `SERVER_HMAC_KEY` on every deployment
   (`npx wrangler secret put SERVER_HMAC_KEY --env production`) and in each

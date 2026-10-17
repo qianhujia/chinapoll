@@ -19,7 +19,7 @@ The local start command builds the frontend and Worker before starting them with
 
 Application settings are stored in the local D1 `settings` table and served to the front end by `/api/settings/public`. The `settings` table is the single source of truth for feature flags: read-only mode (`read_only_mode`), Turnstile (`turnstile_enable` plus the private `turnstile_secret_key`, which is never exposed by the public endpoint), rate limits (`vote_rate_limit`, `comment_rate_limit`, `proposal_rate_limit`, `report_rate_limit` in `"<count>/<unit>"` format with unit `w|d|h|m|s`), and the homepage hero (`hero_title`, `hero_subtitle`, `hero_background_color` — a CSS color (hex, rgb/a, hsl/a, or named) or CSS gradient; empty means no background). `.dev.vars` still holds local Worker secrets, and Turnstile is disabled locally by default (`turnstile_enable=false`).
 
-Public application settings use these self-explanatory keys: `default_locale` (`en`, `zh-CN`, or `zh-TW`), `site_name`, `site_slogan`, `data_repository_url`, `polls_per_page`, `comments_per_page`, `page_max_width_px`, `hero_title`, `hero_subtitle`, `hero_background_color`, `read_only_mode`, `turnstile_enable`, `turnstile_site_key`, `min_votes_to_display`, `min_views_to_display`, `report_rate_limit`, `report_auto_hide_threshold`, `report_auto_hide_priority_threshold`, `vote_rate_limit`, `comment_rate_limit`, and `proposal_rate_limit`. Page sizes are limited to 1–100; the page width is in pixels; `min_votes_to_display` (default 10) hides vote totals until a poll reaches that many votes and `min_views_to_display` (default 20) hides view totals until a poll reaches that many views. Missing or invalid settings fall back to built-in defaults. The locale supports `en`, `zh-CN`, and `zh-TW`; translations are loaded from `public/i18n/en.json`, `public/i18n/zh.json`, and `public/i18n/zh-TW.json`.
+Public application settings use these self-explanatory keys: `default_locale` (`en`, `zh-CN`, or `zh-TW`), `site_name`, `site_slogan`, `data_repository_url`, `polls_per_page`, `comments_per_page`, `page_max_width_px`, `hero_title`, `hero_subtitle`, `hero_background_color`, `read_only_mode`, `turnstile_enable`, `turnstile_site_key`, `min_votes_to_display`, `min_views_to_display`, `report_rate_limit`, `report_auto_hide_threshold`, `report_auto_hide_priority_threshold`, `vote_rate_limit`, `comment_rate_limit`, `proposal_rate_limit`, and `ai_enable`. Page sizes are limited to 1–100; the page width is in pixels; `min_votes_to_display` (default 10) hides vote and ballot totals until a poll reaches that many votes and `min_views_to_display` (default 20) hides view totals until a poll reaches that many views. Missing or invalid settings fall back to built-in defaults. The locale supports `en`, `zh-CN`, and `zh-TW`; translations are loaded from `public/i18n/en.json`, `public/i18n/zh.json`, and `public/i18n/zh-TW.json`.
 
 User-account settings are also stored in the `settings` table and served by the same endpoint: `user_poll_delay_hours` (default 48) and `user_comment_delay_hours` (default 24) set how long a new account must wait before it can submit a poll or post a comment, `max_accounts_per_ip` (default 4) caps how many accounts one anonymized network bucket may create, `login_max_failed_attempts` (default 5) and `login_lock_minutes` (default 15) control the lock after repeated failed sign-ins, and `login_rate_limit` (default `10/h`) and `register_rate_limit` (default `5/d`) rate limit sign-in and sign-up attempts per network bucket. Delay values are whole hours; the rate limits use the shared `"<count>/<unit>"` format with unit `w|d|h|m|s`. `login_badge_enable` (default `false`) is an optional navbar flag: when set to `true`, a small "Optional" badge is shown on the top-right corner of the login and sign-up links next to the header search to make clear that signing in is not required. `auto_approve_polls` (default `false`) controls moderation: when `true`, a submitted poll is published immediately; when `false`, it stays pending until an admin approves it from the dashboard's Polls tab.
 
@@ -47,7 +47,7 @@ Public account endpoints (session state, register, login, logout, and recovery) 
 
 The local database schema is managed with versioned SQL migrations in the `migrations/` folder. `npm run db:migrate` applies every pending migration (the Wrangler tracking table is named `migrations`, set with `migrations_table` in `wrangler.toml`). Public settings fall back to built-in defaults until they are written, and the dashboard's Settings tab can insert any missing defaults.
 
-**Applied migrations are never edited.** Migrations are immutable once recorded: schema changes go in a new file (numbered from `0002`). `migrations/0001_initial.sql` is the entire schema, frozen on 2026-10-11 when the earlier incremental files were folded into it because nothing had been deployed. Because the initial schema was consolidated, **only fresh databases are supported**: create a database from scratch (run `npm run db:reset` locally, or apply `0001_initial.sql` and any later files to an empty production database) rather than upgrading a database that recorded the earlier pre-consolidation migrations.
+**Applied migrations are never edited.** Migrations are immutable once recorded: schema changes go in a new file (numbered from `0002`). `migrations/0001_initial.sql` is the entire schema, frozen on 2026-10-11 when the earlier incremental files were folded into it because nothing had been deployed. `0002_reports_and_views.sql` adds anonymous reports and view counting, and `0003_poll_types_and_options.sql` adds the poll types, the per-poll options, the choice ballot tables, `polls.duration_seconds`, and the `ballots`/`option_counts` columns of the snapshot chain. Because the initial schema was consolidated, **only fresh databases are supported**: create a database from scratch (run `npm run db:reset` locally, or apply `0001_initial.sql` and any later files to an empty production database) rather than upgrading a database that recorded the earlier pre-consolidation migrations.
 
 ```bash
 npm run db:migrate
@@ -57,7 +57,99 @@ This keeps schema changes reproducible across local development. Future schema u
 
 ## Proposal approval
 
-Review and publish pending submissions from the dashboard's Polls tab: set a poll's status to `open` to approve it or to `closed` to reject it. A poll keeps the same ID from submission through approval.
+Review and publish pending submissions from the dashboard's Polls tab: set a poll's status to `open` to approve it or to `closed` to reject it. A poll keeps the same ID from submission through approval. Approving a choice poll that has no options is refused (`422`). Option labels of a **pending** choice poll can be corrected from the Polls tab (`PUT /api/admin/polls/:id/options`); once a poll is open the labels are part of the published question and of its counts, so they can no longer be edited.
+
+## Poll types and options
+
+A poll is one of three ballot shapes, selected on the proposal form and stored in `polls.poll_type`:
+
+| Code | `poll_type` | Ballot |
+| --- | --- | --- |
+| 1 | `verdict` | approve, neutral, or oppose (the original behaviour) |
+| 2 | `single_choice` | exactly one of 2 to 7 options |
+| 3 | `multi_choice` | one or more of 2 to 7 options |
+
+The options live in `poll_options` (position 1–7, label 1–80 characters, unique per
+position). A ballot is still **one row per (poll, token)** in `votes`, so the
+existing unique index keeps enforcing one ballot per browser; a choice ballot
+stores `NULL` in `votes.option` and its selections in the `vote_selections` child
+table, written in the same batch as the ballot.
+
+`POST /api/vote` accepts `{ pollId, tokenHash, turnstileToken?, option?, optionIds? }`.
+A verdict poll requires `option` and rejects `optionIds`; a single choice poll
+requires exactly one `optionIds` entry; a multiple choice poll requires 1 to 7
+distinct entries. Every referenced id must belong to the same poll, otherwise the
+request is rejected with `400`. `POST /api/vote/status` returns `option` for a
+verdict ballot and `optionIds` for a choice ballot.
+
+Responses are shaped by type: a verdict poll keeps `{ approve, oppose, neutral }`,
+and a choice poll returns `{ ballots, options: [{ id, label, position, count }] }`.
+`min_votes_to_display` is applied to the **number of ballots**, and below it every
+option count is withheld together. `GET /api/stats/:id`, `GET /api/polls/:id`, and
+the poll list all report `pollType` and, for a choice poll, the `options` array.
+The option counts of a page of polls are read with one `GROUP BY option_id` query
+over `vote_selections` (paginate, then aggregate).
+
+Public responses show per-option counts only. Which options were chosen together
+on one ballot is never published and is only visible to a database reader, who
+still sees anonymous ballots (see `docs/THREAT_MODEL.md`).
+
+## Duration model
+
+The proposal form has no start or end time. It carries a duration instead, and
+the mapping is defined once in `worker/enums.ts` and shared with the frontend
+through `src/lib/poll.ts`:
+
+| Label | Duration | Mode |
+| --- | --- | --- |
+| `none` | no end date | `evergreen` |
+| `1d` | 1 day | `deadline` |
+| `3d` | 3 days | `deadline` |
+| `7d` | 7 days | `deadline` |
+| `14d` | 14 days | `deadline` |
+| `1m` | 30 days | `deadline` |
+| `1y` | 365 days | `deadline` |
+
+`mode` is derived from the label (`none` stores `PollMode.Evergreen`, anything
+else `PollMode.Deadline`) and `duration_seconds` stores the length (or `NULL`).
+`start_at` is no longer written. `end_at` is computed when the poll **opens** as
+`unixepoch() + duration_seconds`, in the admin status update that sets `open`, in
+auto-approval, and in the hourly task for any open deadline poll that still has no
+end date, so a poll that waited for review still gets its full duration. Poll
+pages show "Ends on &lt;date&gt;" once a deadline poll is open and "No end date"
+otherwise.
+
+## AI assistance
+
+Optional AI assistance uses Cloudflare Workers AI through an `AI` binding
+declared as `[ai] binding = "AI"` in `wrangler.toml`, repeated under
+`[env.production]`. It is **off by default**: `ai_enable` defaults to `false`, and
+while it is off the two endpoints answer `404` and the frontend does not render
+the buttons at all.
+
+| Setting | Default | Public? |
+| --- | --- | --- |
+| `ai_enable` | `false` | yes (only this flag is exposed) |
+| `ai_model` | `@cf/meta/llama-3.3-70b-instruct-fp8-fast` | no |
+| `ai_rate_limit` | `10/h` | no |
+
+Both endpoints require a signed-in account, pass the same account-age gate as
+proposals, enforce the Origin check, verify Turnstile when it is enabled, and are
+rate limited per account with scope `ai` and key `user:<id>`:
+
+- `POST /api/ai/enhance-title` with `{ title, description?, locale }` returns
+  `{ suggestions: string[] }` (up to 3 alternatives, each at most 200 characters).
+- `POST /api/ai/suggest-options` with `{ title, description?, pollType, count?, locale }`
+  returns `{ options: string[] }` (2 to 7 options, each at most 80 characters).
+
+The title must be 10 to 200 characters after trimming and the description at most
+2000; anything else is rejected with `400`. The model is asked for structured JSON
+through `response_format` and the answer passes a strict parser (array type, item
+count, string type, trimmed length, no markdown, no duplicates). A malformed
+answer is `502`, a model that does not answer within 15 seconds is `504`. The
+prompt and the response are never logged and never written to D1: the validated
+suggestions go straight back to the caller. The frontend states this in one line
+under the buttons, and `docs/THREAT_MODEL.md` documents the data flow.
 
 ## Poll reports and view counts
 
@@ -137,9 +229,18 @@ records admin actions without client IP addresses. Deploy with
   longer than one API page, poll reporting (validation, the hourly timestamp, the
   report rate limit, and both auto-hide thresholds), view counting (the daily
   counter, the display threshold, the 7-day window, and the always-204 rate
-  limit), and the admin report list and resolve handlers. Every migration is
-  applied to the isolated test database in order (`migrations/0001_initial.sql`,
-  then `migrations/0002_reports_and_views.sql`).
+  limit), the admin report list and resolve handlers, the three poll types (ballot
+  validation, per-option counts, the ballot threshold, and the stored selection
+  rows), the duration model (`duration_seconds`, the derived mode, and the end
+  date computed at open), the admin option editor, and AI assistance (the disabled
+  setting, the auth gate, the input limits, a malformed model answer, and a valid
+  trimmed answer). Every migration is applied to the isolated test database in
+  order (`migrations/0001_initial.sql`, `0002_reports_and_views.sql`, then
+  `0003_poll_types_and_options.sql`).
+
+The AI binding has no local simulator, so `vitest.workers.config.ts` sets
+`remoteBindings: false` and the AI tests stub `env.AI` with an object whose `run`
+returns canned JSON; the real model is never called from a test.
 
 ```bash
 npm test              # unit + integration

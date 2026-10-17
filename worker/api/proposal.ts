@@ -3,9 +3,26 @@
 // Submitting requires a signed-in account and the account-age gate. Just like a
 // vote, a proposal is rate limited per account through the Durable Object. The
 // response deliberately omits the submitter so no public JSON carries a username.
+//
+// The form carries a duration instead of a start and end time: `none` means the
+// poll never ends and every other label is a fixed number of days. The end date
+// itself is computed when the poll opens, so a poll that waits for review still
+// gets its full duration.
 
 import type { HandlerEnv } from '../index';
-import { getPollModeCode, PollMode, PollStatus, toUnixSeconds } from '../enums';
+import {
+  durationMode,
+  durationSeconds,
+  getPollTypeCode,
+  getPollTypeLabel,
+  isPollDuration,
+  PollMode,
+  PollStatus,
+  PollType,
+  POLL_DURATIONS,
+  type PollDuration
+} from '../enums';
+import { validatePollOptions, type ParsedOption } from '../services/pollType';
 import { checkRateLimit } from '../services/rateLimit';
 import { enforceSameOrigin } from '../services/csrf';
 import { ownerHash } from '../services/owner';
@@ -49,7 +66,8 @@ export async function handleProposalRequest(request: Request, env: HandlerEnv): 
   if (!validation.ok) {
     return Response.json({ ok: false, message: validation.message }, { status: 400 });
   }
-  const { title, description, mode, startAt, endAt } = validation.input;
+  const { title, description, pollType, duration, options } = validation.input;
+  const mode = durationMode(duration);
 
   // Reject case-insensitive duplicate titles among polls that are pending or open.
   const duplicate = await env.DB.prepare(
@@ -69,20 +87,35 @@ export async function handleProposalRequest(request: Request, env: HandlerEnv): 
   // otherwise it stays pending until an admin approves it.
   const autoApprove = env.auto_approve_polls === true;
 
+  // `start_at` is no longer written: a new poll has no start time and its end
+  // date is stamped when it opens. An auto-approved deadline poll opens in the
+  // same statement, so only then is its end date computed here.
+  const openNow = autoApprove && mode === PollMode.Deadline;
+  const endAt = openNow ? durationSeconds(duration) : null;
   const result = await env.DB.prepare(
-    `INSERT INTO polls (title, description, mode, start_at, end_at, status, reviewed_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO polls (title, description, mode, poll_type, duration_seconds, end_at, status, reviewed_at)
+     VALUES (?, ?, ?, ?, ?, CASE WHEN ? THEN unixepoch() + ? ELSE NULL END, ?, ?)`
   ).bind(
     title,
     description,
     mode,
-    mode === PollMode.Deadline ? toUnixSeconds(startAt) : null,
-    mode === PollMode.Deadline ? toUnixSeconds(endAt) : null,
+    pollType,
+    durationSeconds(duration),
+    openNow ? 1 : 0,
+    endAt ?? 0,
     autoApprove ? PollStatus.Open : PollStatus.Pending,
     autoApprove ? Math.floor(Date.now() / 1000) : null
   ).run();
 
   const pollId = Number(result.meta.last_row_id);
+
+  // The options of a choice poll are written right after the poll row. The
+  // poll id is the only link and the labels are public anyway.
+  if (options.length > 0 && pollId > 0) {
+    await env.DB.batch(options.map((option) => env.DB.prepare(
+      'INSERT INTO poll_options (poll_id, position, label) VALUES (?, ?, ?)'
+    ).bind(pollId, option.position, option.label)));
+  }
 
   // The owner is stored as a one-way hash computed with the poll id, so it can
   // only be written after the row exists.
@@ -95,6 +128,7 @@ export async function handleProposalRequest(request: Request, env: HandlerEnv): 
     ok: true,
     message: autoApprove ? 'poll published' : 'proposal submitted for review',
     pollId,
+    pollType: getPollTypeLabel(pollType),
     status: autoApprove ? 'open' : 'pending'
   }, { status: 201 });
 }
@@ -102,9 +136,9 @@ export async function handleProposalRequest(request: Request, env: HandlerEnv): 
 export interface ProposalInput {
   title: string;
   description: string | null;
-  mode: PollMode;
-  startAt: string;
-  endAt: string;
+  pollType: PollType;
+  duration: PollDuration;
+  options: ParsedOption[];
 }
 
 export type ProposalValidation =
@@ -113,17 +147,13 @@ export type ProposalValidation =
 
 // Validates a proposal payload. The description is optional: an empty or omitted
 // description is accepted and stored as NULL, while a provided description must
-// be substantive (at least MIN_DESCRIPTION_LENGTH characters). A deadline poll
-// must include a start time in the future and an end time after the start.
-export function validateProposal(body: Record<string, unknown>, now = Date.now()): ProposalValidation {
+// be substantive (at least MIN_DESCRIPTION_LENGTH characters). The duration is
+// required and must be one of the seven offered labels; a choice poll must carry
+// 2 to 7 options, each 1 to 80 characters after trimming and all distinct.
+export function validateProposal(body: Record<string, unknown>): ProposalValidation {
   const title = typeof body.title === 'string' ? body.title.trim() : '';
   if (!title || title.length > MAX_TITLE_LENGTH) {
     return { ok: false, message: `a poll needs a title of at most ${MAX_TITLE_LENGTH} characters` };
-  }
-
-  const mode = getPollModeCode(body.mode);
-  if (!mode) {
-    return { ok: false, message: 'a poll needs a valid voting mode' };
   }
 
   if (body.description !== undefined && typeof body.description !== 'string') {
@@ -139,18 +169,28 @@ export function validateProposal(body: Record<string, unknown>, now = Date.now()
   }
   const description = trimmedDescription.length > 0 ? trimmedDescription : null;
 
-  const startAt = typeof body.startAt === 'string' ? body.startAt : '';
-  const endAt = typeof body.endAt === 'string' ? body.endAt : '';
-  if (mode === PollMode.Deadline) {
-    const startTimestamp = Date.parse(startAt);
-    const endTimestamp = Date.parse(endAt);
-    if (!Number.isFinite(startTimestamp) || !Number.isFinite(endTimestamp)
-      || startTimestamp <= now || endTimestamp <= startTimestamp) {
-      return { ok: false, message: 'a deadline poll needs a start time in the future and an end time after the start' };
-    }
+  const pollType = getPollTypeCode(body.pollType);
+  if (pollType === null) {
+    return { ok: false, message: 'a poll needs a valid type' };
   }
 
-  return { ok: true, input: { title, description, mode, startAt, endAt } };
+  if (!isPollDuration(body.duration)) {
+    return { ok: false, message: `duration must be one of ${POLL_DURATIONS.join(', ')}` };
+  }
+
+  let options: ParsedOption[] = [];
+  if (pollType !== PollType.Verdict) {
+    const optionValidation = validatePollOptions(body.options);
+    if (!optionValidation.ok) return { ok: false, message: optionValidation.message };
+    options = optionValidation.options;
+  } else if (body.options !== undefined && body.options !== null && Array.isArray(body.options) && body.options.length > 0) {
+    return { ok: false, message: 'a verdict poll does not accept options' };
+  }
+
+  return {
+    ok: true,
+    input: { title, description, pollType, duration: body.duration, options }
+  };
 }
 
 async function readJson(request: Request): Promise<Record<string, unknown> | null> {
