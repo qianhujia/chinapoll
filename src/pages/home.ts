@@ -19,7 +19,8 @@ import {
   renderPagination,
   renderPollTypeBadge,
   renderToast,
-  renderVoteButton,
+  renderVoteGroup,
+  selectVoteOption,
   showToast,
   t,
   updateVoteGroup,
@@ -54,18 +55,24 @@ export async function mountHome(app: HTMLElement, page: number, bindNavigation: 
   const totalPages = Math.max(1, Math.ceil(openPolls / pollsPerPage));
   const currentPage = Math.min(Math.max(1, page), totalPages);
   const tokenHash = await hashToken(createToken());
-  const pollVoteStates = new Map<number, { voted: boolean; error: string }>();
+  const pollVoteStates = new Map<number, { voted: boolean; error: string; option: VoteOption | null }>();
   await Promise.all(pollStats.map(async ({ poll }) => {
     let voted = hasVotedLocally(poll.id, tokenHash);
     let error = '';
+    let option: VoteOption | null = null;
     try {
       const status = await getVoteStatus(poll.id, tokenHash);
       voted ||= status.voted;
-      if (status.voted) markVotedLocally(poll.id, tokenHash);
+      if (status.voted) {
+        markVotedLocally(poll.id, tokenHash);
+        // Restore the chosen verdict so a returning voter sees it highlighted
+        // even while the counts are hidden below the display threshold.
+        option = status.option;
+      }
     } catch (statusError) {
       error = getErrorMessage(statusError);
     }
-    pollVoteStates.set(poll.id, { voted, error });
+    pollVoteStates.set(poll.id, { voted, error, option });
   }));
 
   const heroTitle = settings?.hero_title || t('heroTitle');
@@ -133,8 +140,16 @@ export async function mountHome(app: HTMLElement, page: number, bindNavigation: 
             const isChoice = pollType !== 'verdict';
             const verdictCounts = !isChoice && counts && 'approve' in counts ? counts : null;
             const total = verdictCounts ? verdictCounts.approve + verdictCounts.oppose + verdictCounts.neutral : 0;
-            const voteState = pollVoteStates.get(poll.id) ?? { voted: false, error: '' };
-            const voteDisabled = stats.hidden || voteState.voted || Boolean(voteState.error);
+            const voteState = pollVoteStates.get(poll.id) ?? { voted: false, error: '', option: null };
+            // Voting is disabled only for a visitor who has already voted or
+            // whose vote status could not be read. The display threshold hides
+            // results; it never disables the buttons.
+            const voteDisabled = voteState.voted || Boolean(voteState.error);
+            const resultsHidden = stats.hidden === true;
+            // The threshold notice replaces the vote total, not the buttons.
+            const voteTotalLine = resultsHidden
+              ? `<span class="shrink-0 whitespace-nowrap text-xs leading-[1.2] text-muted">${t('resultsHidden').replace('{n}', String(stats.threshold))}</span>`
+              : `<span class="shrink-0 whitespace-nowrap text-xs leading-[1.2] text-muted" data-home-total="${poll.id}">${total} ${isChoice ? t('ballots') : t('votes')}</span>`;
             return `
               <article class="grid grid-cols-[minmax(0,1fr)_minmax(190px,240px)] items-center gap-x-8 border-b border-border py-[22px] max-[700px]:grid-cols-1 max-[700px]:gap-y-3" data-poll-row="${poll.id}">
                 <div class="col-start-1 flex items-start justify-between gap-[18px]">
@@ -147,22 +162,19 @@ export async function mountHome(app: HTMLElement, page: number, bindNavigation: 
                 </div>
 
                 <div class="col-start-2 row-start-1 flex items-center justify-center gap-5 max-[700px]:col-start-1">
-                  <span class="shrink-0 whitespace-nowrap text-xs leading-[1.2] text-muted" data-home-total="${poll.id}">${stats.hidden ? '' : `${total} ${isChoice ? t('ballots') : t('votes')}`}</span>
+                  ${voteTotalLine}
                   ${views ? `<span class="inline-flex shrink-0 items-center gap-1 text-xs leading-[1.2] text-muted" title="${t('views')}">${viewIconMarkup('h-3.5 w-3.5')}${views.total}</span>` : ''}
-                  ${stats.hidden
-                    ? `<p class="m-0 max-w-[300px] text-center text-xs text-muted">${t('resultsHidden').replace('{n}', String(stats.threshold))}</p>`
-                    : isChoice
-                      ? `<a class="shrink-0 whitespace-nowrap rounded-full border border-border bg-panel px-3 py-1.5 text-xs text-ink no-underline hover:border-primary hover:text-primary max-[700px]:col-start-1" href="/poll/${poll.id}" data-route="/poll/${poll.id}">${t('vote')}</a>`
-                      : `<div class="flex w-full max-w-[300px] overflow-hidden rounded-xl border border-border max-[700px]:col-start-1" role="group" aria-label="${t('vote')}" data-vote-group="${poll.id}">
-                    ${(['approve', 'neutral', 'oppose'] as const).map((option) => renderVoteButton(
-                      option,
-                      verdictCounts![option],
-                      total,
-                      voteDisabled,
-                      voteState.voted ? t('alreadyVoted') : voteState.error || t(option),
-                      poll.id
-                    )).join('')}
-                  </div>`}
+                  ${isChoice
+                    ? `<a class="shrink-0 whitespace-nowrap rounded-full border border-border bg-panel px-3 py-1.5 text-xs text-ink no-underline hover:border-primary hover:text-primary max-[700px]:col-start-1" href="/poll/${poll.id}" data-route="/poll/${poll.id}">${t('vote')}</a>`
+                    : renderVoteGroup({
+                      pollId: poll.id,
+                      counts: resultsHidden ? null : verdictCounts,
+                      hidden: resultsHidden,
+                      disabled: voteDisabled,
+                      title: voteState.voted ? t('alreadyVoted') : voteState.error || t('vote'),
+                      selected: voteState.option ?? null,
+                      homePage: true
+                    })}
                 </div>
               </article>
             `;
@@ -195,6 +207,7 @@ export async function mountHome(app: HTMLElement, page: number, bindNavigation: 
         if (!result.ok) throw new Error(result.message);
 
         pollStatsEntry.stats.counts = result.counts;
+        pollStatsEntry.stats.hidden = result.hidden;
         state.voted = true;
         markVotedLocally(pollId, tokenHash);
         const counts = result.counts && 'approve' in result.counts ? result.counts : null;
@@ -202,10 +215,15 @@ export async function mountHome(app: HTMLElement, page: number, bindNavigation: 
         totalVotes += 1;
         const totalVotesElement = document.querySelector('[data-total-votes]');
         if (totalVotesElement) totalVotesElement.textContent = String(totalVotes);
+        // Below the display threshold the numbers stay hidden: the chosen button
+        // is marked as selected and the group is disabled instead.
+        const voteGroup = document.querySelector<HTMLElement>(`[data-vote-group="${pollId}"]`);
+        if (voteGroup) {
+          selectVoteOption(voteGroup, option);
+          updateVoteGroup(voteGroup, counts);
+        }
         const pollTotalElement = document.querySelector(`[data-home-total="${pollId}"]`);
         if (pollTotalElement) pollTotalElement.textContent = counts ? `${pollTotal} ${t('votes')}` : '';
-        const voteGroup = document.querySelector<HTMLElement>(`[data-vote-group="${pollId}"]`);
-        if (voteGroup && counts) updateVoteGroup(voteGroup, counts);
         showToast(`${t('voteRecord')}: ${t(option)}`);
       } catch (error) {
         let alreadyVoted = false;

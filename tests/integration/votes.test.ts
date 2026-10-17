@@ -57,6 +57,29 @@ describe('vote endpoint', () => {
     expect(countsFor(listing, id).counts.approve).toBe(10);
   });
 
+  it('accepts a vote below the display threshold and withholds only the counts', async () => {
+    const id = await seedPoll({ title: 'Votable below threshold poll' });
+
+    const response = await vote(id, 'e'.repeat(64));
+    expect(response.status).toBe(200);
+
+    const body = await response.json() as any;
+    // The threshold hides results only: the ballot is accepted and the voter is
+    // told the vote was recorded, while every count stays withheld.
+    expect(body.ok).toBe(true);
+    expect(body.voted).toBe(true);
+    expect(body.hidden).toBe(true);
+    expect(body.counts).toBeNull();
+    expect(body.options).toBeNull();
+    expect(body.ballots).toBe(1);
+    expect(body.threshold).toBe(10);
+
+    // The ballot really is stored.
+    const stored = await env.DB.prepare('SELECT COUNT(*) AS total FROM votes WHERE poll_id = ?')
+      .bind(id).first<{ total: number }>();
+    expect(stored?.total).toBe(1);
+  });
+
   it('carries the Content Security Policy on a deep link', async () => {
     const response = await SELF.fetch(`${ORIGIN}/poll/1`);
     expect(response.status).toBe(200);

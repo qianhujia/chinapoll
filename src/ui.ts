@@ -292,9 +292,17 @@ function voteFillPath(percent: number): string {
   return `M0 ${level} H100 V100 H0 Z`;
 }
 
+// Shared styles for a button whose vote has been cast (or restored from the
+// stored vote status). Reused by the poll page and the home page so a voter sees
+// the same selected state in both places, including while counts are hidden.
+export const VOTE_SELECTED_CLASS = 'font-bold ring-1 ring-inset ring-current';
+
+// The number and the fill bar are rendered only when a count is known. Below the
+// display threshold the server withholds every count, so the button keeps its
+// label and icon and the group is marked with `data-counts-hidden`.
 export function renderVoteButton(
   option: VoteOption,
-  count: number,
+  count: number | null,
   total: number,
   disabled: boolean,
   title: string,
@@ -302,7 +310,9 @@ export function renderVoteButton(
 ): string {
   const style = voteButtonStyles[option];
   const label = t(option);
-  const percent = total > 0 ? count / total * 100 : 0;
+  const hiddenCounts = count === null;
+  const value = hiddenCounts ? 0 : count;
+  const percent = !hiddenCounts && total > 0 ? value / total * 100 : 0;
   const homeAttributes = homePollId === undefined
     ? ''
     : `data-home-vote data-poll-id="${homePollId}"`;
@@ -313,36 +323,96 @@ export function renderVoteButton(
       class="relative flex min-w-0 flex-1 flex-wrap cursor-pointer items-center justify-center gap-x-1 gap-y-0.5 border-r border-border px-1 py-2 text-xs text-ink transition-[filter] hover:enabled:brightness-95 focus-visible:z-10 focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-primary last:border-r-0 disabled:cursor-not-allowed disabled:opacity-[0.65]"
       style="background:${style.empty}"
       data-option="${option}"
-      aria-label="${label}: ${count}"
+      aria-label="${hiddenCounts ? label : `${label}: ${value}`}"
       title="${title}"
       ${homeAttributes}
       ${disabled ? 'disabled' : ''}
     >
       <svg class="pointer-events-none absolute inset-0 h-full w-full" data-vote-fill="${option}" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
-        <path d="${count > 0 ? voteFillPath(percent) : ''}" fill="${style.color}"></path>
+        <path d="${!hiddenCounts && value > 0 ? voteFillPath(percent) : ''}" fill="${style.color}"></path>
       </svg>
       ${homePollId === undefined
     ? `${voteIconMarkup(option, 'relative z-10 h-4 w-4 shrink-0')}<span class="relative z-10 whitespace-nowrap">${label}</span>`
     : voteIconMarkup(option, 'relative z-10 h-4 w-4 shrink-0')}
-      <span class="choice-count relative z-10 shrink-0 tabular-nums" data-vote-count="${option}">${count}</span>
+      <span class="choice-count relative z-10 shrink-0 tabular-nums" data-vote-count="${option}">${hiddenCounts ? '' : value}</span>
     </button>
   `;
 }
 
-export function updateVoteGroup(group: HTMLElement, counts: Record<VoteOption, number>): void {
-  const total = counts.approve + counts.neutral + counts.oppose;
+// Builds one vote group. `counts` may be null when the results are hidden below
+// the display threshold: the buttons are then rendered without numbers and the
+// group carries `data-counts-hidden="true"`. `selected` marks the option the
+// visitor already voted for, so a returning voter sees their choice.
+export function renderVoteGroup(options: {
+  pollId: number;
+  counts: Record<VoteOption, number> | null;
+  hidden: boolean;
+  disabled: boolean;
+  title: string;
+  selected?: VoteOption | null;
+  homePage?: boolean;
+}): string {
+  const { pollId, counts, hidden, disabled, title, selected = null, homePage = false } = options;
+  const total = counts ? counts.approve + counts.neutral + counts.oppose : 0;
+  const buttons = (['approve', 'neutral', 'oppose'] as const).map((option) => {
+    const count = counts ? counts[option] : null;
+    const isSelected = selected === option;
+    const button = renderVoteButton(
+      option,
+      count,
+      total,
+      disabled || isSelected,
+      isSelected ? t('alreadyVoted') : title,
+      homePage ? pollId : undefined
+    );
+    // The selected state reuses the shared styling and is applied here rather
+    // than inside renderVoteButton so the button markup stays cacheable.
+    return isSelected
+      ? button.replace('class="relative flex', `class="${VOTE_SELECTED_CLASS} relative flex`)
+      : button;
+  }).join('');
+
+  return `<div class="mx-auto mt-6 flex w-full max-w-[300px] overflow-hidden rounded-xl border border-border${homePage ? ' max-[700px]:col-start-1 max-[700px]:mt-0' : ''}" role="group" aria-label="${t('vote')}" data-vote-group="${pollId}"${hidden ? ' data-counts-hidden="true"' : ''} title="${title}">
+      ${buttons}
+    </div>`;
+}
+
+// Applies a fresh count set to a rendered group, or clears the numbers and fill
+// bars when `counts` is null (the results are still below the display
+// threshold). The selected state is left untouched in both cases.
+export function updateVoteGroup(group: HTMLElement, counts: Record<VoteOption, number> | null): void {
+  const total = counts ? counts.approve + counts.neutral + counts.oppose : 0;
+  group.dataset.countsHidden = counts ? 'false' : 'true';
+
   for (const option of ['approve', 'neutral', 'oppose'] as const) {
     const button = group.querySelector<HTMLButtonElement>(`[data-option="${option}"]`);
     const countElement = button?.querySelector<HTMLElement>('[data-vote-count]');
     if (!button || !countElement) continue;
 
-    const count = counts[option];
-    const percent = total > 0 ? count / total * 100 : 0;
+    const count = counts ? counts[option] : null;
+    const percent = count !== null && total > 0 ? count / total * 100 : 0;
     const fillPath = button.querySelector<SVGPathElement>('[data-vote-fill] path');
-    if (fillPath) fillPath.setAttribute('d', count > 0 ? voteFillPath(percent) : '');
-    countElement.textContent = String(count);
-    button.setAttribute('aria-label', `${t(option)}: ${count}`);
+    if (fillPath) fillPath.setAttribute('d', count !== null && count > 0 ? voteFillPath(percent) : '');
+    countElement.textContent = count === null ? '' : String(count);
+    button.setAttribute('aria-label', count === null ? t(option) : `${t(option)}: ${count}`);
   }
+}
+
+// Marks one button in a group as the visitor's choice and disables the group,
+// without touching the numbers. Used after a vote that is still below the
+// display threshold and when the stored vote status is restored on load.
+export function selectVoteOption(group: HTMLElement, option: VoteOption): void {
+  for (const candidate of ['approve', 'neutral', 'oppose'] as const) {
+    const button = group.querySelector<HTMLButtonElement>(`[data-option="${candidate}"]`);
+    if (!button) continue;
+    // The class is a list, so each token is toggled individually: `classList`
+    // treats a space-separated string as a single (invalid) token.
+    for (const token of VOTE_SELECTED_CLASS.split(' ')) {
+      button.classList.toggle(token, candidate === option);
+    }
+    button.disabled = true;
+  }
+  group.setAttribute('title', t('alreadyVoted'));
 }
 
 export function getNavigationMarkup(activeRoute: string): string {

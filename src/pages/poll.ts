@@ -36,7 +36,8 @@ import {
   renderModeBadge,
   renderPollTypeBadge,
   renderToast,
-  renderVoteButton,
+  renderVoteGroup,
+  selectVoteOption,
   showToast,
   t,
   updateComments,
@@ -152,10 +153,17 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
   } catch (error) {
     statsError = getErrorMessage(error);
   }
+  // The stored vote status drives the selected state. `votedOption` is the
+  // verdict the visitor already cast, if any, so the matching button can be
+  // highlighted even when the counts are hidden.
+  let votedOption: VoteOption | null = null;
   try {
     const voteStatus = await getVoteStatus(poll.id, hash);
     hasVoted ||= voteStatus.voted;
-    if (voteStatus.voted) markVotedLocally(poll.id, hash);
+    if (voteStatus.voted) {
+      markVotedLocally(poll.id, hash);
+      if (voteStatus.option) votedOption = voteStatus.option;
+    }
   } catch (error) {
     voteStatusError = getErrorMessage(error);
   }
@@ -183,20 +191,30 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
   const verdictCounts = !isChoice && voteCounts
     ? voteCounts as Record<VoteOption, number>
     : null;
-  const verdictTotal = verdictCounts
-    ? verdictCounts.approve + verdictCounts.neutral + verdictCounts.oppose
-    : 0;
+  // Whether the results are hidden is a separate concern from whether voting is
+  // allowed: the threshold hides counts, it never closes the poll.
+  const resultsHidden = stats?.hidden === true;
   const canComment = getCurrentUser() !== null;
-  // A verdict poll keeps the three buttons; a choice poll renders a radio or
-  // checkbox list with a submit button.
-  const voteButtons = verdictCounts
-    ? (['approve', 'neutral', 'oppose'] as const).map((option) => renderVoteButton(
-      option,
-      verdictCounts[option],
-      verdictTotal,
-      hasVoted || Boolean(voteStatusError),
-      hasVoted ? t('alreadyVoted') : t(option)
-    )).join('')
+  // The vote group is rendered for every open verdict poll, with or without
+  // counts. Voting is disabled only for a poll that is not open, a visitor who
+  // has already voted, or a failed vote-status lookup.
+  const votingDisabled = hasVoted || Boolean(voteStatusError) || poll.status !== 'open';
+  // A returning voter sees their stored choice highlighted, even while the
+  // counts are hidden below the threshold.
+  const selectedOption = votedOption;
+  const voteGroup = !isChoice && poll.status === 'open'
+    ? renderVoteGroup({
+      pollId: poll.id,
+      counts: resultsHidden ? null : verdictCounts,
+      hidden: resultsHidden,
+      disabled: votingDisabled,
+      title: hasVoted ? t('alreadyVoted') : voteStatusError || t('vote'),
+      selected: selectedOption
+    })
+    : '';
+  // The threshold notice sits next to the buttons rather than replacing them.
+  const hiddenNotice = resultsHidden
+    ? `<p class="mt-3 mb-0 text-center text-sm text-muted" data-results-hidden>${t('resultsHidden').replace('{n}', String(stats!.threshold))}</p>`
     : '';
   // The stored options drive the choice inputs; the virtual verdict entries are
   // not selectable as a list because they use the three buttons above.
@@ -209,7 +227,10 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
   const resultsMarkup = results && !results.hidden
     ? renderResults({ ...results, options: pollOptions })
     : '';
-  const ballotTotal = results ? results.ballots : verdictTotal;
+  const ballotTotal = results ? results.ballots : 0;
+  // The ballot total is only published once the results are visible; below the
+  // threshold the threshold notice takes its place.
+  const showsBallotTotal = Boolean(results) && !resultsHidden;
   // The view count is shown next to the vote total when it clears the display
   // threshold; otherwise `views` is null and nothing is rendered.
   const viewsLine = views
@@ -238,23 +259,17 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
 
           ${poll.description ? `<p class="mt-3 mb-0 whitespace-pre-wrap text-muted">${escapeHtml(poll.description)}</p>` : ''}
 
-          ${verdictCounts ? `
-            <div class="mx-auto mt-6 flex w-full max-w-[300px] overflow-hidden rounded-xl border border-border" role="group" aria-label="${t('vote')}" data-vote-group="${poll.id}" title="${hasVoted ? t('alreadyVoted') : ''}">
-              ${voteButtons}
-            </div>
-          ` : ''}
+          ${voteGroup}
 
           ${choiceInputs}
 
           ${resultsMarkup}
 
-          ${stats?.hidden ? `
-            <p class="mt-6 mb-0 text-center text-sm text-muted">${t('resultsHidden').replace('{n}', String(stats.threshold))}</p>
-          ` : ''}
+          ${hiddenNotice}
 
-          ${results || viewsLine ? `
+          ${showsBallotTotal || viewsLine ? `
             <p class="m-0 mt-3 flex items-center justify-center gap-3 text-center text-xs text-muted">
-              <span data-ballot-total>${ballotTotal} ${isChoice ? t('ballots') : t('votes')}</span>
+              ${showsBallotTotal ? `<span data-ballot-total>${ballotTotal} ${isChoice ? t('ballots') : t('votes')}</span>` : ''}
               ${viewsLine}
             </p>
           ` : ''}
@@ -417,10 +432,30 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
       anchor?.insertAdjacentHTML('afterend', markup);
     }
     const total = document.querySelector<HTMLElement>('[data-ballot-total]');
+    const label = isChoice ? t('ballots') : t('votes');
     if (total) {
-      const label = isChoice ? t('ballots') : t('votes');
       total.textContent = `${result.ballots} ${label}`;
+    } else {
+      // The total was not rendered while the results were hidden, so it is
+      // created now that the ballot pushed the poll over the threshold.
+      const anchor = document.querySelector('[data-results]');
+      anchor?.insertAdjacentHTML('afterend', `<p class="m-0 mt-3 flex items-center justify-center gap-3 text-center text-xs text-muted"><span data-ballot-total>${result.ballots} ${label}</span></p>`);
     }
+  };
+
+  // Keeps the threshold notice in step with the latest response: it stays while
+  // the counts are still withheld and is removed once the ballot pushed the poll
+  // over the threshold.
+  const updateThresholdNotice = (result: VoteResponse) => {
+    const existing = document.querySelector<HTMLElement>('[data-results-hidden]');
+    if (result.hidden) {
+      if (existing) return;
+      const markup = `<p class="mt-3 mb-0 text-center text-sm text-muted" data-results-hidden>${t('resultsHidden').replace('{n}', String(result.threshold))}</p>`;
+      const anchor = document.querySelector('[data-vote-group]') ?? document.querySelector('[data-choice-form]');
+      anchor?.insertAdjacentHTML('afterend', markup);
+      return;
+    }
+    existing?.remove();
   };
 
   document.querySelectorAll<HTMLButtonElement>('[data-option]').forEach((button) => {
@@ -434,16 +469,16 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
       const message = `${t('voteRecord')}: ${statusText}`;
       if (result.ok) {
         const voteGroup = document.querySelector<HTMLElement>(`[data-vote-group="${poll.id}"]`);
-        if (voteGroup && result.counts) {
-          updateVoteGroup(voteGroup, result.counts);
-        }
         hasVoted = true;
         markVotedLocally(poll.id, hash);
-        document.querySelectorAll<HTMLButtonElement>('[data-vote-group] [data-option]').forEach((voteButton) => {
-          voteButton.disabled = true;
-        });
-        const group = document.querySelector<HTMLElement>(`[data-vote-group="${poll.id}"]`);
-        if (group) group.setAttribute('title', t('alreadyVoted'));
+        if (voteGroup) {
+          // The chosen button is marked as selected and the group is disabled.
+          // When the response still hides the counts (the ballot is below the
+          // threshold), the numbers stay hidden and the notice stays in place.
+          selectVoteOption(voteGroup, option);
+          updateVoteGroup(voteGroup, result.counts);
+        }
+        updateThresholdNotice(result);
       }
       showToast(message, result.ok ? 'success' : 'error');
     });
@@ -483,6 +518,7 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
         const stack = document.querySelector<HTMLElement>('.choice-stack');
         if (stack) stack.setAttribute('title', t('alreadyVoted'));
         refreshResults(result);
+        updateThresholdNotice(result);
       }
       showToast(message, result.ok ? 'success' : 'error');
     });
