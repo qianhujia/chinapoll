@@ -1,6 +1,23 @@
-import { rememberMyPoll, submitProposal } from '../lib/poll';
+import {
+  MAX_LABEL_LENGTH,
+  MAX_OPTIONS,
+  MIN_OPTIONS,
+  AI_PRIVACY_NOTE_MARKUP,
+  AI_TITLE_MARKUP,
+  DURATION_OPTIONS_MARKUP,
+  OPTIONS_FIELDSET_MARKUP,
+  advancedPanelMarkup,
+  optionRowMarkup,
+  pollTypeCard,
+  type PollDuration,
+  type PollType
+} from './proposal';
+import { bindProposalForm } from './proposalForm';
+import { rememberMyPoll } from '../lib/poll';
 import { getCurrentUser } from '../lib/session';
-import { getErrorMessage, renderFooter, renderHeader, renderToast, showToast, t } from '../ui';
+import { getPublicSettings } from '../config';
+import { renderFooter, renderHeader, renderToast, t } from '../ui';
+
 
 export function mountAboutPage(app: HTMLElement, bindNavigation: () => void): void {
   app.innerHTML = `
@@ -15,6 +32,7 @@ export function mountAboutPage(app: HTMLElement, bindNavigation: () => void): vo
             <li>${t('aboutPointTwo')}</li>
             <li>${t('aboutPointThree')}</li>
           </ul>
+          <p class="mt-4 mb-0 text-sm text-muted">${t('aiPrivacyNote')}</p>
         </section>
       </main>
       ${renderToast()}
@@ -42,6 +60,10 @@ export function mountProposePage(app: HTMLElement, bindNavigation: () => void): 
     return;
   }
 
+  // The AI buttons are only rendered when the setting is on; when it is off the
+  // endpoints answer 404 and no button is shown.
+  const aiEnabled = getPublicSettings().ai_enable === true;
+
   app.innerHTML = `
     <div class="mx-auto max-w-[var(--page-width)] px-5 pt-6 pb-16">
       ${renderHeader('/submit')}
@@ -57,38 +79,28 @@ export function mountProposePage(app: HTMLElement, bindNavigation: () => void): 
             <li>${t('proposalRuleFive')}</li>
           </ol>
           <form class="grid gap-3" data-proposal-form>
+            <fieldset class="m-0 grid gap-2 border-0 p-0">
+              <legend class="mb-2 font-semibold">${t('pollTypeLabel')}</legend>
+              <div class="grid gap-2.5 sm:grid-cols-3">
+                ${pollTypeCard('verdict', 'pollTypeVerdict', 'pollTypeVerdictHint', true)}
+                ${pollTypeCard('single_choice', 'pollTypeSingleChoice', 'pollTypeSingleChoiceHint', false)}
+                ${pollTypeCard('multi_choice', 'pollTypeMultiChoice', 'pollTypeMultiChoiceHint', false)}
+              </div>
+            </fieldset>
+
             <label class="grid gap-2" for="proposal-title">${t('proposalTitleLabel')}
               <input class="w-full rounded-[14px] border border-border bg-[#f9fbff] px-3.5 py-3" id="proposal-title" name="title" type="text" maxlength="200" required>
             </label>
-            <details class="grid gap-2.5">
-              <summary class="cursor-pointer text-primary">${t('proposalDescriptionToggle')}</summary>
-              <label class="grid gap-2" for="proposal-description">${t('proposalDescriptionLabel')}
-                <textarea class="min-h-[140px] w-full resize-y rounded-[14px] border border-border bg-[#f9fbff] px-3.5 py-3" id="proposal-description" name="description" maxlength="2000"></textarea>
-              </label>
-            </details>
-            <fieldset class="m-0 grid gap-2 border-0 p-0">
-              <legend class="mb-2 font-semibold">${t('proposalModeLabel')}</legend>
-              <div class="grid grid-cols-2 gap-2.5">
-                <label class="flex cursor-pointer items-center gap-2.5 rounded-[14px] border border-border bg-[#f9fbff] px-3.5 py-3 has-[:checked]:border-primary has-[:checked]:bg-primary-soft">
-                  <input class="accent-primary" type="radio" name="mode" value="evergreen" checked>
-                  <span>${t('evergreen')}</span>
-                </label>
-                <label class="flex cursor-pointer items-center gap-2.5 rounded-[14px] border border-border bg-[#f9fbff] px-3.5 py-3 has-[:checked]:border-primary has-[:checked]:bg-primary-soft">
-                  <input class="accent-primary" type="radio" name="mode" value="deadline">
-                  <span>${t('deadline')}</span>
-                </label>
-              </div>
-            </fieldset>
-            <div class="grid gap-3" data-proposal-schedule hidden>
-              <label class="grid gap-2" for="proposal-start">${t('proposalStartLabel')}
-                <input class="w-full rounded-[14px] border border-border bg-[#f9fbff] px-3.5 py-3" id="proposal-start" name="startAt" type="datetime-local">
-              </label>
-              <label class="grid gap-2" for="proposal-end">${t('proposalEndLabel')}
-                <input class="w-full rounded-[14px] border border-border bg-[#f9fbff] px-3.5 py-3" id="proposal-end" name="endAt" type="datetime-local">
-              </label>
-            </div>
+
+            ${aiEnabled ? AI_TITLE_MARKUP : ''}
+
+            ${OPTIONS_FIELDSET_MARKUP}
+
+            ${advancedPanelMarkup()}
+
             <button class="mx-auto mt-2 cursor-pointer rounded-full border border-primary bg-primary px-4 py-2.5 text-white" type="submit">${t('submitProposal')}</button>
           </form>
+          ${aiEnabled ? AI_PRIVACY_NOTE_MARKUP : ''}
         </section>
       </main>
       ${renderToast()}
@@ -96,60 +108,10 @@ export function mountProposePage(app: HTMLElement, bindNavigation: () => void): 
     </div>
   `;
 
-  const proposalForm = document.querySelector<HTMLFormElement>('[data-proposal-form]');
-  const proposalSchedule = proposalForm?.querySelector<HTMLDivElement>('[data-proposal-schedule]');
-  const proposalStart = proposalForm?.querySelector<HTMLInputElement>('[name="startAt"]');
-  const proposalEnd = proposalForm?.querySelector<HTMLInputElement>('[name="endAt"]');
-  const updateProposalSchedule = (isDeadline: boolean) => {
-    if (proposalSchedule) proposalSchedule.hidden = !isDeadline;
-    if (proposalStart) proposalStart.required = isDeadline;
-    if (proposalEnd) proposalEnd.required = isDeadline;
-  };
-  proposalForm?.addEventListener('change', (event) => {
-    if (!(event.target instanceof HTMLInputElement) || event.target.name !== 'mode') return;
-    updateProposalSchedule(event.target.value === 'deadline');
-  });
-  proposalStart?.addEventListener('change', () => {
-    if (proposalEnd) proposalEnd.min = proposalStart.value;
-  });
-  proposalForm?.addEventListener('submit', async (event) => {
-    event.preventDefault();
-    const formData = new FormData(proposalForm);
-    const title = String(formData.get('title') ?? '').trim();
-    const description = String(formData.get('description') ?? '').trim();
-    const modeValue = formData.get('mode');
-    const mode = modeValue === 'deadline' ? 'deadline' : 'evergreen';
-    const startAt = String(formData.get('startAt') ?? '');
-    const endAt = String(formData.get('endAt') ?? '');
-    const submitButton = proposalForm.querySelector<HTMLButtonElement>('button[type="submit"]')!;
-    submitButton.disabled = true;
-
-    try {
-      const result = await submitProposal({
-        title,
-        description: description || undefined,
-        mode,
-        startAt: mode === 'deadline' ? new Date(startAt).toISOString() : undefined,
-        endAt: mode === 'deadline' ? new Date(endAt).toISOString() : undefined
-      });
-      if (result.status === 'open') {
-        showToast(`${t('proposalPublished')}: ${result.pollId}`);
-      } else {
-        showToast(`${t('proposalSubmitted')}: ${result.pollId}`);
-      }
-      // Remember the id so the account page can list this poll later.
-      rememberMyPoll(result.pollId);
-      proposalForm.reset();
-      updateProposalSchedule(false);
-    } catch (error) {
-      showToast(`${t('proposalSubmitFailed')} ${getErrorMessage(error)}`, 'error');
-    } finally {
-      submitButton.disabled = false;
-    }
-  });
-
+  bindProposalForm(app, bindNavigation, aiEnabled);
   bindNavigation();
 }
 
-
-
+// Builds the `<details>` advanced panel: the duration dropdown and the
+// optional description. The duration mapping is defined in worker/enums.ts and
+// re-exported through src/lib/poll.ts.

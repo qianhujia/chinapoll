@@ -55,7 +55,8 @@ export function validateSettingValue(key: string, value: string): SettingValidat
     case 'proposal_rate_limit':
     case 'report_rate_limit':
     case 'login_rate_limit':
-    case 'register_rate_limit': {
+    case 'register_rate_limit':
+    case 'ai_rate_limit': {
       const normalized = value.trim().toLowerCase();
       if (!RATE_LIMIT_PATTERN.test(normalized)) {
         return { ok: false, error: `${key} must be in format "N/w|d|h|m|s" (e.g., "5/h", "3/h", "1/d").` };
@@ -98,7 +99,11 @@ export function validateSettingValue(key: string, value: string): SettingValidat
     case 'turnstile_enable':
     case 'login_badge_enable':
     case 'auto_approve_polls':
+    case 'ai_enable':
       if (value !== 'true' && value !== 'false') return { ok: false, error: `${key} must be "true" or "false".` };
+      break;
+    case 'ai_model':
+      if (!value.trim() || value.length > 100) return { ok: false, error: 'ai_model must contain 1 to 100 characters.' };
       break;
     case 'min_votes_to_display':
       if (!/^\d+$/.test(value) || Number(value) > 1000) {

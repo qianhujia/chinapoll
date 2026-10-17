@@ -6,14 +6,23 @@ import { normalizeRecoveryCode } from '../worker/services/recovery';
 import { checkAccountAge, validateUserPassword } from '../worker/services/users';
 import { enforceSameOrigin } from '../worker/services/csrf';
 import { validateProposal } from '../worker/api/proposal';
+import { choiceCounts, validatePollOptions } from '../worker/services/pollType';
 import { dayBucket, last7DayCutoff, publicViews, todayBucket } from '../worker/api/views';
 import {
+  durationMode,
+  durationSeconds,
   getPollReportReasonCode,
   getPollReportReasonLabel,
+  getPollTypeCode,
+  getPollTypeLabel,
   getReportResolutionCode,
   getReportResolutionLabel,
+  isPollDuration,
   isPriorityReportReason,
+  POLL_DURATIONS,
+  PollMode,
   PollReportReason,
+  PollType,
   ReportResolution
 } from '../worker/enums';
 
@@ -112,19 +121,60 @@ describe('makeSnapshot', () => {
     const first = await makeSnapshot({ pollId: 1, tsHour: 100, counts: { approve: 3, oppose: 1, neutral: 0 }, views: 7, prevHash: null });
     expect(first.prevHash).toBe('GENESIS');
     expect(first.views).toBe(7);
+    // A verdict poll carries the ballot total as well, so the chain covers it.
+    expect(first.ballots).toBe(4);
+    expect(first.optionCounts).toBeNull();
     expect(first.hash).toMatch(/^[0-9a-f]{64}$/);
     const recomputed = await verifySnapshotHash({
       pollId: first.pollId, tsHour: first.tsHour, approve: first.approve,
-      oppose: first.oppose, neutral: first.neutral, views: first.views, prevHash: first.prevHash
+      oppose: first.oppose, neutral: first.neutral, ballots: first.ballots,
+      optionCounts: first.optionCounts, views: first.views, prevHash: first.prevHash
     });
     expect(recomputed).toBe(first.hash);
 
     // The cumulative views are part of the hashed payload.
     const tampered = await verifySnapshotHash({
       pollId: first.pollId, tsHour: first.tsHour, approve: first.approve,
-      oppose: first.oppose, neutral: first.neutral, views: first.views + 1, prevHash: first.prevHash
+      oppose: first.oppose, neutral: first.neutral, ballots: first.ballots,
+      optionCounts: first.optionCounts, views: first.views + 1, prevHash: first.prevHash
     });
     expect(tampered).not.toBe(first.hash);
+
+    // So are the number of ballots and the per-option counts.
+    const tamperedBallots = await verifySnapshotHash({
+      pollId: first.pollId, tsHour: first.tsHour, approve: first.approve,
+      oppose: first.oppose, neutral: first.neutral, ballots: first.ballots + 1,
+      optionCounts: first.optionCounts, views: first.views, prevHash: first.prevHash
+    });
+    expect(tamperedBallots).not.toBe(first.hash);
+
+    const choice = await makeSnapshot({
+      pollId: 2,
+      tsHour: 100,
+      counts: { approve: 0, oppose: 0, neutral: 0 },
+      ballots: 4,
+      optionCounts: [{ position: 1, count: 3 }, { position: 2, count: 1 }],
+      views: 0,
+      prevHash: null
+    });
+    expect(choice.optionCounts).toEqual([{ position: 1, count: 3 }, { position: 2, count: 1 }]);
+    // The option counts are normalized, so the stored order does not change the hash.
+    const reordered = await makeSnapshot({
+      pollId: 2,
+      tsHour: 100,
+      counts: { approve: 0, oppose: 0, neutral: 0 },
+      ballots: 4,
+      optionCounts: [{ position: 2, count: 1 }, { position: 1, count: 3 }],
+      views: 0,
+      prevHash: null
+    });
+    expect(reordered.hash).toBe(choice.hash);
+    const tamperedOptions = await verifySnapshotHash({
+      pollId: 2, tsHour: 100, approve: 0, oppose: 0, neutral: 0, ballots: 4,
+      optionCounts: [{ position: 1, count: 4 }, { position: 2, count: 1 }],
+      views: 0, prevHash: 'GENESIS'
+    });
+    expect(tamperedOptions).not.toBe(choice.hash);
 
     const second = await makeSnapshot({ pollId: 1, tsHour: 101, counts: { approve: 4, oppose: 1, neutral: 0 }, views: 9, prevHash: first.hash });
     expect(second.prevHash).toBe(first.hash);
@@ -165,48 +215,172 @@ describe('checkAccountAge', () => {
 });
 
 describe('validateProposal', () => {
+  const options = [
+    { position: 1, label: 'Option one' },
+    { position: 2, label: 'Option two' }
+  ];
+
   it('accepts a title with no description because the description is optional', () => {
-    const result = validateProposal({ title: 'Public transit funding', mode: 'evergreen' });
+    const result = validateProposal({ title: 'Public transit funding', pollType: 'verdict', duration: 'none' });
     expect(result.ok).toBe(true);
-    if (result.ok) expect(result.input.description).toBeNull();
+    if (result.ok) {
+      expect(result.input.description).toBeNull();
+      expect(result.input.pollType).toBe(PollType.Verdict);
+      expect(result.input.duration).toBe('none');
+      expect(result.input.options).toEqual([]);
+    }
   });
 
   it('keeps a substantive description', () => {
     const description = 'A sufficiently long description of the proposal.';
-    const result = validateProposal({ title: 'Public transit funding', mode: 'evergreen', description });
+    const result = validateProposal({ title: 'Public transit funding', pollType: 'verdict', duration: '7d', description });
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.input.description).toBe(description);
   });
 
   it('rejects a short non-empty description', () => {
-    const result = validateProposal({ title: 'Public transit funding', mode: 'evergreen', description: 'too short' });
+    const result = validateProposal({
+      title: 'Public transit funding', pollType: 'verdict', duration: 'none', description: 'too short'
+    });
     expect(result.ok).toBe(false);
   });
 
   it('rejects a blank title', () => {
-    expect(validateProposal({ title: '   ', mode: 'evergreen' }).ok).toBe(false);
+    expect(validateProposal({ title: '   ', pollType: 'verdict', duration: 'none' }).ok).toBe(false);
   });
 
-  it('rejects a deadline poll whose start is not in the future', () => {
-    const now = Date.parse('2026-10-11T00:00:00Z');
+  it('requires a duration that is one of the seven labels', () => {
+    expect(validateProposal({ title: 'No duration', pollType: 'verdict' }).ok).toBe(false);
+    expect(validateProposal({ title: 'Bad duration', pollType: 'verdict', duration: '2w' }).ok).toBe(false);
+    for (const duration of POLL_DURATIONS) {
+      expect(validateProposal({ title: `Duration ${duration}`, pollType: 'verdict', duration }).ok).toBe(true);
+    }
+  });
+
+  it('requires a valid poll type', () => {
+    expect(validateProposal({ title: 'No type', duration: 'none' }).ok).toBe(false);
+    expect(validateProposal({ title: 'Bad type', pollType: 'ranked', duration: 'none' }).ok).toBe(false);
+  });
+
+  it('accepts a single choice poll with 2 to 7 options', () => {
     const result = validateProposal({
-      title: 'Deadline poll',
-      mode: 'deadline',
-      startAt: '2026-10-10T00:00:00Z',
-      endAt: '2026-10-12T00:00:00Z'
-    }, now);
+      title: 'Preferred transit mode', pollType: 'single_choice', duration: '14d', options
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.input.pollType).toBe(PollType.SingleChoice);
+      expect(result.input.options).toEqual(options);
+    }
+  });
+
+  it('rejects too few, too many, duplicate, and over-long options', () => {
+    const base = { title: 'Choice poll', pollType: 'multi_choice', duration: '1d' };
+    expect(validateProposal({ ...base, options: [options[0]] }).ok).toBe(false);
+    expect(validateProposal({
+      ...base,
+      options: Array.from({ length: 8 }, (_, index) => ({ position: index + 1, label: `Option ${index}` }))
+    }).ok).toBe(false);
+    expect(validateProposal({
+      ...base,
+      options: [{ position: 1, label: 'Same' }, { position: 2, label: 'same' }]
+    }).ok).toBe(false);
+    expect(validateProposal({
+      ...base,
+      options: [{ position: 1, label: 'x'.repeat(81) }, { position: 2, label: 'Other' }]
+    }).ok).toBe(false);
+    expect(validateProposal({
+      ...base,
+      options: [{ position: 1, label: '   ' }, { position: 2, label: 'Other' }]
+    }).ok).toBe(false);
+    expect(validateProposal({
+      ...base,
+      options: [{ position: 1, label: 'A' }, { position: 1, label: 'B' }]
+    }).ok).toBe(false);
+  });
+
+  it('trims option labels', () => {
+    const result = validateProposal({
+      title: 'Choice poll', pollType: 'single_choice', duration: 'none',
+      options: [{ position: 1, label: '  First  ' }, { position: 2, label: 'Second ' }]
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.input.options[0].label).toBe('First');
+  });
+
+  it('rejects options on a verdict poll', () => {
+    const result = validateProposal({
+      title: 'Verdict poll', pollType: 'verdict', duration: 'none', options
+    });
     expect(result.ok).toBe(false);
   });
+});
 
-  it('accepts a deadline poll with a valid future window', () => {
-    const now = Date.parse('2026-10-11T00:00:00Z');
-    const result = validateProposal({
-      title: 'Deadline poll',
-      mode: 'deadline',
-      startAt: '2026-10-12T00:00:00Z',
-      endAt: '2026-10-19T00:00:00Z'
-    }, now);
+describe('poll type enums', () => {
+  it('round-trips every type label and code', () => {
+    const labels = ['verdict', 'single_choice', 'multi_choice'] as const;
+    labels.forEach((label, index) => {
+      const code = getPollTypeCode(label);
+      expect(code).toBe(index + 1);
+      expect(getPollTypeLabel(code!)).toBe(label);
+    });
+    expect(getPollTypeCode('nonsense')).toBeNull();
+  });
+
+  it('maps the duration labels to days, seconds, and a poll mode', () => {
+    expect(POLL_DURATIONS).toEqual(['none', '1d', '3d', '7d', '14d', '1m', '1y']);
+    expect(durationSeconds('none')).toBeNull();
+    expect(durationSeconds('1d')).toBe(86_400);
+    expect(durationSeconds('1m')).toBe(30 * 86_400);
+    expect(durationSeconds('1y')).toBe(365 * 86_400);
+    expect(durationMode('none')).toBe(PollMode.Evergreen);
+    expect(durationMode('7d')).toBe(PollMode.Deadline);
+    expect(isPollDuration('14d')).toBe(true);
+    expect(isPollDuration('2w')).toBe(false);
+    expect(isPollDuration(undefined)).toBe(false);
+  });
+});
+
+describe('validatePollOptions', () => {
+  it('sorts options by position and trims labels', () => {
+    const result = validatePollOptions([
+      { position: 2, label: ' Second ' },
+      { position: 1, label: 'First' }
+    ]);
     expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.options).toEqual([
+        { position: 1, label: 'First' },
+        { position: 2, label: 'Second' }
+      ]);
+    }
+  });
+
+  it('rejects a non-array, a bad position, and an out-of-range position', () => {
+    expect(validatePollOptions('nope').ok).toBe(false);
+    expect(validatePollOptions([{ position: 'one', label: 'A' }, { position: 2, label: 'B' }]).ok).toBe(false);
+    expect(validatePollOptions([{ position: 8, label: 'A' }, { position: 2, label: 'B' }]).ok).toBe(false);
+  });
+});
+
+describe('choiceCounts', () => {
+  it('withholds every option count below the ballot threshold', () => {
+    const options = [
+      { id: 1, label: 'One', position: 1, count: 1 },
+      { id: 2, label: 'Two', position: 2, count: 0 }
+    ];
+    const hidden = choiceCounts(1, options, 10);
+    expect(hidden.hidden).toBe(true);
+    expect(hidden.counts).toBeNull();
+
+    const visible = choiceCounts(10, options, 10);
+    expect(visible.hidden).toBe(false);
+    expect(visible.counts).toEqual({
+      ballots: 10,
+      options: [
+        { id: 1, label: 'One', position: 1, count: 1 },
+        { id: 2, label: 'Two', position: 2, count: 0 }
+      ]
+    });
   });
 });
 

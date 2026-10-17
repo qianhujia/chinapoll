@@ -1,6 +1,7 @@
 import { env, SELF } from 'cloudflare:test';
 import schema from '../../migrations/0001_initial.sql?raw';
 import reportsAndViewsSchema from '../../migrations/0002_reports_and_views.sql?raw';
+import pollTypesSchema from '../../migrations/0003_poll_types_and_options.sql?raw';
 
 export const ORIGIN = 'https://example.com';
 
@@ -18,7 +19,7 @@ function splitStatements(sql: string): string[] {
     .filter((statement) => statement.length > 0);
 }
 
-const schemaStatements = [schema, reportsAndViewsSchema].flatMap(splitStatements);
+const schemaStatements = [schema, reportsAndViewsSchema, pollTypesSchema].flatMap(splitStatements);
 
 // Applies every migration to the per-file test database.
 export async function applySchema(): Promise<void> {
@@ -40,13 +41,16 @@ export interface SeedPollOptions {
   endAt?: number | null;
   closedAt?: number | null;
   reviewedAt?: number | null;
+  /** 1 verdict (default), 2 single choice, 3 multi choice. */
+  pollType?: number;
+  durationSeconds?: number | null;
 }
 
 // Inserts a poll row and returns its id. Mode 2 is evergreen, status 1 is open.
 export async function seedPoll(options: SeedPollOptions): Promise<number> {
   await env.DB.prepare(
-    `INSERT INTO polls (title, description, mode, status, start_at, end_at, closed_at, reviewed_at)
-     VALUES (?, 'A description that is long enough to pass.', ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO polls (title, description, mode, status, start_at, end_at, closed_at, reviewed_at, poll_type, duration_seconds)
+     VALUES (?, 'A description that is long enough to pass.', ?, ?, ?, ?, ?, ?, ?, ?)`
   ).bind(
     options.title,
     options.mode ?? 2,
@@ -54,17 +58,54 @@ export async function seedPoll(options: SeedPollOptions): Promise<number> {
     options.startAt ?? null,
     options.endAt ?? null,
     options.closedAt ?? null,
-    options.reviewedAt ?? null
+    options.reviewedAt ?? null,
+    options.pollType ?? 1,
+    options.durationSeconds ?? null
   ).run();
   return lastId();
 }
 
-// Posts a vote for a poll through the public API.
+export interface SeedOption {
+  position: number;
+  label: string;
+}
+
+// Inserts the option rows of a choice poll and returns their ids by position.
+export async function seedOptions(pollId: number, options: SeedOption[]): Promise<Map<number, number>> {
+  const ids = new Map<number, number>();
+  for (const option of options) {
+    await env.DB.prepare(
+      'INSERT INTO poll_options (poll_id, position, label) VALUES (?, ?, ?)'
+    ).bind(pollId, option.position, option.label).run();
+    ids.set(option.position, await lastId());
+  }
+  return ids;
+}
+
+// Posts a verdict ballot through the public API.
 export function voteRequest(pollId: number, tokenHash: string, option = 'approve'): Promise<Response> {
   return SELF.fetch(`${ORIGIN}/api/vote`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ pollId, tokenHash, option })
+  });
+}
+
+// Posts a choice ballot through the public API.
+export function choiceVoteRequest(pollId: number, tokenHash: string, optionIds: number[]): Promise<Response> {
+  return SELF.fetch(`${ORIGIN}/api/vote`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ pollId, tokenHash, optionIds })
+  });
+}
+
+// Reads the stored vote status for a token.
+export function voteStatusRequest(pollId: number, tokenHash: string): Promise<Response> {
+  return SELF.fetch(`${ORIGIN}/api/vote/status`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ pollId, tokenHash })
   });
 }
 

@@ -17,6 +17,7 @@ import {
   renderHeader,
   renderModeBadge,
   renderPagination,
+  renderPollTypeBadge,
   renderToast,
   renderVoteButton,
   showToast,
@@ -128,7 +129,10 @@ export async function mountHome(app: HTMLElement, page: number, bindNavigation: 
     ? `<p class="py-6 text-center text-muted">${searchQuery ? t('searchNoResults') : t('noPolls')}</p>`
     : pollStats.map(({ poll, stats, views }) => {
             const counts = stats.counts;
-            const total = counts ? counts.approve + counts.oppose + counts.neutral : 0;
+            const pollType = poll.pollType ?? stats.pollType ?? 'verdict';
+            const isChoice = pollType !== 'verdict';
+            const verdictCounts = !isChoice && counts && 'approve' in counts ? counts : null;
+            const total = verdictCounts ? verdictCounts.approve + verdictCounts.oppose + verdictCounts.neutral : 0;
             const voteState = pollVoteStates.get(poll.id) ?? { voted: false, error: '' };
             const voteDisabled = stats.hidden || voteState.voted || Boolean(voteState.error);
             return `
@@ -138,18 +142,21 @@ export async function mountHome(app: HTMLElement, page: number, bindNavigation: 
                     <span class="shrink-0 font-bold tabular-nums text-muted">#${poll.id}</span>
                     <h2 class="m-0 flex-[1_1_auto] text-[1.15rem] leading-[1.5]"><a class="text-inherit no-underline hover:text-primary hover:underline focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-[3px] focus-visible:outline-primary" href="/poll/${poll.id}" data-route="/poll/${poll.id}">${escapeHtml(poll.title)}</a></h2>
                     ${renderModeBadge(poll.mode)}
+                    ${renderPollTypeBadge(pollType, poll.options?.length ?? 0)}
                   </div>
                 </div>
 
                 <div class="col-start-2 row-start-1 flex items-center justify-center gap-5 max-[700px]:col-start-1">
-                  <span class="shrink-0 whitespace-nowrap text-xs leading-[1.2] text-muted" data-home-total="${poll.id}">${stats.hidden ? '' : `${total} ${t('votes')}`}</span>
+                  <span class="shrink-0 whitespace-nowrap text-xs leading-[1.2] text-muted" data-home-total="${poll.id}">${stats.hidden ? '' : `${total} ${isChoice ? t('ballots') : t('votes')}`}</span>
                   ${views ? `<span class="inline-flex shrink-0 items-center gap-1 text-xs leading-[1.2] text-muted" title="${t('views')}">${viewIconMarkup('h-3.5 w-3.5')}${views.total}</span>` : ''}
                   ${stats.hidden
                     ? `<p class="m-0 max-w-[300px] text-center text-xs text-muted">${t('resultsHidden').replace('{n}', String(stats.threshold))}</p>`
-                    : `<div class="flex w-full max-w-[300px] overflow-hidden rounded-xl border border-border max-[700px]:col-start-1" role="group" aria-label="${t('vote')}" data-vote-group="${poll.id}">
+                    : isChoice
+                      ? `<a class="shrink-0 whitespace-nowrap rounded-full border border-border bg-panel px-3 py-1.5 text-xs text-ink no-underline hover:border-primary hover:text-primary max-[700px]:col-start-1" href="/poll/${poll.id}" data-route="/poll/${poll.id}">${t('vote')}</a>`
+                      : `<div class="flex w-full max-w-[300px] overflow-hidden rounded-xl border border-border max-[700px]:col-start-1" role="group" aria-label="${t('vote')}" data-vote-group="${poll.id}">
                     ${(['approve', 'neutral', 'oppose'] as const).map((option) => renderVoteButton(
                       option,
-                      counts![option],
+                      verdictCounts![option],
                       total,
                       voteDisabled,
                       voteState.voted ? t('alreadyVoted') : voteState.error || t(option),
@@ -190,7 +197,7 @@ export async function mountHome(app: HTMLElement, page: number, bindNavigation: 
         pollStatsEntry.stats.counts = result.counts;
         state.voted = true;
         markVotedLocally(pollId, tokenHash);
-        const counts = result.counts;
+        const counts = result.counts && 'approve' in result.counts ? result.counts : null;
         const pollTotal = counts ? counts.approve + counts.oppose + counts.neutral : 0;
         totalVotes += 1;
         const totalVotesElement = document.querySelector('[data-total-votes]');

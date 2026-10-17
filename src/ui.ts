@@ -274,6 +274,18 @@ export function renderModeBadge(mode: PollSummary['mode']): string {
   return `<span class="shrink-0 rounded-full bg-[#f1f3f5] px-[9px] py-[3px] text-xs leading-[1.5] font-light whitespace-nowrap text-muted">${mode === 'deadline' ? t('deadline') : t('evergreen')}</span>`;
 }
 
+// Small badge that names the ballot shape of a poll, using the same badge style
+// as the mode badge. A choice poll also shows how many options it carries.
+export function renderPollTypeBadge(pollType: string, optionCount = 0): string {
+  const label = pollType === 'single_choice'
+    ? t('pollTypeSingleChoice')
+    : pollType === 'multi_choice'
+      ? t('pollTypeMultiChoice')
+      : t('pollTypeVerdict');
+  const suffix = pollType === 'verdict' || optionCount <= 0 ? '' : ` · ${optionCount} ${t('options')}`;
+  return `<span class="shrink-0 rounded-full bg-[#eef3fb] px-[9px] py-[3px] text-xs leading-[1.5] font-light whitespace-nowrap text-muted">${label}${suffix}</span>`;
+}
+
 function voteFillPath(percent: number): string {
   if (percent >= 100) return 'M0 0 H100 V100 H0 Z';
   const level = 100 - percent;

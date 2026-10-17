@@ -1,5 +1,48 @@
 export type VoteOption = 'approve' | 'oppose' | 'neutral';
 
+// Ballot shape of a poll, matching worker/enums.ts.
+export type PollType = 'verdict' | 'single_choice' | 'multi_choice';
+
+// The durations offered by the proposal form. The mapping is defined once in
+// worker/enums.ts and re-exported here so the form and the Worker agree.
+export type PollDuration = 'none' | '1d' | '3d' | '7d' | '14d' | '1m' | '1y';
+
+export const POLL_DURATION_DAYS: Readonly<Record<PollDuration, number | null>> = {
+  none: null,
+  '1d': 1,
+  '3d': 3,
+  '7d': 7,
+  '14d': 14,
+  '1m': 30,
+  '1y': 365
+};
+
+export const POLL_DURATIONS: ReadonlyArray<PollDuration> = [
+  'none',
+  '1d',
+  '3d',
+  '7d',
+  '14d',
+  '1m',
+  '1y'
+];
+
+// i18n keys of the duration labels shown in the form.
+export const DURATION_LABEL_KEYS: Readonly<Record<PollDuration, string>> = {
+  none: 'durationNone',
+  '1d': 'duration1d',
+  '3d': 'duration3d',
+  '7d': 'duration7d',
+  '14d': 'duration14d',
+  '1m': 'duration1m',
+  '1y': 'duration1y'
+};
+
+// Limits shared with the Worker-side validation.
+export const MIN_POLL_OPTIONS = 2;
+export const MAX_POLL_OPTIONS = 7;
+export const MAX_OPTION_LABEL_LENGTH = 80;
+
 // Reasons a visitor can report a poll, in the order they are shown.
 export type ReportReason =
   | 'spam'
@@ -27,11 +70,28 @@ export interface PollViewCounts {
   last7Days: number;
 }
 
+export interface PollOption {
+  id: number;
+  label: string;
+  position: number;
+  count?: number;
+}
+
+// Counts of a choice poll: the number of ballots and one entry per option.
+export interface ChoiceCounts {
+  ballots: number;
+  options: PollOption[];
+}
+
+export type PollCounts = Record<VoteOption, number> | ChoiceCounts | null;
+
 export interface PollSummary {
   id: number;
   title: string;
   description: string | null;
   mode: 'deadline' | 'evergreen';
+  pollType?: PollType;
+  options?: PollOption[];
   start_at: string | null;
   end_at?: string | null;
   status: 'open' | 'closed' | 'archived';
@@ -41,7 +101,8 @@ export interface PollWithStats {
   poll: PollSummary;
   stats: {
     pollId: number;
-    counts: Record<VoteOption, number> | null;
+    pollType?: PollType;
+    counts: PollCounts;
     hidden: boolean;
     threshold: number;
     voted: boolean;
@@ -52,7 +113,7 @@ export interface PollWithStats {
 export interface VoteResponse {
   ok: boolean;
   message: string;
-  counts: Record<VoteOption, number> | null;
+  counts: PollCounts;
   hidden?: boolean;
   threshold?: number;
   voted: boolean;
@@ -63,6 +124,7 @@ export interface VoteStatusResponse {
   pollId: number;
   voted: boolean;
   option: VoteOption | null;
+  optionIds?: number[];
 }
 
 export interface CommentsResponse {
@@ -104,7 +166,8 @@ export async function fetchJson<T>(input: string, init?: RequestInit): Promise<T
 
 export async function getStats(pollId: number): Promise<{
   pollId: number;
-  counts: Record<VoteOption, number> | null;
+  pollType?: PollType;
+  counts: PollCounts;
   hidden: boolean;
   threshold: number;
   voted: boolean;
@@ -193,7 +256,8 @@ export async function submitComment(pollId: number, comment: string): Promise<vo
 export async function submitVote(payload: {
   pollId: number;
   tokenHash: string;
-  option: VoteOption;
+  option?: VoteOption;
+  optionIds?: number[];
   turnstileToken?: string;
 }): Promise<VoteResponse> {
   return fetchJson('/api/vote', {
@@ -220,9 +284,9 @@ export function markVotedLocally(pollId: number, tokenHash: string): void {
 export async function submitProposal(payload: {
   title: string;
   description?: string;
-  mode: 'deadline' | 'evergreen';
-  startAt?: string;
-  endAt?: string;
+  pollType: PollType;
+  duration: PollDuration;
+  options?: Array<{ position: number; label: string }>;
 }): Promise<{ ok: boolean; message: string; pollId: number; status?: 'open' | 'pending' }> {
   return fetchJson('/api/proposal', {
     method: 'POST',

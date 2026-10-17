@@ -40,9 +40,9 @@ the schema or the network handling changes.
   password.
 - **Content tampering**: hourly signed snapshots form an append-only hash chain
   published for external verification. Each record's hash covers the poll id, the
-  hour, the approve/oppose/neutral counts, the cumulative view total, and the
-  previous record's hash, so rewriting either a count or a view total is
-  detectable.
+  hour, the approve/oppose/neutral counts, the number of ballots, the per-option
+  counts of a choice poll, the cumulative view total, and the previous record's
+  hash, so rewriting any of those values is detectable.
 
 ## Reports and views
 
@@ -68,6 +68,62 @@ published only as an aggregate `{ total, last7Days }`, and only once the poll
 passes `min_views_to_display` (default 20), so a poll with a couple of views and
 one vote cannot be used to guess the voter. View rows older than 90 days are
 rolled up into a single per-poll row, dropping daily resolution.
+
+## Poll types and option counts
+
+A poll is one of three ballot shapes: a verdict poll (approve, neutral, oppose),
+a single choice poll, or a multiple choice poll. A choice poll keeps its options
+in `poll_options` and its ballot selections in `vote_selections`, while a verdict
+poll keeps using `votes.option`. A ballot stays **one row per (poll, token)** in
+`votes`, so the existing unique index still enforces one ballot per browser and a
+choice vote cannot be split across several rows.
+
+Two exposures are worth stating explicitly:
+
+- **Option combinations per anonymous ballot.** `vote_selections` links each
+  chosen option to one ballot row, so a database reader can group the options
+  chosen together on a single ballot. That grouping is the ballot's own data: the
+  ballot still has no account link, no address, no network value, and only an
+  hour-coarsened timestamp. A leak therefore reveals *combinations per anonymous
+  ballot*, not who cast them. Public responses never publish the combination;
+  they show per-option counts only.
+- **The ballot threshold.** `min_votes_to_display` is applied to the number of
+  ballots, and it hides **every** option count of the poll at once. That keeps the
+  earlier guarantee intact: a poll with a couple of ballots cannot be used to
+  infer how one person voted, because no option count is published at all below
+  the threshold.
+
+## The snapshot hash and choice polls
+
+The canonical payload that `makeSnapshot` hashes (and `verifySnapshotHash`
+recomputes) now covers the number of ballots and the per-option counts of a
+choice poll, in addition to the verdict counts, the cumulative view total, and
+the previous record's hash. `option_counts` is stored as JSON in
+`stats_snapshots.option_counts` and `ballots` in `stats_snapshots.ballots`; both
+are normalized (sorted by position, numeric) before hashing so the chain is
+stable. For a verdict poll `option_counts` is `NULL` and the three verdict columns
+keep their original meaning. Rewriting a published ballot total or option count
+after the fact therefore breaks verification.
+
+## Workers AI data flow
+
+AI assistance is optional and off by default (`ai_enable` defaults to `false`).
+When it is on:
+
+- The draft the user typed (title and optional description) is sent from the
+  browser to `POST /api/ai/enhance-title` or `POST /api/ai/suggest-options`, and
+  the Worker forwards it to Cloudflare Workers AI through the `AI` binding. The
+  validated suggestions are returned straight to the caller.
+- **Nothing is stored.** The prompt and the model response are never logged and
+  never written to D1. There is no prompt table, no response table, and no cache.
+- The endpoints require a signed-in account, pass the same account-age gate as
+  proposals, enforce the same Origin check, verify Turnstile when it is enabled,
+  and are rate limited per account with scope `ai`.
+- Workers AI is a third-party service. Turning `ai_enable` on therefore means the
+  draft text leaves the operator's own systems and is processed by Cloudflare's
+  model runtime under Cloudflare's terms; that is the same trade-off the threat
+  model already documents for Turnstile, and the frontend states it in one line
+  under the AI buttons.
 
 ## Explicit non-goals
 
@@ -100,6 +156,10 @@ rolled up into a single per-poll row, dropping daily resolution.
 - Added anonymous poll reports (no reporter identifier, hour-coarsened timestamps,
   priority auto-hide thresholds) and coarse per-poll daily view counters; the
   signed snapshot hash now also covers the cumulative view total.
+- Added poll types (verdict, single choice, multiple choice) with per-poll options,
+  replaced the proposal start/end times with a fixed duration, and extended the
+  snapshot hash to cover ballots and per-option counts. Documented the
+  combination-per-anonymous-ballot exposure and the optional Workers AI data flow.
 
 ## Known trade-offs
 

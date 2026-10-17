@@ -14,9 +14,12 @@ import {
   submitComment,
   submitReport,
   submitVote,
+  type ChoiceCounts,
   type PollSummary,
+  type PollType,
   type PollViewCounts,
-  type ReportReason
+  type ReportReason,
+  type VoteOption
 } from '../lib/poll';
 import { getCurrentUser } from '../lib/session';
 import { renderTurnstile, resetTurnstile, turnstileSiteKey, turnstileToken } from '../lib/turnstile';
@@ -29,6 +32,7 @@ import {
   renderFooter,
   renderHeader,
   renderModeBadge,
+  renderPollTypeBadge,
   renderToast,
   renderVoteButton,
   showToast,
@@ -49,6 +53,56 @@ const REPORT_REASON_LABELS: Record<ReportReason, string> = {
   illegal: 'reportReasonIllegal',
   other: 'reportReasonOther'
 };
+
+// Radio (single choice) or checkbox (multi choice) list for a choice poll. The
+// submit button stays disabled until the ballot is complete.
+function renderChoiceInputs(
+  pollType: Exclude<PollType, 'verdict'>,
+  options: Array<{ id: number; label: string }>,
+  hasVoted: boolean
+): string {
+  const inputType = pollType === 'single_choice' ? 'radio' : 'checkbox';
+  return `
+    <form class="choice-stack mx-auto mt-6 grid w-full max-w-[420px] gap-2.5" data-choice-form data-poll-type="${pollType}" title="${hasVoted ? t('alreadyVoted') : ''}">
+      <fieldset class="m-0 grid gap-2 border-0 p-0">
+        <legend class="sr-only">${t('vote')}</legend>
+        ${options.map((option) => `
+          <label class="flex cursor-pointer items-center gap-2.5 rounded-[14px] border border-border bg-[#f9fbff] px-3.5 py-2.5">
+            <input class="accent-primary" type="${inputType}" name="option" value="${option.id}" data-choice-option ${hasVoted ? 'disabled' : ''}>
+            <span>${escapeHtml(option.label)}</span>
+          </label>
+        `).join('')}
+      </fieldset>
+      <button class="mx-auto cursor-pointer rounded-full border border-primary bg-primary px-4 py-2.5 text-white disabled:cursor-not-allowed disabled:opacity-60" type="submit" data-choice-submit ${hasVoted ? 'disabled' : ''}>${t('submitVote')}</button>
+    </form>
+  `;
+}
+
+// One horizontal bar per option, sorted by position, showing the count and the
+// share of ballots. A choice poll never shows which options were picked
+// together on one ballot.
+function renderChoiceResults(counts: ChoiceCounts): string {
+  const options = [...counts.options].sort((left, right) => left.position - right.position);
+  return `
+    <div class="mx-auto mt-4 grid w-full max-w-[420px] gap-2.5" data-choice-results>
+      ${options.map((option) => {
+    const count = Number(option.count ?? 0);
+    const percent = counts.ballots > 0 ? count / counts.ballots * 100 : 0;
+    return `
+        <div class="grid gap-1">
+          <div class="flex items-baseline justify-between gap-3 text-sm">
+            <span class="min-w-0 truncate">${escapeHtml(option.label)}</span>
+            <span class="shrink-0 tabular-nums text-muted">${count} · ${percent.toFixed(1)}%</span>
+          </div>
+          <div class="h-2 w-full overflow-hidden rounded-full bg-[#edf0f4]">
+            <div class="h-full rounded-full bg-primary" style="width:${percent.toFixed(1)}%"></div>
+          </div>
+        </div>
+      `;
+  }).join('')}
+    </div>
+  `;
+}
 
 export async function mountVotePage(pollId: number, app: HTMLElement, bindNavigation: () => void): Promise<void> {
   const commentsPerPage = getCommentsPerPage();
@@ -103,25 +157,46 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
     commentsContent = t('commentsLoadFailed');
   }
   const voteCounts = stats?.counts;
-  const voteTotal = voteCounts
-    ? voteCounts.approve + voteCounts.neutral + voteCounts.oppose
+  const pollType: PollType = poll.pollType ?? stats?.pollType ?? 'verdict';
+  const isChoice = pollType !== 'verdict';
+  const choiceCounts: ChoiceCounts | null = isChoice && voteCounts && 'ballots' in voteCounts
+    ? voteCounts
+    : null;
+  const verdictCounts = !isChoice && voteCounts
+    ? voteCounts as Record<VoteOption, number>
+    : null;
+  const voteTotal = verdictCounts
+    ? verdictCounts.approve + verdictCounts.neutral + verdictCounts.oppose
     : 0;
   const canComment = getCurrentUser() !== null;
-  const voteButtons = voteCounts
+  // A verdict poll keeps the three buttons; a choice poll renders a radio or
+  // checkbox list with a submit button.
+  const voteButtons = verdictCounts
     ? (['approve', 'neutral', 'oppose'] as const).map((option) => renderVoteButton(
       option,
-      voteCounts[option],
+      verdictCounts[option],
       voteTotal,
       hasVoted || Boolean(voteStatusError),
       hasVoted ? t('alreadyVoted') : t(option)
     )).join('')
     : '';
+  const choiceOptions = poll.options ?? [];
+  const choiceInputs = isChoice && choiceOptions.length > 0
+    ? renderChoiceInputs(pollType as Exclude<PollType, 'verdict'>, choiceOptions, hasVoted)
+    : '';
+  const choiceResults = choiceCounts ? renderChoiceResults(choiceCounts) : '';
   // The view count is shown next to the vote total when it clears the display
   // threshold; otherwise `views` is null and nothing is rendered.
   const viewsLine = views
     ? `<span class="inline-flex items-center gap-1">${viewIconMarkup('h-3.5 w-3.5')}${views.total} ${t('views')}</span>`
     : '';
   const alreadyReported = hasReportedLocally(poll.id);
+  // Deadline polls show when they end (or that they never end).
+  const endLine = poll.status !== 'open'
+    ? ''
+    : poll.mode === 'deadline' && poll.end_at
+      ? `<p class="mt-3 mb-0 text-center text-xs text-muted" data-countdown data-end="${escapeHtml(poll.end_at)}"></p>`
+      : `<p class="mt-3 mb-0 text-center text-xs text-muted">${t('noEndDate')}</p>`;
 
   app.innerHTML = `
     <div class="mx-auto max-w-[var(--page-width)] px-5 pt-6 pb-16">
@@ -133,30 +208,36 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
             <span class="shrink-0 font-bold tabular-nums text-muted">#${poll.id}</span>
             <h1 class="m-0 text-2xl font-bold">${escapeHtml(poll.title)}</h1>
             ${renderModeBadge(poll.mode)}
+            ${renderPollTypeBadge(pollType)}
           </div>
 
           ${poll.description ? `<p class="mt-3 mb-0 whitespace-pre-wrap text-muted">${escapeHtml(poll.description)}</p>` : ''}
 
-          ${voteCounts ? `
+          ${verdictCounts ? `
             <div class="mx-auto mt-6 flex w-full max-w-[300px] overflow-hidden rounded-xl border border-border" role="group" aria-label="${t('vote')}" data-vote-group="${poll.id}" title="${hasVoted ? t('alreadyVoted') : ''}">
               ${voteButtons}
             </div>
-          ` : stats?.hidden ? `
+          ` : ''}
+
+          ${choiceInputs}
+
+          ${choiceResults}
+
+          ${stats?.hidden ? `
             <p class="mt-6 mb-0 text-center text-sm text-muted">${t('resultsHidden').replace('{n}', String(stats.threshold))}</p>
           ` : ''}
 
-          ${voteCounts || viewsLine ? `
+          ${verdictCounts || (choiceCounts && choiceCounts.ballots >= 0) || viewsLine ? `
             <p class="m-0 mt-3 flex items-center justify-center gap-3 text-center text-xs text-muted">
-              ${voteCounts ? `<span>${voteTotal} ${t('votes')}</span>` : ''}
+              ${verdictCounts ? `<span>${voteTotal} ${t('votes')}</span>` : ''}
+              ${choiceCounts ? `<span>${choiceCounts.ballots} ${t('ballots')}</span>` : ''}
               ${viewsLine}
             </p>
           ` : ''}
 
           ${turnstileSiteKey() ? '<div class="mx-auto mt-4 flex justify-center" data-turnstile-vote></div>' : ''}
 
-          ${poll.mode === 'deadline' && poll.end_at
-    ? `<p class="mt-3 mb-0 text-center text-xs text-muted" data-countdown data-end="${escapeHtml(poll.end_at)}"></p>`
-    : ''}
+          ${endLine}
 
           <p class="vote-status m-0 text-center text-muted" role="status">${voteStatusError
     ? `${t('voteStatusFailed')} ${voteStatusError}`
@@ -252,59 +333,68 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
     }
   });
 
+  // A vote may carry a verdict (type 1) or a set of option ids (types 2 and 3).
+  // The duplicate and closed-poll handling is shared by both shapes.
+  const sendBallot = async (payload: { option?: VoteOption; optionIds?: number[] }) => {
+    let result;
+    try {
+      result = await submitVote({
+        pollId: poll.id,
+        tokenHash: hash,
+        ...payload,
+        turnstileToken: turnstileToken('vote')
+      });
+    } catch (error) {
+      const errorMessage = getErrorMessage(error);
+      // A 503 means the deployment is missing its server key (or is in
+      // read-only mode). Show a clear localized message instead of the terse
+      // server text so a misconfiguration does not look like a client error.
+      let statusMessage = errorMessage.includes('(503)')
+        ? t('siteNotConfigured')
+        : `${t('submitFailed')}: ${errorMessage}`;
+      try {
+        const currentVoteStatus = await getVoteStatus(poll.id, hash);
+        if (currentVoteStatus.voted) {
+          hasVoted = true;
+          markVotedLocally(poll.id, hash);
+          statusMessage = t('alreadyVoted');
+        }
+      } catch {
+        // Preserve the original submission error if the follow-up status check also fails.
+      }
+      if (hasVoted) {
+        document.querySelectorAll<HTMLInputElement | HTMLButtonElement>('[data-option], [data-choice-option], [data-choice-submit]')
+          .forEach((voteButton) => { voteButton.disabled = true; });
+        const choices = document.querySelector('.choice-stack');
+        if (choices) choices.setAttribute('title', t('alreadyVoted'));
+        const status = document.querySelector('.vote-status');
+        if (status) status.textContent = '';
+      } else {
+        const status = document.querySelector('.vote-status');
+        if (status) status.textContent = statusMessage;
+      }
+      showToast(statusMessage, hasVoted ? 'success' : 'error');
+      resetTurnstile('vote');
+      return null;
+    }
+    resetTurnstile('vote');
+    return result;
+  };
+
   document.querySelectorAll<HTMLButtonElement>('[data-option]').forEach((button) => {
     button.addEventListener('click', async () => {
       if (hasVoted || voteStatusError || statsError) return;
-      const option = button.getAttribute('data-option') as 'approve' | 'oppose' | 'neutral';
-      let result;
-      try {
-        result = await submitVote({
-          pollId: poll.id,
-          tokenHash: hash,
-          option,
-          turnstileToken: turnstileToken('vote')
-        });
-      } catch (error) {
-        const errorMessage = getErrorMessage(error);
-        // A 503 means the deployment is missing its server key (or is in
-        // read-only mode). Show a clear localized message instead of the terse
-        // server text so a misconfiguration does not look like a client error.
-        let statusMessage = errorMessage.includes('(503)')
-          ? t('siteNotConfigured')
-          : `${t('submitFailed')}: ${errorMessage}`;
-        try {
-          const currentVoteStatus = await getVoteStatus(poll.id, hash);
-          if (currentVoteStatus.voted) {
-            hasVoted = true;
-            markVotedLocally(poll.id, hash);
-            statusMessage = t('alreadyVoted');
-          }
-        } catch {
-          // Preserve the original submission error if the follow-up status check also fails.
-        }
-        if (hasVoted) {
-          document.querySelectorAll<HTMLButtonElement>('[data-option]').forEach((voteButton) => {
-            voteButton.disabled = true;
-          });
-          const choices = document.querySelector('.choice-stack');
-          if (choices) choices.setAttribute('title', t('alreadyVoted'));
-          const status = document.querySelector('.vote-status');
-          if (status) status.textContent = '';
-        } else {
-          const status = document.querySelector('.vote-status');
-          if (status) status.textContent = statusMessage;
-        }
-        showToast(statusMessage, hasVoted ? 'success' : 'error');
-        resetTurnstile('vote');
-        return;
-      }
-      resetTurnstile('vote');
+      const option = button.getAttribute('data-option') as VoteOption;
+      const result = await sendBallot({ option });
+      if (!result) return;
 
       const statusText = option === 'approve' ? t('approve') : option === 'oppose' ? t('oppose') : t('neutral');
       const message = `${t('voteRecord')}: ${statusText}`;
       if (result.ok) {
         const voteGroup = document.querySelector<HTMLElement>(`[data-vote-group="${poll.id}"]`);
-        if (voteGroup && result.counts) updateVoteGroup(voteGroup, result.counts);
+        if (voteGroup && result.counts && 'approve' in result.counts) {
+          updateVoteGroup(voteGroup, result.counts);
+        }
         hasVoted = true;
         markVotedLocally(poll.id, hash);
         document.querySelectorAll<HTMLButtonElement>('[data-vote-group] [data-option]').forEach((voteButton) => {
@@ -316,6 +406,50 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
       showToast(message, result.ok ? 'success' : 'error');
     });
   });
+
+  // Choice ballots (types 2 and 3).
+  const choiceForm = document.querySelector<HTMLFormElement>('[data-choice-form]');
+  if (choiceForm) {
+    const submitButton = choiceForm.querySelector<HTMLButtonElement>('[data-choice-submit]');
+    const boxes = Array.from(choiceForm.querySelectorAll<HTMLInputElement>('[data-choice-option]'));
+    const selectedIds = () => boxes.filter((box) => box.checked).map((box) => Number(box.value));
+
+    // A single choice poll submits as soon as one option is picked; a multi
+    // choice poll needs at least one box before the button is enabled.
+    const sync = () => {
+      if (submitButton) submitButton.disabled = hasVoted || selectedIds().length === 0;
+    };
+    sync();
+    boxes.forEach((box) => box.addEventListener('change', sync));
+
+    choiceForm.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      if (hasVoted || voteStatusError || statsError) return;
+      const optionIds = selectedIds();
+      if (optionIds.length === 0) return;
+      if (submitButton) submitButton.disabled = true;
+
+      const result = await sendBallot({ optionIds });
+      if (!result) return;
+
+      const message = result.ok ? `${t('voteRecord')}: ${optionIds.length}` : t('submitFailed');
+      if (result.ok) {
+        hasVoted = true;
+        markVotedLocally(poll.id, hash);
+        boxes.forEach((box) => { box.disabled = true; });
+        if (submitButton) submitButton.disabled = true;
+        const stack = document.querySelector<HTMLElement>('.choice-stack');
+        if (stack) stack.setAttribute('title', t('alreadyVoted'));
+        if (result.counts && 'ballots' in result.counts) {
+          const results = document.querySelector<HTMLElement>('[data-choice-results]');
+          const markup = renderChoiceResults(result.counts);
+          if (results) results.outerHTML = markup;
+          else choiceForm.insertAdjacentHTML('afterend', markup);
+        }
+      }
+      showToast(message, result.ok ? 'success' : 'error');
+    });
+  }
 
   // Countdown for deadline polls, refreshed once a minute.
   const countdown = document.querySelector<HTMLElement>('[data-countdown]');
