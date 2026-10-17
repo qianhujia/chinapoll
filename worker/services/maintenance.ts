@@ -12,10 +12,10 @@
 // poll does not restart its retention clock.
 //
 // Counting goes through the shared engine in worker/services/options.ts, so a
-// verdict poll and a choice poll are tallied the same way.
+// single choice poll and a multiple choice poll are tallied the same way.
 
 import { PollMode, PollStatus, PollType } from '../enums';
-import { countBallots, getOptionsForPolls, presetCount, type PollOption } from './options';
+import { countBallots, getOptionsForPolls, type PollOption } from './options';
 import { makeSnapshot, serializeOptionCounts, type SnapshotOptionCount } from './snapshot';
 
 interface MaintenanceEnv {
@@ -52,14 +52,13 @@ const SNAPSHOT_POLLS_SQL = `SELECT id, status, poll_type FROM polls
 
 // Inserts a snapshot, or refreshes the row for the same poll and hour. The
 // upsert keeps the terminal marker and the counts correct when an open snapshot
-// written earlier in the same hour is followed by a close.
+// written earlier in the same hour is followed by a close. The three verdict
+// columns are not written: they only hold the counts of records signed before
+// schema version 3.
 const INSERT_SNAPSHOT_SQL = `INSERT INTO stats_snapshots
-   (poll_id, ts_hour, approve, oppose, neutral, ballots, option_counts, views, prev_hash, hash, final)
-   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+   (poll_id, ts_hour, ballots, option_counts, views, prev_hash, hash, final)
+   VALUES (?, ?, ?, ?, ?, ?, ?, ?)
    ON CONFLICT(poll_id, ts_hour) DO UPDATE SET
-     approve = excluded.approve,
-     oppose = excluded.oppose,
-     neutral = excluded.neutral,
      ballots = excluded.ballots,
      option_counts = excluded.option_counts,
      views = excluded.views,
@@ -67,35 +66,22 @@ const INSERT_SNAPSHOT_SQL = `INSERT INTO stats_snapshots
      hash = excluded.hash,
      final = excluded.final`;
 
-interface Counts {
-  approve: number;
-  oppose: number;
-  neutral: number;
-}
-
-function emptyCounts(): Counts {
-  return { approve: 0, oppose: 0, neutral: 0 };
-}
-
 // Per-option counts of a poll, keyed by poll id and ordered by position.
 type OptionCountMap = Map<number, SnapshotOptionCount[]>;
 
 // Reads the counts of a set of polls through the shared engine, then shapes them
-// for the snapshot: the three verdict columns are filled from the poll's preset
-// rows (0 when the poll does not carry `neutral`), and the per-position counts
-// carry the full option list of every poll type.
+// for the snapshot: the number of ballots and the per-position counts of the
+// poll's options.
 async function loadSnapshotCounts(
   env: MaintenanceEnv,
   polls: Array<{ id: number; poll_type: number }>
 ): Promise<{
-  counts: Map<number, Counts>;
   ballots: Map<number, number>;
   optionCounts: OptionCountMap;
 }> {
-  const counts = new Map<number, Counts>();
   const ballots = new Map<number, number>();
   const optionCounts: OptionCountMap = new Map();
-  if (polls.length === 0) return { counts, ballots, optionCounts };
+  if (polls.length === 0) return { ballots, optionCounts };
 
   const tallies = await countBallots(env, polls);
   const optionsByPoll = await getOptionsForPolls(env, polls);
@@ -105,17 +91,10 @@ async function loadSnapshotCounts(
     const tally = tallies.get(pollId) ?? { ballots: 0, counts: new Map<number, number>() };
     const options = optionsByPoll.get(pollId) ?? [];
     ballots.set(pollId, tally.ballots);
-    // A verdict poll's preset rows fill the three published columns; a choice
-    // poll has no preset row and therefore reports three zeros.
-    counts.set(pollId, {
-      approve: presetCount(options, tally, 'approve'),
-      oppose: presetCount(options, tally, 'oppose'),
-      neutral: presetCount(options, tally, 'neutral')
-    });
     optionCounts.set(pollId, perPositionCounts(options, tally.counts));
   }
 
-  return { counts, ballots, optionCounts };
+  return { ballots, optionCounts };
 }
 
 // Reduces a poll's per-option tally to the per-position counts the snapshot
@@ -214,7 +193,7 @@ async function writeSnapshots(env: MaintenanceEnv, tsHour: number, now: number):
   const entries = (polls.results ?? []).map((row) => ({
     id: Number(row.id),
     status: Number(row.status),
-    pollType: Number(row.poll_type ?? PollType.Verdict),
+    pollType: Number(row.poll_type ?? PollType.SingleChoice),
     final: Number(row.status) === PollStatus.Closed
   }));
   if (entries.length === 0) return;
@@ -224,7 +203,7 @@ async function writeSnapshots(env: MaintenanceEnv, tsHour: number, now: number):
 
   // Every type is counted through the shared engine; the helper shapes the
   // result for the snapshot columns.
-  const { counts, ballots, optionCounts } = await loadSnapshotCounts(
+  const { ballots, optionCounts } = await loadSnapshotCounts(
     env,
     entries.map((entry) => ({ id: entry.id, poll_type: entry.pollType }))
   );
@@ -259,16 +238,15 @@ async function writeSnapshots(env: MaintenanceEnv, tsHour: number, now: number):
     const snapshot = await makeSnapshot({
       pollId: entry.id,
       tsHour,
-      counts: counts.get(entry.id) ?? emptyCounts(),
       ballots: ballots.get(entry.id) ?? 0,
       optionCounts: optionCounts.get(entry.id) ?? null,
       views: viewsByPoll.get(entry.id) ?? 0,
       prevHash: previous.get(entry.id) ?? null
     });
     statements.push(insert.bind(
-      snapshot.pollId, snapshot.tsHour, snapshot.approve, snapshot.oppose,
-      snapshot.neutral, snapshot.ballots, serializeOptionCounts(snapshot.optionCounts),
-      snapshot.views, snapshot.prevHash, snapshot.hash, entry.final ? 1 : 0
+      snapshot.pollId, snapshot.tsHour, snapshot.ballots,
+      serializeOptionCounts(snapshot.optionCounts), snapshot.views,
+      snapshot.prevHash, snapshot.hash, entry.final ? 1 : 0
     ));
   }
 
@@ -286,8 +264,8 @@ export async function writeSnapshotForPoll(
 ): Promise<void> {
   const pollRow = await env.DB.prepare('SELECT id, poll_type FROM polls WHERE id = ?')
     .bind(pollId).first<{ id: number; poll_type: number }>();
-  const pollType = Number(pollRow?.poll_type ?? PollType.Verdict);
-  const { counts, ballots, optionCounts } = await loadSnapshotCounts(env, [{ id: pollId, poll_type: pollType }]);
+  const pollType = Number(pollRow?.poll_type ?? PollType.SingleChoice);
+  const { ballots, optionCounts } = await loadSnapshotCounts(env, [{ id: pollId, poll_type: pollType }]);
 
   const previous = await env.DB.prepare(
     `SELECT hash FROM stats_snapshots
@@ -301,7 +279,6 @@ export async function writeSnapshotForPoll(
   const snapshot = await makeSnapshot({
     pollId,
     tsHour,
-    counts: counts.get(pollId) ?? emptyCounts(),
     ballots: ballots.get(pollId) ?? 0,
     optionCounts: optionCounts.get(pollId) ?? null,
     views: Number(viewsRow?.views ?? 0),
@@ -309,8 +286,8 @@ export async function writeSnapshotForPoll(
   });
 
   await env.DB.prepare(INSERT_SNAPSHOT_SQL).bind(
-    snapshot.pollId, snapshot.tsHour, snapshot.approve, snapshot.oppose,
-    snapshot.neutral, snapshot.ballots, serializeOptionCounts(snapshot.optionCounts),
-    snapshot.views, snapshot.prevHash, snapshot.hash, isFinal ? 1 : 0
+    snapshot.pollId, snapshot.tsHour, snapshot.ballots,
+    serializeOptionCounts(snapshot.optionCounts), snapshot.views,
+    snapshot.prevHash, snapshot.hash, isFinal ? 1 : 0
   ).run();
 }

@@ -1,8 +1,8 @@
 // Frontend poll-list tests.
 //
 // `renderPollRow` is pure markup, so it is checked directly: the home page lists
-// every poll type the same way and never builds vote controls, which is what
-// keeps a verdict poll in the list indistinguishable from a choice poll.
+// every poll the same way and never builds vote controls, which is what keeps a
+// poll in the list indistinguishable from any other.
 
 import { describe, expect, it } from 'vitest';
 import { renderPollRow } from '../src/pages/home';
@@ -22,7 +22,7 @@ function makeEntry(overrides: {
   options?: PollWithStats['poll']['options'];
   views?: PollWithStats['views'];
 } = {}): PollWithStats {
-  const pollType = overrides.pollType ?? 'verdict';
+  const pollType = overrides.pollType ?? 'single_choice';
   const hidden = overrides.hidden ?? false;
   return {
     poll: {
@@ -42,7 +42,6 @@ function makeEntry(overrides: {
       hidden,
       threshold: hidden ? 20 : 0,
       options: hidden ? null : [],
-      counts: null,
       voted: false
     },
     views: overrides.views ?? null
@@ -50,8 +49,8 @@ function makeEntry(overrides: {
 }
 
 describe('renderPollRow', () => {
-  it('lists a verdict poll with a vote link and no vote controls', () => {
-    const markup = renderPollRow(makeEntry({ pollType: 'verdict', ballots: 12 }));
+  it('lists a poll with a vote link and no vote controls', () => {
+    const markup = renderPollRow(makeEntry({ pollType: 'single_choice', ballots: 12 }));
 
     expect(markup).toContain('data-poll-row="7"');
     // Voting happens on the poll page: the row offers links only.
@@ -62,36 +61,37 @@ describe('renderPollRow', () => {
     // The title and the vote link both point at the poll page.
     expect(markup.match(/href="\/poll\/7"/g)).toHaveLength(2);
     expect(markup).toContain('>vote</a>');
-    expect(markup).toContain('12 votes');
+    // Every poll counts ballots now, so the unit is always "ballots".
+    expect(markup).toContain('12 ballots');
   });
 
-  it('lists a choice poll exactly like a verdict poll', () => {
-    const verdict = renderPollRow(makeEntry({ pollType: 'verdict', ballots: 12 }));
-    const choice = renderPollRow(makeEntry({
+  it('lists a multiple choice poll exactly like a single choice poll', () => {
+    const single = renderPollRow(makeEntry({ pollType: 'single_choice', ballots: 12 }));
+    const multi = renderPollRow(makeEntry({
       pollType: 'multi_choice',
       ballots: 12,
       options: [
-        { id: 11, label: 'Alpha', presetKey: null, position: 1 },
-        { id: 12, label: 'Beta', presetKey: null, position: 2 }
+        { id: 11, label: 'Alpha', position: 1 },
+        { id: 12, label: 'Beta', position: 2 }
       ]
     }));
 
-    // Same row, same actions; only the type badge and the ballot unit differ.
-    for (const markup of [verdict, choice]) {
+    // Same row, same actions; only the type badge and the option count differ.
+    for (const markup of [single, multi]) {
       expect(markup).toContain(ROW_LAYOUT);
       expect(markup).not.toContain('<button');
       expect(markup.match(/href="\/poll\/7"/g)).toHaveLength(2);
       expect(markup).toContain('>vote</a>');
     }
-    expect(choice).toContain('12 ballots');
-    expect(choice).toContain('pollTypeMultiChoice');
+    expect(multi).toContain('12 ballots');
+    expect(multi).toContain('pollTypeMultiChoice');
   });
 
   it('shows the threshold notice instead of the total and keeps the vote link', () => {
     const markup = renderPollRow(makeEntry({ hidden: true, ballots: 3 }));
 
     expect(markup).toContain('resultsHidden');
-    expect(markup).not.toContain('3 votes');
+    expect(markup).not.toContain('3 ballots');
     // The notice replaces the total only, never the link to the poll.
     expect(markup).toContain('>vote</a>');
   });

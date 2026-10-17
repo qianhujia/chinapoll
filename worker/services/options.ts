@@ -1,30 +1,22 @@
 // Shared options engine.
 //
-// Every poll exposes a list of options stored in `poll_options`, every ballot is
-// a set of selected option IDs stored in `vote_selections`, and one counting
-// function, one results shape, and one snapshot shape serve all three poll types
-// (see worker/enums.ts).
-//
-// A verdict poll's rows are presets: `label` is NULL and `preset_key` names the
-// fixed, translated scale (`approve`, `oppose`, `neutral`). A choice poll's rows
-// carry the label the submitter wrote. Either way an option is identified by
-// `id` in every request and response; the frontend renders `t(presetKey)` for a
-// preset row and the stored label otherwise.
+// Every poll keeps its options in `poll_options` as plain text labels, every
+// ballot records one `vote_selections` row per chosen option, and one counting
+// function and one results shape serve both poll types (single choice and
+// multiple choice, see worker/enums.ts). Options are identified by `id` in every
+// request and response, and the frontend renders the stored label.
 //
 // Anonymity is unchanged: the only voter identifier is the per-poll token hash,
-// and every public shape below publishes per-option counts only - including for
-// a verdict poll, whose single selection is a preset row like any other option.
+// and every public shape below publishes per-option counts only.
 
 import { PollType, type PollTypeLabel } from '../enums';
-import { isChoicePollType, isPresetKey, pollTypeLabel, requiredSelectionCount, type PresetKey } from './pollType';
+import { pollTypeLabel, requiredSelectionCount } from './pollType';
 
 export interface PollOption {
   id: number;
   position: number;
-  /** Submitter text of a choice option; NULL for a verdict preset row. */
-  label: string | null;
-  /** `approve`, `oppose`, or `neutral` for a verdict preset row; NULL otherwise. */
-  presetKey: string | null;
+  /** The option text the submitter wrote. */
+  label: string;
 }
 
 export interface PollOptionCount extends PollOption {
@@ -59,23 +51,20 @@ interface PollLike {
 interface OptionRow {
   id: number;
   position: number;
-  label: string | null;
-  preset_key: string | null;
+  label: string;
 }
 
-const OPTION_COLUMNS = 'id, position, label, preset_key';
+const OPTION_COLUMNS = 'id, position, label';
 
 function toOption(row: OptionRow): PollOption {
   return {
     id: Number(row.id),
     position: Number(row.position),
-    label: row.label === null || row.label === undefined ? null : String(row.label),
-    presetKey: row.preset_key === null || row.preset_key === undefined ? null : String(row.preset_key)
+    label: String(row.label)
   };
 }
 
-// Returns the options of a poll from `poll_options`, ordered by position, for
-// every poll type.
+// Returns the options of a poll from `poll_options`, ordered by position.
 export async function getPollOptions(env: OptionsEnv, poll: PollLike): Promise<PollOption[]> {
   if (poll.id === undefined) return [];
   const result = await env.DB.prepare(
@@ -109,18 +98,6 @@ export async function getOptionsForPolls(
   return byPoll;
 }
 
-// The preset row of a poll, or null when the poll does not carry it.
-export function presetOption(options: PollOption[], key: PresetKey): PollOption | null {
-  return options.find((option) => option.presetKey === key) ?? null;
-}
-
-// The count of one preset row, or 0 when the poll does not carry it - which is
-// how an absent `neutral` row reports a zero instead of going missing.
-export function presetCount(options: PollOption[], tally: PollTally, key: PresetKey): number {
-  const option = presetOption(options, key);
-  return option ? Number(tally.counts.get(option.id) ?? 0) : 0;
-}
-
 export type SelectionResult =
   | { ok: true; optionIds: number[] }
   | { ok: false; message: string };
@@ -128,19 +105,15 @@ export type SelectionResult =
 // Validates the submitted ballot against the poll type and returns the selected
 // option IDs. Every ID must belong to the poll, so a caller cannot vote with
 // another poll's option, and the per-type count rules are applied through
-// `requiredSelectionCount`.
-//
-// The legacy `option` field stays accepted on a verdict poll and resolves to
-// that poll's preset row, so older clients keep working; `optionIds` with one
-// option ID is the unified form.
+// `requiredSelectionCount`: exactly one option for a single choice poll, one to
+// seven distinct options for a multiple choice poll.
 export function validateSelections(poll: PollLike, options: PollOption[], body: unknown): SelectionResult {
   const source = (typeof body === 'object' && body !== null ? body : {}) as Record<string, unknown>;
-  const pollType = Number(poll.poll_type ?? PollType.Verdict);
+  const pollType = Number(poll.poll_type ?? PollType.SingleChoice);
   const rawIds = source.optionIds;
   if (rawIds !== undefined && !Array.isArray(rawIds)) {
     return { ok: false, message: 'bad request' };
   }
-  const legacyOption = source.option;
 
   const rule = requiredSelectionCount(pollType);
   if (rule === null) return { ok: false, message: 'bad request' };
@@ -152,22 +125,6 @@ export function validateSelections(poll: PollLike, options: PollOption[], body: 
   const distinct = [...new Set(ids)];
   if (distinct.length !== ids.length) {
     return { ok: false, message: 'duplicate option' };
-  }
-
-  if (legacyOption !== undefined) {
-    // A verdict label is refused on a choice poll and resolves to a preset row
-    // on a verdict poll.
-    if (pollType !== PollType.Verdict) {
-      return { ok: false, message: 'this poll does not accept a verdict' };
-    }
-    if (!isPresetKey(legacyOption)) return { ok: false, message: 'bad request' };
-    const preset = presetOption(options, legacyOption);
-    if (preset === null) return { ok: false, message: 'unknown option' };
-    if (distinct.length === 0) return { ok: true, optionIds: [preset.id] };
-    if (distinct.length !== 1 || distinct[0] !== preset.id) {
-      return { ok: false, message: 'bad request' };
-    }
-    return { ok: true, optionIds: [preset.id] };
   }
 
   const allowed = new Set(options.map((option) => option.id));
@@ -233,7 +190,7 @@ export function toPublicResults(
 ): PublicResults {
   const hidden = threshold > 0 && tally.ballots < threshold;
   return {
-    pollType: pollTypeLabel(Number(poll.poll_type ?? PollType.Verdict)),
+    pollType: pollTypeLabel(Number(poll.poll_type ?? PollType.SingleChoice)),
     ballots: tally.ballots,
     hidden,
     threshold,
@@ -243,25 +200,10 @@ export function toPublicResults(
         id: option.id,
         position: option.position,
         label: option.label,
-        presetKey: option.presetKey,
         count: Number(tally.counts.get(option.id) ?? 0)
       }))
   };
 }
 
-// The legacy verdict `counts` object, kept on verdict responses so existing
-// clients keep working. It is filled from the poll's preset rows by preset key,
-// so a poll that dropped its neutral row reports a zero.
-export function legacyVerdictCounts(
-  options: PollOption[],
-  tally: PollTally
-): { approve: number; neutral: number; oppose: number } {
-  return {
-    approve: presetCount(options, tally, 'approve'),
-    neutral: presetCount(options, tally, 'neutral'),
-    oppose: presetCount(options, tally, 'oppose')
-  };
-}
-
-export { isChoicePollType, pollTypeLabel };
+export { pollTypeLabel };
 export type { PollTypeLabel };

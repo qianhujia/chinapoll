@@ -76,7 +76,7 @@ export function bindAiButtons(form: HTMLFormElement, binding: AiBinding): void {
 
   optionsButton?.addEventListener('click', async () => {
     const pollType = binding.currentPollType();
-    if (!titleInput || pollType === 'verdict') return;
+    if (!titleInput) return;
     optionsButton.disabled = true;
     optionsButton.textContent = t('aiEnhancing');
     try {

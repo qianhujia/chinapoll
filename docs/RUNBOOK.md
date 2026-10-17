@@ -15,9 +15,11 @@ are run from the repository root.
    `0002_reports_and_views.sql` adds anonymous reports and view counting,
    `0003_poll_types_and_options.sql` adds the poll types, the per-poll options,
    the choice ballot tables, the duration column, and the ballots/option count
-   columns of the snapshot chain, and `0004_unified_selections.sql` removes
-   `votes.option` and records every selection in `vote_selections`, copying an
-   existing database's rows onto the poll's preset rows.
+   columns of the snapshot chain, and `0004_unified_selections.sql` removes the
+   verdict poll type and `votes.option` and records every selection in
+   `vote_selections`: each `poll_type = 1` poll becomes a single choice poll with
+   the rows `Approve`, `Neutral`, and `Oppose`, and each old verdict ballot
+   becomes one selection on the matching row.
 2. Set the required secret before the first deploy:
    `npx wrangler secret put SERVER_HMAC_KEY --env production` (a fresh 64-character hex value).
 3. Build the SPA: `npm run build` (outputs to `dist/web`).

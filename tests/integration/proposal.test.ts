@@ -29,21 +29,22 @@ interface ProposalBody {
   description?: string;
   pollType: string;
   duration: string;
-  presetKeys?: string[];
-  options?: Array<{ position: number; label: string }>;
+  options: Array<{ position: number; label: string }>;
 }
 
+// The three labels the Verdict card submits; a test that is not about the option
+// list itself can just use two.
+const OPTIONS = [
+  { position: 1, label: 'Approve' },
+  { position: 2, label: 'Neutral' },
+  { position: 3, label: 'Oppose' }
+];
+
 function propose(body: Partial<ProposalBody>): Promise<Response> {
-  const payload: Record<string, unknown> = { pollType: 'verdict', duration: 'none', ...body };
-  // A verdict poll carries its preset rows. The required keys are supplied by
-  // default so a test only names them when it checks a refusal.
-  if (payload.pollType === 'verdict' && payload.presetKeys === undefined) {
-    payload.presetKeys = ['approve', 'oppose', 'neutral'];
-  }
   return SELF.fetch(`${ORIGIN}/api/proposal`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', origin: ORIGIN, cookie },
-    body: JSON.stringify(payload)
+    body: JSON.stringify({ pollType: 'single_choice', duration: 'none', options: OPTIONS, ...body })
   });
 }
 
@@ -66,12 +67,13 @@ describe('proposal validation', () => {
   it('requires a duration from the seven labels', async () => {
     const missing = await exceed(async () => {
       const body: Partial<ProposalBody> = { title: 'No duration poll' };
-      const { duration, ...rest } = body as ProposalBody;
+      const { duration, options: ignoredOptions, ...rest } = body as ProposalBody;
       void duration;
+      void ignoredOptions;
       return SELF.fetch(`${ORIGIN}/api/proposal`, {
         method: 'POST',
         headers: { 'content-type': 'application/json', origin: ORIGIN, cookie },
-        body: JSON.stringify(rest)
+        body: JSON.stringify({ ...rest, pollType: 'single_choice', options: OPTIONS })
       });
     });
     expect(missing.status).toBe(400);
@@ -80,17 +82,14 @@ describe('proposal validation', () => {
     expect(bad.status).toBe(400);
   });
 
-  it('rejects a choice poll with too few options and a verdict poll with options', async () => {
-    expect((await propose({
-      title: 'Too few options',
-      pollType: 'single_choice',
-      options: [{ position: 1, label: 'Only one' }]
-    })).status).toBe(400);
+  it('requires a known poll type and 2 to 7 options', async () => {
+    // The removed verdict type is refused, as is a missing type.
+    expect((await propose({ title: 'Verdict poll type', pollType: 'verdict' })).status).toBe(400);
+    expect((await propose({ title: 'No poll type', pollType: undefined as unknown as string })).status).toBe(400);
 
     expect((await propose({
-      title: 'Verdict with options',
-      pollType: 'verdict',
-      options: [{ position: 1, label: 'A' }, { position: 2, label: 'B' }]
+      title: 'Too few options',
+      options: [{ position: 1, label: 'Only one' }]
     })).status).toBe(400);
   });
 });
@@ -105,7 +104,7 @@ describe('stored duration model', () => {
     const response = await propose({ title: 'Evergreen proposal' });
     expect(response.status).toBe(201);
     const body = await response.json() as any;
-    expect(body.pollType).toBe('verdict');
+    expect(body.pollType).toBe('single_choice');
 
     const row = await pollRow(body.pollId);
     // Mode 2 is evergreen; 1 is deadline.
@@ -215,43 +214,54 @@ describe('choice poll proposals', () => {
   });
 });
 
-describe('verdict preset rows', () => {
-  async function storedPresets(pollId: number): Promise<Array<{ position: number; label: string | null; preset_key: string }>> {
-    const rows = await env.DB.prepare(
-      'SELECT position, label, preset_key FROM poll_options WHERE poll_id = ? ORDER BY position ASC'
-    ).bind(pollId).all<{ position: number; label: string | null; preset_key: string }>();
-    return rows.results ?? [];
-  }
+describe('verdict template proposals', () => {
+  // The Verdict card in the form submits an ordinary single choice poll whose
+  // options are the three verdict words.
+  it('stores the three template labels as a single choice poll', async () => {
+    const response = await propose({ title: 'Verdict template proposal' });
+    expect(response.status).toBe(201);
+    const body = await response.json() as any;
+    expect(body.pollType).toBe('single_choice');
 
-  it('stores the preset rows of a verdict poll and the poll and rows share one batch', async () => {
-    const response = await propose({ title: 'Verdict proposal' });
+    const row = await pollRow(body.pollId);
+    expect(row?.poll_type).toBe(2);
+
+    // The option rows are written together with the poll row and are plain text.
+    const options = await env.DB.prepare(
+      'SELECT position, label FROM poll_options WHERE poll_id = ? ORDER BY position ASC'
+    ).bind(body.pollId).all<{ position: number; label: string }>();
+    expect(options.results).toEqual([
+      { position: 1, label: 'Approve' },
+      { position: 2, label: 'Neutral' },
+      { position: 3, label: 'Oppose' }
+    ]);
+
+    // The stored poll is readable through the public results endpoint as an
+    // ordinary single choice poll.
+    const stats = await (await SELF.fetch(`${ORIGIN}/api/stats/${body.pollId}`)).json() as any;
+    expect(stats.pollType).toBe('single_choice');
+    expect(stats.ballots).toBe(0);
+    // No ballots yet, so the option counts are withheld below the threshold.
+    expect(stats.options).toBeNull();
+  });
+
+  it('accepts an edited and shortened option list from the same card', async () => {
+    const response = await propose({
+      title: 'Edited verdict template proposal',
+      options: [
+        { position: 1, label: 'Yes' },
+        { position: 2, label: 'No' }
+      ]
+    });
     expect(response.status).toBe(201);
     const pollId = (await response.json() as any).pollId as number;
 
-    // The rows are written together with the poll row and carry no label.
-    expect(await storedPresets(pollId)).toEqual([
-      { position: 1, label: null, preset_key: 'approve' },
-      { position: 2, label: null, preset_key: 'oppose' },
-      { position: 3, label: null, preset_key: 'neutral' }
+    const options = await env.DB.prepare(
+      'SELECT position, label FROM poll_options WHERE poll_id = ? ORDER BY position ASC'
+    ).bind(pollId).all<{ position: number; label: string }>();
+    expect(options.results).toEqual([
+      { position: 1, label: 'Yes' },
+      { position: 2, label: 'No' }
     ]);
-  });
-
-  it('stores a verdict poll without the optional neutral row', async () => {
-    const response = await propose({ title: 'Verdict without neutral', presetKeys: ['approve', 'oppose'] });
-    expect(response.status).toBe(201);
-    const pollId = (await response.json() as any).pollId as number;
-
-    expect(await storedPresets(pollId)).toEqual([
-      { position: 1, label: null, preset_key: 'approve' },
-      { position: 2, label: null, preset_key: 'oppose' }
-    ]);
-  });
-
-  it('refuses a verdict poll that is missing approve or oppose', async () => {
-    // `presetKeys` has to be named explicitly here, so the helper does not fill
-    // in the required keys.
-    expect((await propose({ title: 'Verdict without oppose', presetKeys: ['approve'] })).status).toBe(400);
-    expect((await propose({ title: 'Verdict without approve', presetKeys: ['oppose', 'neutral'] })).status).toBe(400);
-    expect((await propose({ title: 'Verdict with a bad key', presetKeys: ['approve', 'oppose', 'maybe'] })).status).toBe(400);
   });
 });

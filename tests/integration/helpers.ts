@@ -3,7 +3,6 @@ import schema from '../../migrations/0001_initial.sql?raw';
 import reportsAndViewsSchema from '../../migrations/0002_reports_and_views.sql?raw';
 import pollTypesSchema from '../../migrations/0003_poll_types_and_options.sql?raw';
 import unifiedSelectionsSchema from '../../migrations/0004_unified_selections.sql?raw';
-import { VERDICT_PRESET_KEYS, type PresetKey } from '../../worker/services/pollType';
 
 export const ORIGIN = 'https://example.com';
 
@@ -57,18 +56,12 @@ export interface SeedPollOptions {
   endAt?: number | null;
   closedAt?: number | null;
   reviewedAt?: number | null;
-  /** 1 verdict (default), 2 single choice, 3 multi choice. */
+  /** 2 single choice (default), 3 multiple choice. */
   pollType?: number;
   durationSeconds?: number | null;
-  /**
-   * Preset rows of a verdict poll. Defaults to all three; pass
-   * `['approve', 'oppose']` for a poll without a neutral row.
-   */
-  presets?: PresetKey[];
 }
 
 // Inserts a poll row and returns its id. Mode 2 is evergreen, status 1 is open.
-// A verdict poll also gets its preset option rows, exactly as the API writes them.
 export async function seedPoll(options: SeedPollOptions): Promise<number> {
   await env.DB.prepare(
     `INSERT INTO polls (title, description, mode, status, start_at, end_at, closed_at, reviewed_at, poll_type, duration_seconds)
@@ -81,27 +74,27 @@ export async function seedPoll(options: SeedPollOptions): Promise<number> {
     options.endAt ?? null,
     options.closedAt ?? null,
     options.reviewedAt ?? null,
-    options.pollType ?? 1,
+    options.pollType ?? 2,
     options.durationSeconds ?? null
   ).run();
-  const pollId = await lastId();
-  if ((options.pollType ?? 1) === 1) {
-    await seedPresets(pollId, options.presets ?? [...VERDICT_PRESET_KEYS]);
-  }
-  return pollId;
+  return lastId();
 }
 
-// Inserts the preset rows of a verdict poll and returns their ids by preset key.
-export async function seedPresets(pollId: number, presetKeys: PresetKey[]): Promise<Map<PresetKey, number>> {
-  const ids = new Map<PresetKey, number>();
-  const ordered = VERDICT_PRESET_KEYS.filter((key) => presetKeys.includes(key));
-  for (const [index, key] of ordered.entries()) {
-    await env.DB.prepare(
-      "INSERT INTO poll_options (poll_id, position, label, preset_key) VALUES (?, ?, NULL, ?)"
-    ).bind(pollId, index + 1, key).run();
-    ids.set(key, await lastId());
-  }
-  return ids;
+// The three labels the Verdict template submits. A verdict poll is an ordinary
+// single choice poll with these options.
+export const VERDICT_TEMPLATE_LABELS: ReadonlyArray<string> = ['Approve', 'Neutral', 'Oppose'];
+
+// Inserts a poll whose options are the three verdict template labels, so a test
+// can exercise the shape the template produces.
+export async function seedVerdictTemplatePoll(
+  options: Omit<SeedPollOptions, 'pollType'> = { title: 'Verdict template poll' }
+): Promise<{ pollId: number; options: Map<number, number> }> {
+  const pollId = await seedPoll({ ...options, pollType: 2 });
+  const ids = await seedOptions(pollId, VERDICT_TEMPLATE_LABELS.map((label, index) => ({
+    position: index + 1,
+    label
+  })));
+  return { pollId, options: ids };
 }
 
 export interface SeedOption {
@@ -109,12 +102,12 @@ export interface SeedOption {
   label: string;
 }
 
-// Inserts the custom option rows of a choice poll and returns their ids by position.
+// Inserts the custom option rows of a poll and returns their ids by position.
 export async function seedOptions(pollId: number, options: SeedOption[]): Promise<Map<number, number>> {
   const ids = new Map<number, number>();
   for (const option of options) {
     await env.DB.prepare(
-      'INSERT INTO poll_options (poll_id, position, label, preset_key) VALUES (?, ?, ?, NULL)'
+      'INSERT INTO poll_options (poll_id, position, label) VALUES (?, ?, ?)'
     ).bind(pollId, option.position, option.label).run();
     ids.set(option.position, await lastId());
   }
@@ -136,21 +129,22 @@ export async function insertBallot(pollId: number, tokenHash: string, optionIds:
   return voteId;
 }
 
-// Posts a verdict ballot through the public API.
-export function voteRequest(pollId: number, tokenHash: string, option = 'approve'): Promise<Response> {
-  return SELF.fetch(`${ORIGIN}/api/vote`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ pollId, tokenHash, option })
-  });
-}
-
-// Posts a choice ballot through the public API.
+// Posts a ballot through the public API.
 export function choiceVoteRequest(pollId: number, tokenHash: string, optionIds: number[]): Promise<Response> {
   return SELF.fetch(`${ORIGIN}/api/vote`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ pollId, tokenHash, optionIds })
+  });
+}
+
+// Posts a ballot carrying the removed legacy `option` label, so a test can check
+// that the field is refused now that every ballot reports option IDs.
+export function legacyOptionVoteRequest(pollId: number, tokenHash: string, option: string): Promise<Response> {
+  return SELF.fetch(`${ORIGIN}/api/vote`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ pollId, tokenHash, option })
   });
 }
 

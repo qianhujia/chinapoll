@@ -1,8 +1,7 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { createExecutionContext, createScheduledController, env, SELF, waitOnExecutionContext } from 'cloudflare:test';
 import worker from '../../worker/index';
-import { getPollOptions } from '../../worker/services/options';
-import { ORIGIN, applySchema, insertBallot, seedPoll } from './helpers';
+import { ORIGIN, applySchema, insertBallot, seedOptions, seedPoll } from './helpers';
 
 beforeAll(async () => {
   await applySchema();
@@ -34,9 +33,11 @@ describe('hourly maintenance', () => {
       startAt: now - 7200,
       endAt: now - 60
     });
-    const presets = await getPollOptions(env, { id: pollId, poll_type: 1 });
-    const approveId = presets.find((option) => option.presetKey === 'approve')!.id;
-    await insertBallot(pollId, 'e'.repeat(64), [approveId]);
+    const options = await seedOptions(pollId, [
+      { position: 1, label: 'Approve' },
+      { position: 2, label: 'Oppose' }
+    ]);
+    await insertBallot(pollId, 'e'.repeat(64), [options.get(1)!]);
 
     await runMaintenance();
 
@@ -44,11 +45,18 @@ describe('hourly maintenance', () => {
       .bind(pollId).first<{ status: number }>();
     expect(poll?.status).toBe(2);
 
+    // The snapshot carries the ballots and the per-option counts; the three
+    // verdict columns are not written any more.
     const terminal = await env.DB.prepare(
-      'SELECT approve, final FROM stats_snapshots WHERE poll_id = ? AND final = 1'
-    ).bind(pollId).first<{ approve: number; final: number }>();
+      'SELECT ballots, option_counts, approve, final FROM stats_snapshots WHERE poll_id = ? AND final = 1'
+    ).bind(pollId).first<{ ballots: number; option_counts: string; approve: number; final: number }>();
     expect(terminal?.final).toBe(1);
-    expect(terminal?.approve).toBe(1);
+    expect(terminal?.ballots).toBe(1);
+    expect(JSON.parse(terminal?.option_counts ?? '[]')).toEqual([
+      { position: 1, count: 1 },
+      { position: 2, count: 0 }
+    ]);
+    expect(terminal?.approve).toBe(0);
 
     const verify = await (await SELF.fetch(`${ORIGIN}/api/snapshots/${pollId}/verify`)).json() as { valid: boolean };
     expect(verify.valid).toBe(true);
@@ -65,8 +73,11 @@ describe('hourly maintenance', () => {
       endAt: now - 31 * 86_400,
       durationSeconds: 86_400
     });
-    const presets = await getPollOptions(env, { id: pollId, poll_type: 1 });
-    await insertBallot(pollId, 'p'.repeat(64), [presets[0].id, presets[1].id]);
+    const options = await seedOptions(pollId, [
+      { position: 1, label: 'Approve' },
+      { position: 2, label: 'Oppose' }
+    ]);
+    await insertBallot(pollId, 'p'.repeat(64), [options.get(1)!, options.get(2)!]);
     expect(await rowCounts(pollId)).toEqual({ ballots: 1, selections: 2 });
 
     await runMaintenance();

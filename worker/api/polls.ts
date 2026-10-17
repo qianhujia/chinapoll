@@ -10,8 +10,6 @@ import {
 import {
   countBallots,
   getOptionsForPolls,
-  isChoicePollType,
-  legacyVerdictCounts,
   pollTypeLabel,
   toPublicResults,
   type PollOption
@@ -128,7 +126,7 @@ export async function handlePollsRequest(request: Request, url: URL, env: Handle
   const viewsThreshold = Number(env.min_views_to_display ?? 0);
   const pageRows = (result.results ?? []).map((row) => ({
     id: Number(row.id),
-    poll_type: Number(row.poll_type ?? PollType.Verdict)
+    poll_type: Number(row.poll_type ?? PollType.SingleChoice)
   }));
   const viewCounts = await loadViewCounts(env.DB, pageRows.map((row) => row.id));
   // The options and the tally of every poll on this page are read with a fixed
@@ -139,11 +137,9 @@ export async function handlePollsRequest(request: Request, url: URL, env: Handle
 
   const polls = (result.results ?? []).map((row) => {
     const pollId = Number(row.id);
-    const pollType = Number(row.poll_type ?? PollType.Verdict);
+    const pollType = Number(row.poll_type ?? PollType.SingleChoice);
     const options = optionsByPoll.get(pollId) ?? [];
     const tally = tallies.get(pollId) ?? { ballots: 0, counts: new Map<number, number>() };
-    // The legacy verdict counts keep working for the existing home-page buttons.
-    const counts = legacyVerdictCounts(options, tally);
     const results = toPublicResults({ poll_type: pollType }, options, tally, threshold);
     return {
       poll: {
@@ -160,7 +156,6 @@ export async function handlePollsRequest(request: Request, url: URL, env: Handle
       stats: {
         pollId: row.id,
         ...results,
-        counts: isChoicePollType(pollType) || results.hidden ? null : counts,
         voted: false
       },
       views: publicViews(viewCounts.get(pollId), viewsThreshold)
@@ -180,14 +175,12 @@ export async function handlePollsRequest(request: Request, url: URL, env: Handle
   });
 }
 
-// The public option shape: identity, order, and either a preset key (a verdict
-// row, translated by the client) or the submitter's label.
-function publicOption(option: PollOption): { id: number; position: number; label: string | null; presetKey: string | null } {
+// The public option shape: identity, order, and the submitter's label.
+function publicOption(option: PollOption): { id: number; position: number; label: string } {
   return {
     id: option.id,
     position: option.position,
-    label: option.label,
-    presetKey: option.presetKey
+    label: option.label
   };
 }
 
@@ -257,15 +250,15 @@ async function getPoll(pollIdText: string, env: HandlerEnv): Promise<Response> {
   const viewCounts = await loadViewCounts(env.DB, [pollId]);
   const views = publicViews(viewCounts.get(pollId), Number(env.min_views_to_display ?? 0));
 
-  // The options come from the shared engine, so a verdict poll exposes its
-  // preset rows here just like a choice poll exposes its labels.
+  // The options come from the shared engine, so every poll exposes its labeled
+  // rows here.
   const options = await getOptionsForPolls(env, [{ id: pollId, poll_type: poll.poll_type }]);
   const pollOptions = options.get(pollId) ?? [];
 
   return Response.json({ poll: {
     ...poll,
     mode: getPollModeLabel(poll.mode),
-    pollType: pollTypeLabel(Number(poll.poll_type ?? PollType.Verdict)),
+    pollType: pollTypeLabel(Number(poll.poll_type ?? PollType.SingleChoice)),
     options: pollOptions.map(publicOption),
     start_at: toIsoDate(poll.start_at),
     end_at: toIsoDate(poll.end_at),

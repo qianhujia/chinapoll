@@ -1,10 +1,7 @@
-export type VoteOption = 'approve' | 'oppose' | 'neutral';
-
-// Ballot shape of a poll, matching worker/enums.ts.
-export type PollType = 'verdict' | 'single_choice' | 'multi_choice';
-
-// The preset keys of a verdict poll, in row order.
-export type PresetKey = 'approve' | 'oppose' | 'neutral';
+// Ballot shape of a poll, matching worker/enums.ts. There is no separate verdict
+// type: a "verdict" poll is a single choice poll whose options are the words
+// Approve, Neutral, and Oppose.
+export type PollType = 'single_choice' | 'multi_choice';
 
 // The durations offered by the proposal form. The mapping is defined once in
 // worker/enums.ts and re-exported here so the form and the Worker agree.
@@ -75,19 +72,15 @@ export interface PollViewCounts {
 
 export interface PollOption {
   id: number;
-  /**
-   * A verdict poll's preset row carries `presetKey` (`approve`, `oppose`, or
-   * `neutral`) and no label; a choice poll's row carries the submitter's label.
-   * The frontend renders `t(presetKey)` or the label from the same array.
-   */
-  label: string | null;
-  presetKey: PresetKey | null;
+  /** The option text the submitter wrote. */
+  label: string;
   position: number;
   count?: number;
 }
 
-// The single results shape returned for every poll type: the ballot total and
-// one entry per option, or `options: null` below the display threshold.
+// The single results shape returned for every poll: the ballot total and one
+// entry per option, or `options: null` below the display threshold. Each option
+// carries its own `count`.
 export interface PollResults {
   pollType?: PollType;
   ballots: number;
@@ -95,14 +88,6 @@ export interface PollResults {
   threshold: number;
   options: PollOption[] | null;
 }
-
-/**
- * Legacy verdict counts, still returned for a verdict poll. Kept so older code
- * paths (and the pre-existing integration tests) keep working.
- */
-export type VerdictCounts = Record<VoteOption, number>;
-
-export type PollCounts = VerdictCounts | null;
 
 export interface PollSummary {
   id: number;
@@ -120,7 +105,6 @@ export interface PollWithStats {
   poll: PollSummary;
   stats: PollResults & {
     pollId: number;
-    counts: PollCounts;
     voted: boolean;
   };
   views: PollViewCounts | null;
@@ -129,7 +113,6 @@ export interface PollWithStats {
 export interface VoteResponse extends PollResults {
   ok: boolean;
   message: string;
-  counts: PollCounts;
   voted: boolean;
   alreadyVoted?: boolean;
 }
@@ -137,8 +120,7 @@ export interface VoteResponse extends PollResults {
 export interface VoteStatusResponse {
   pollId: number;
   voted: boolean;
-  option: VoteOption | null;
-  optionIds?: number[];
+  optionIds: number[];
 }
 
 export interface CommentsResponse {
@@ -180,7 +162,6 @@ export async function fetchJson<T>(input: string, init?: RequestInit): Promise<T
 
 export async function getStats(pollId: number): Promise<PollResults & {
   pollId: number;
-  counts: PollCounts;
   voted: boolean;
 }> {
   return fetchJson(`/api/stats/${pollId}`);
@@ -267,8 +248,7 @@ export async function submitComment(pollId: number, comment: string): Promise<vo
 export async function submitVote(payload: {
   pollId: number;
   tokenHash: string;
-  option?: VoteOption;
-  optionIds?: number[];
+  optionIds: number[];
   turnstileToken?: string;
 }): Promise<VoteResponse> {
   return fetchJson('/api/vote', {
@@ -297,8 +277,7 @@ export async function submitProposal(payload: {
   description?: string;
   pollType: PollType;
   duration: PollDuration;
-  presetKeys?: PresetKey[];
-  options?: Array<{ position: number; label: string }>;
+  options: Array<{ position: number; label: string }>;
 }): Promise<{ ok: boolean; message: string; pollId: number; status?: 'open' | 'pending' }> {
   return fetchJson('/api/proposal', {
     method: 'POST',

@@ -28,6 +28,8 @@ function toRecord(row: SnapshotRow): SnapshotRecord {
   return {
     pollId: Number(row.poll_id),
     tsHour: Number(row.ts_hour),
+    // The three verdict columns only carry the counts of records signed before
+    // schema version 3; they are 0 on a current record.
     approve: Number(row.approve),
     oppose: Number(row.oppose),
     neutral: Number(row.neutral),
@@ -117,11 +119,13 @@ export async function handleSnapshotRequest(request: Request, url: URL, env: Han
       return {
         tsHour: new Date(snapshot.tsHour * 1000).toISOString(),
         tsHourEpoch: snapshot.tsHour,
+        // Reported so a verifier can recompute the payload of a record signed
+        // before schema version 3; they are 0 on a current record.
         approve: snapshot.approve,
         oppose: snapshot.oppose,
         neutral: snapshot.neutral,
-        // `ballots` is the number of ballots at that hour for every poll type,
-        // and `optionCounts` carries the per-option counts of a choice poll.
+        // `ballots` is the number of ballots at that hour and `optionCounts`
+        // carries the per-option counts of the poll.
         ballots: snapshot.ballots,
         optionCounts: snapshot.optionCounts,
         views: snapshot.views,
@@ -129,8 +133,8 @@ export async function handleSnapshotRequest(request: Request, url: URL, env: Han
         hash: snapshot.hash,
         // `final` marks the terminal snapshot written when the poll closed. It
         // is reported for verifiers and the publish script; the hash above
-        // covers the counts, the ballots, the option counts, the cumulative
-        // views, and the chain link.
+        // covers the ballots, the option counts, the cumulative views, and the
+        // chain link.
         final: Number(row.final) === 1
       };
     }),

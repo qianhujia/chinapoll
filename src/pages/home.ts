@@ -14,18 +14,17 @@ import {
   viewIconMarkup
 } from '../ui';
 
-// One row of the poll list. Every poll type is rendered the same way: identity,
+// One row of the poll list. Every poll is rendered the same way: identity,
 // badges, the ballot total (or the threshold notice), the view count, and a vote
 // link to the poll page. The list page never votes in place, so no vote controls
 // are built here.
 export function renderPollRow({ poll, stats, views }: Awaited<ReturnType<typeof getPolls>>['polls'][number]): string {
-  const pollType = poll.pollType ?? stats.pollType ?? 'verdict';
-  const isChoice = pollType !== 'verdict';
+  const pollType = poll.pollType ?? stats.pollType ?? 'single_choice';
   const resultsHidden = stats.hidden === true;
   // The threshold notice replaces the ballot total, never the link.
   const voteTotalLine = resultsHidden
     ? `<span class="shrink-0 whitespace-nowrap text-xs leading-[1.2] text-muted">${t('resultsHidden').replace('{n}', String(stats.threshold))}</span>`
-    : `<span class="shrink-0 whitespace-nowrap text-xs leading-[1.2] text-muted">${stats.ballots} ${isChoice ? t('ballots') : t('votes')}</span>`;
+    : `<span class="shrink-0 whitespace-nowrap text-xs leading-[1.2] text-muted">${stats.ballots} ${t('ballots')}</span>`;
 
   return `
     <article class="grid grid-cols-[minmax(0,1fr)_minmax(190px,240px)] items-center gap-x-8 border-b border-border py-[22px] max-[700px]:grid-cols-1 max-[700px]:gap-y-3" data-poll-row="${poll.id}">

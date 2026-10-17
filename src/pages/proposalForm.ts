@@ -10,8 +10,7 @@ import {
   rememberMyPoll,
   submitProposal,
   type PollDuration,
-  type PollType,
-  type PresetKey
+  type PollType
 } from '../lib/poll';
 import { getPublicSettings } from '../config';
 import { getErrorMessage, showToast, t } from '../ui';
@@ -19,10 +18,10 @@ import type { AiLocale } from '../lib/ai';
 import {
   MAX_OPTIONS,
   MIN_OPTIONS,
-  PRESET_ROW_ORDER,
+  VERDICT_TEMPLATE_LABEL_KEYS,
   confirmationMarkup,
   optionRowMarkup,
-  presetRowMarkup
+  type TemplateType
 } from './proposal';
 import { bindAiButtons } from './proposalAi';
 
@@ -49,10 +48,17 @@ export function checkOptionLabels(labels: string[]): OptionRowCheck {
 
 export interface ConfirmationSummary {
   title: string;
-  pollType: PollType;
+  /** The card the user picked, which names the poll in the summary. */
+  template: TemplateType;
   duration: PollDuration;
   description: string;
   options: Array<{ position: number; label: string }>;
+}
+
+// The i18n key of the label a template is shown under.
+function templateLabelKey(template: TemplateType): string {
+  if (template === 'multi_choice') return 'pollTypeMultiChoice';
+  return template === 'single_choice' ? 'pollTypeSingleChoice' : 'pollTypeVerdict';
 }
 
 // Opens the read-only confirmation dialog. The user either goes back to edit or
@@ -62,11 +68,7 @@ export function openConfirmation(
   summary: ConfirmationSummary,
   onBack: () => void
 ): void {
-  const typeLabel = summary.pollType === 'single_choice'
-    ? t('pollTypeSingleChoice')
-    : summary.pollType === 'multi_choice'
-      ? t('pollTypeMultiChoice')
-      : t('pollTypeVerdict');
+  const typeLabel = t(templateLabelKey(summary.template));
   const host = document.createElement('div');
   host.className = 'fixed inset-0 z-20 flex items-center justify-center bg-black/40 p-4';
   host.dataset.proposalConfirm = '1';
@@ -101,7 +103,6 @@ export function bindProposalForm(app: HTMLElement, bindNavigation: () => void, a
   const optionsFieldset = form.querySelector<HTMLFieldSetElement>('[data-options-fieldset]');
   const optionRows = form.querySelector<HTMLDivElement>('[data-option-rows]');
   const addOptionButton = form.querySelector<HTMLButtonElement>('[data-add-option]');
-  const restoreNeutralButton = form.querySelector<HTMLButtonElement>('[data-restore-neutral]');
   const aiSuggestions = form.querySelector<HTMLUListElement>('[data-ai-suggestions]');
   const aiDiscardButton = form.querySelector<HTMLButtonElement>('[data-ai-discard]');
   const aiOptionsButton = form.querySelector<HTMLButtonElement>('[data-ai-options]');
@@ -109,69 +110,58 @@ export function bindProposalForm(app: HTMLElement, bindNavigation: () => void, a
   const aiHint = form.querySelector<HTMLElement>('[data-ai-hint]');
   const submitButton = form.querySelector<HTMLButtonElement>('button[type="submit"]')!;
 
-  let pollType: PollType = 'verdict';
+  // The card the user picked. "verdict" is a template, not an API type: it
+  // submits as a single choice poll with three pre-filled options.
+  let templateType: TemplateType = 'verdict';
   // Set while the confirmation dialog is open so the second submit sends the
   // request instead of opening the dialog again.
   let confirming = false;
 
+  // The poll type sent to the API for the picked card.
+  const apiPollType = (template: TemplateType): PollType =>
+    template === 'multi_choice' ? 'multi_choice' : 'single_choice';
+
   const rows = () => Array.from(optionRows?.querySelectorAll<HTMLDivElement>('[data-option-row]') ?? []);
-  const isPresetRow = (row: HTMLDivElement) => typeof row.dataset.preset === 'string';
   const renumber = () => rows().forEach((row, index) => { row.dataset.position = String(index + 1); });
   const syncOptionButtons = () => {
-    if (addOptionButton) addOptionButton.hidden = pollType === 'verdict';
-    if (restoreNeutralButton) {
-      const hasNeutral = rows().some((row) => row.dataset.preset === 'neutral');
-      restoreNeutralButton.hidden = pollType !== 'verdict' || hasNeutral;
-    }
-    const editable = rows().filter((row) => !isPresetRow(row));
+    const count = rows().length;
+    if (addOptionButton) addOptionButton.disabled = count >= MAX_OPTIONS;
     rows().forEach((row) => {
       const remove = row.querySelector<HTMLButtonElement>('[data-remove-option]');
-      if (!remove) return;
-      // A verdict poll only removes its optional neutral row and always keeps
-      // approve and oppose; a choice poll keeps at least two custom rows.
-      remove.disabled = isPresetRow(row) ? false : editable.length <= MIN_OPTIONS;
+      if (remove) remove.disabled = count <= MIN_OPTIONS;
     });
   };
   const syncAiGates = () => {
     if (!aiEnabled) return;
     const longEnough = (titleInput?.value.trim().length ?? 0) >= 10;
     if (aiEnhanceButton) aiEnhanceButton.disabled = !longEnough;
-    if (aiOptionsButton) {
-      aiOptionsButton.hidden = pollType === 'verdict';
-      aiOptionsButton.disabled = !longEnough;
-    }
+    if (aiOptionsButton) aiOptionsButton.disabled = !longEnough;
     if (aiHint) aiHint.hidden = longEnough;
   };
 
-  // Fills the editor with the three locked preset rows of a verdict poll.
-  const fillPresetRows = () => {
-    optionRows?.replaceChildren();
-    PRESET_ROW_ORDER.forEach((key, index) => {
-      optionRows?.insertAdjacentHTML('beforeend', presetRowMarkup(key, index + 1));
-    });
+  // Fills the editor with the rows the picked card starts from. Every row is
+  // editable: the Verdict template only pre-fills the three verdict words and the
+  // user may rename them, drop to two, or add up to seven.
+  const fillTemplateRows = () => {
+    if (templateType === 'verdict') {
+      optionRows?.replaceChildren();
+      VERDICT_TEMPLATE_LABEL_KEYS.forEach((key, index) => {
+        optionRows?.insertAdjacentHTML('beforeend', optionRowMarkup(index + 1, t(key)));
+      });
+      return;
+    }
+    // A plain choice poll starts with two empty rows the first time it is picked;
+    // switching between the two choice cards keeps what the user already wrote.
+    if (rows().length === 0) {
+      for (let index = 0; index < MIN_OPTIONS; index += 1) {
+        optionRows?.insertAdjacentHTML('beforeend', optionRowMarkup(index + 1));
+      }
+    }
   };
 
-  // Converts whatever the editor currently shows into editable custom rows with
-  // the same texts, so switching a verdict poll to a choice poll keeps the
-  // approve/oppose/neutral wording as a starting point.
-  const fillEditableRows = () => {
-    const texts = rows().map((row) =>
-      row.querySelector<HTMLInputElement>('[data-option-label]')?.value
-      ?? row.querySelector<HTMLInputElement>('[data-preset-label]')?.value
-      ?? '');
-    while (texts.length < MIN_OPTIONS) texts.push('');
-    optionRows?.replaceChildren();
-    texts.slice(0, MAX_OPTIONS).forEach((label, index) => {
-      optionRows?.insertAdjacentHTML('beforeend', optionRowMarkup(index + 1, label));
-    });
-  };
-
-  // Rebuilds the editor whenever the ballot shape changes, and shows it: a
-  // verdict poll always carries its preset rows.
   const syncOptionEditor = () => {
     if (optionsFieldset) optionsFieldset.hidden = false;
-    if (pollType === 'verdict') fillPresetRows();
-    else fillEditableRows();
+    fillTemplateRows();
     renumber();
     syncOptionButtons();
     syncAiGates();
@@ -180,16 +170,8 @@ export function bindProposalForm(app: HTMLElement, bindNavigation: () => void, a
   syncOptionEditor();
 
   addOptionButton?.addEventListener('click', () => {
-    if (pollType === 'verdict' || rows().length >= MAX_OPTIONS) return;
+    if (rows().length >= MAX_OPTIONS) return;
     optionRows?.insertAdjacentHTML('beforeend', optionRowMarkup(rows().length + 1));
-    renumber();
-    syncOptionButtons();
-  });
-
-  // Puts the optional neutral preset row back on a verdict poll.
-  restoreNeutralButton?.addEventListener('click', () => {
-    if (pollType !== 'verdict' || rows().some((row) => row.dataset.preset === 'neutral')) return;
-    optionRows?.insertAdjacentHTML('beforeend', presetRowMarkup('neutral', rows().length + 1));
     renumber();
     syncOptionButtons();
   });
@@ -198,7 +180,7 @@ export function bindProposalForm(app: HTMLElement, bindNavigation: () => void, a
     const remove = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-remove-option]');
     const row = remove?.closest<HTMLDivElement>('[data-option-row]');
     if (!row || remove?.disabled) return;
-    if (!isPresetRow(row) && rows().filter((candidate) => !isPresetRow(candidate)).length <= MIN_OPTIONS) return;
+    if (rows().length <= MIN_OPTIONS) return;
     row.remove();
     renumber();
     syncOptionButtons();
@@ -214,7 +196,7 @@ export function bindProposalForm(app: HTMLElement, bindNavigation: () => void, a
 
   form.querySelectorAll<HTMLInputElement>('[data-poll-type]').forEach((radio) => {
     radio.addEventListener('change', () => {
-      pollType = radio.value as PollType;
+      templateType = radio.value as TemplateType;
       syncOptionEditor();
     });
   });
@@ -228,7 +210,7 @@ export function bindProposalForm(app: HTMLElement, bindNavigation: () => void, a
     renumber,
     syncOptionButtons,
     syncAiGates,
-    currentPollType: () => pollType,
+    currentPollType: () => apiPollType(templateType),
     titleInput,
     descriptionInput,
     aiSuggestions,
@@ -252,29 +234,21 @@ export function bindProposalForm(app: HTMLElement, bindNavigation: () => void, a
       return;
     }
 
-    // A verdict poll carries preset keys; a choice poll carries its custom
-    // option rows. The confirmation summary shows the same texts either way.
-    let presetKeys: PresetKey[] = [];
-    let options: Array<{ position: number; label: string }> = [];
-    if (pollType === 'verdict') {
-      presetKeys = rows()
-        .map((row) => row.dataset.preset as PresetKey | undefined)
-        .filter((key): key is PresetKey => Boolean(key));
-      options = presetKeys.map((key, index) => ({ position: index + 1, label: t(key) }));
-    } else {
-      const checked = checkOptionLabels(rows().map((row) =>
-        row.querySelector<HTMLInputElement>('[data-option-label]')?.value ?? ''));
-      if (!checked.ok) {
-        showToast(checked.message, 'error');
-        return;
-      }
-      options = checked.options;
+    // Every poll carries its option rows; the confirmation summary shows the
+    // same texts.
+    const checked = checkOptionLabels(rows().map((row) =>
+      row.querySelector<HTMLInputElement>('[data-option-label]')?.value ?? ''));
+    if (!checked.ok) {
+      showToast(checked.message, 'error');
+      return;
     }
+    const options = checked.options;
+    const pollType = apiPollType(templateType);
 
     // Before the request is sent the summary is shown; `confirming` keeps the
     // second submit (from the dialog) going straight to the server.
     if (!confirming) {
-      openConfirmation(app, { title, pollType, duration, description, options }, () => {
+      openConfirmation(app, { title, template: templateType, duration, description, options }, () => {
         confirming = false;
       });
       confirming = true;
@@ -288,8 +262,7 @@ export function bindProposalForm(app: HTMLElement, bindNavigation: () => void, a
         description: description || undefined,
         pollType,
         duration,
-        presetKeys: pollType === 'verdict' ? presetKeys : undefined,
-        options: pollType === 'verdict' ? undefined : options
+        options
       });
       showToast(result.status === 'open'
         ? `${t('proposalPublished')}: ${result.pollId}`
@@ -297,7 +270,7 @@ export function bindProposalForm(app: HTMLElement, bindNavigation: () => void, a
       rememberMyPoll(result.pollId);
       // The form is reset for another submission.
       confirming = false;
-      pollType = 'verdict';
+      templateType = 'verdict';
       const verdictRadio = form.querySelector<HTMLInputElement>('[data-poll-type][value="verdict"]');
       if (verdictRadio) verdictRadio.checked = true;
       if (titleInput) titleInput.value = '';

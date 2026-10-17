@@ -59,7 +59,7 @@ export function pollModeLabel(value: number): AdminPollMode {
   }
 }
 
-// Label of a poll type, shared with the public Worker. A stored value that is
-// not one of the three known codes falls back to the verdict shape so the
+// Label of a poll type, shared with the public Worker. A stored value that is not
+// one of the two known codes falls back to the single choice shape so the
 // dashboard never fails on one bad row.
 export { pollTypeLabel } from '../../worker/services/pollType';

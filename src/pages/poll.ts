@@ -30,19 +30,15 @@ import {
   getErrorMessage,
   getQueryPage,
   moreIconMarkup,
-  optionLabel,
   renderCommentsContent,
   renderFooter,
   renderHeader,
   renderModeBadge,
   renderPollTypeBadge,
   renderToast,
-  renderVoteGroup,
-  selectVoteOption,
   showToast,
   t,
   updateComments,
-  updateVoteGroup,
   viewIconMarkup
 } from '../ui';
 
@@ -58,12 +54,14 @@ const REPORT_REASON_LABELS: Record<ReportReason, string> = {
   other: 'reportReasonOther'
 };
 
-// Radio (single choice) or checkbox (multi choice) list. The submit button stays
-// disabled until the ballot is complete.
-function renderChoiceInputs(
-  pollType: Exclude<PollType, 'verdict'>,
+// Radio (single choice) or checkbox (multiple choice) list. The submit button
+// stays disabled until the ballot is complete, and a returning voter sees their
+// stored options pre-checked and the form disabled.
+export function renderChoiceInputs(
+  pollType: PollType,
   options: PollOption[],
-  hasVoted: boolean
+  hasVoted: boolean,
+  selectedIds: number[] = []
 ): string {
   const inputType = pollType === 'single_choice' ? 'radio' : 'checkbox';
   return `
@@ -72,8 +70,8 @@ function renderChoiceInputs(
         <legend class="sr-only">${t('vote')}</legend>
         ${options.map((option) => `
           <label class="flex cursor-pointer items-center gap-2.5 rounded-[14px] border border-border bg-[#f9fbff] px-3.5 py-2.5">
-            <input class="accent-primary" type="${inputType}" name="option" value="${option.id}" data-choice-option ${hasVoted ? 'disabled' : ''}>
-            <span>${escapeHtml(optionLabel(option))}</span>
+            <input class="accent-primary" type="${inputType}" name="option" value="${option.id}" data-choice-option${selectedIds.includes(option.id) ? ' checked' : ''} ${hasVoted ? 'disabled' : ''}>
+            <span>${escapeHtml(option.label)}</span>
           </label>
         `).join('')}
       </fieldset>
@@ -83,9 +81,9 @@ function renderChoiceInputs(
 }
 
 // One horizontal bar per option, sorted by position, showing the count and the
-// share of ballots. This is the single results renderer for every poll type; it
-// never shows which options were picked together on one ballot.
-function renderResults(results: PollResults): string {
+// share of ballots. This is the single results renderer for every poll; it never
+// shows which options were picked together on one ballot.
+export function renderResults(results: PollResults): string {
   const options = [...(results.options ?? [])].sort((left, right) => left.position - right.position);
   if (options.length === 0) return '';
   return `
@@ -96,7 +94,7 @@ function renderResults(results: PollResults): string {
     return `
         <div class="grid gap-1" data-result-option="${option.id}">
           <div class="flex items-baseline justify-between gap-3 text-sm">
-            <span class="min-w-0 truncate">${escapeHtml(optionLabel(option))}</span>
+            <span class="min-w-0 truncate">${escapeHtml(option.label)}</span>
             <span class="shrink-0 tabular-nums text-muted" data-result-count>${count} · ${percent.toFixed(1)}%</span>
           </div>
           <div class="h-2 w-full overflow-hidden rounded-full bg-[#edf0f4]">
@@ -229,16 +227,15 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
   } catch (error) {
     statsError = getErrorMessage(error);
   }
-  // The stored vote status drives the selected state. `votedOptionId` is the
-  // option the visitor already chose, if any, so the matching button can be
-  // highlighted even when the counts are hidden.
-  let votedOptionId: number | null = null;
+  // The stored vote status drives the form: a returning voter sees the options
+  // they already chose pre-checked, even while the counts are hidden.
+  let votedOptionIds: number[] = [];
   try {
     const voteStatus = await getVoteStatus(poll.id, hash);
     hasVoted ||= voteStatus.voted;
     if (voteStatus.voted) {
       markVotedLocally(poll.id, hash);
-      votedOptionId = voteStatus.optionIds?.[0] ?? null;
+      votedOptionIds = voteStatus.optionIds;
     }
   } catch (error) {
     voteStatusError = getErrorMessage(error);
@@ -249,12 +246,10 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
   } catch {
     commentsContent = t('commentsLoadFailed');
   }
-  const pollType: PollType = poll.pollType ?? stats?.pollType ?? 'verdict';
-  const isChoice = pollType !== 'verdict';
-  // The options come from the server for every type: a verdict poll carries its
-  // preset rows and a choice poll its labeled rows. `poll.options` is the label
-  // list from the poll detail; `stats.options` is the same list with the counts,
-  // and is null while the results are withheld.
+  const pollType: PollType = poll.pollType ?? stats?.pollType ?? 'single_choice';
+  // The options come from the server: `poll.options` is the label list from the
+  // poll detail, and `stats.options` is the same list with the counts, which is
+  // null while the results are withheld.
   const pollOptions = poll.options ?? [];
   const resultOptions = stats?.options ?? null;
   const results: PollResults | null = stats
@@ -270,30 +265,15 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
   // allowed: the threshold hides counts, it never closes the poll.
   const resultsHidden = stats?.hidden === true;
   const canComment = getCurrentUser() !== null;
-  // The vote group is rendered from the poll's own preset rows for every open
-  // verdict poll, with or without counts. Voting is disabled only for a poll
-  // that is not open, a visitor who has already voted, or a failed vote-status
-  // lookup.
+  // Voting is disabled only for a poll that is not open, a visitor who has
+  // already voted, or a failed vote-status lookup.
   const votingDisabled = hasVoted || Boolean(voteStatusError) || poll.status !== 'open';
-  const voteGroup = !isChoice && poll.status === 'open'
-    ? renderVoteGroup({
-      pollId: poll.id,
-      options: resultOptions ?? pollOptions,
-      hidden: resultsHidden,
-      disabled: votingDisabled,
-      title: hasVoted ? t('alreadyVoted') : voteStatusError || t('vote'),
-      selectedId: votedOptionId
-    })
-    : '';
-  // The threshold notice sits next to the buttons rather than replacing them.
+  // The threshold notice sits next to the form rather than replacing it.
   const hiddenNotice = resultsHidden
     ? `<p class="mt-3 mb-0 text-center text-sm text-muted" data-results-hidden>${t('resultsHidden').replace('{n}', String(stats!.threshold))}</p>`
     : '';
-  // The stored options drive the choice inputs; a verdict poll's preset rows are
-  // not selectable as a list because they use the buttons above.
-  const choiceOptions = isChoice ? pollOptions : [];
-  const choiceInputs = choiceOptions.length > 0
-    ? renderChoiceInputs(pollType as Exclude<PollType, 'verdict'>, choiceOptions, hasVoted)
+  const choiceInputs = pollOptions.length > 0 && poll.status === 'open'
+    ? renderChoiceInputs(pollType, pollOptions, votingDisabled, votedOptionIds)
     : '';
   // One results renderer for every type; below the threshold the server sends
   // `options: null` and only the message is shown.
@@ -335,8 +315,6 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
 
           ${poll.description ? `<p class="mt-3 mb-0 whitespace-pre-wrap text-muted">${escapeHtml(poll.description)}</p>` : ''}
 
-          ${voteGroup}
-
           ${choiceInputs}
 
           ${resultsMarkup}
@@ -345,7 +323,7 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
 
           ${showsBallotTotal || viewsLine ? `
             <p class="m-0 mt-3 flex items-center justify-center gap-3 text-center text-xs text-muted">
-              ${showsBallotTotal ? `<span data-ballot-total>${ballotTotal} ${isChoice ? t('ballots') : t('votes')}</span>` : ''}
+              ${showsBallotTotal ? `<span data-ballot-total>${ballotTotal} ${t('ballots')}</span>` : ''}
               ${viewsLine}
             </p>
           ` : ''}
@@ -421,7 +399,7 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
     }
   });
 
-  // Every ballot is a set of option ids; a verdict ballot carries exactly one.
+  // Every ballot is a set of option ids; a single choice ballot carries one.
   // The duplicate and closed-poll handling is shared by every poll type.
   const sendBallot = async (payload: { optionIds: number[] }) => {
     let result;
@@ -451,7 +429,7 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
         // Preserve the original submission error if the follow-up status check also fails.
       }
       if (hasVoted) {
-        document.querySelectorAll<HTMLInputElement | HTMLButtonElement>('[data-option-id], [data-choice-option], [data-choice-submit]')
+        document.querySelectorAll<HTMLInputElement | HTMLButtonElement>('[data-choice-option], [data-choice-submit]')
           .forEach((voteButton) => { voteButton.disabled = true; });
         const choices = document.querySelector('.choice-stack');
         if (choices) choices.setAttribute('title', t('alreadyVoted'));
@@ -469,26 +447,24 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
     return result;
   };
 
-  // The server returns the same results shape for every type, so one refresh
-  // path updates the bars and the ballot total after any ballot.
+  // The server returns the same results shape for every poll, so one refresh
+  // path updates the bars and the ballot total after a ballot.
   const refreshResults = (result: VoteResponse) => {
     if (result.hidden || !result.options) return;
     const markup = renderResults(result);
     const existing = document.querySelector<HTMLElement>('[data-results]');
     if (existing) existing.outerHTML = markup;
     else {
-      const anchor = document.querySelector('[data-vote-group]') ?? document.querySelector('[data-choice-form]');
-      anchor?.insertAdjacentHTML('afterend', markup);
+      document.querySelector('[data-choice-form]')?.insertAdjacentHTML('afterend', markup);
     }
     const total = document.querySelector<HTMLElement>('[data-ballot-total]');
-    const label = isChoice ? t('ballots') : t('votes');
     if (total) {
-      total.textContent = `${result.ballots} ${label}`;
+      total.textContent = `${result.ballots} ${t('ballots')}`;
     } else {
       // The total was not rendered while the results were hidden, so it is
       // created now that the ballot pushed the poll over the threshold.
       const anchor = document.querySelector('[data-results]');
-      anchor?.insertAdjacentHTML('afterend', `<p class="m-0 mt-3 flex items-center justify-center gap-3 text-center text-xs text-muted"><span data-ballot-total>${result.ballots} ${label}</span></p>`);
+      anchor?.insertAdjacentHTML('afterend', `<p class="m-0 mt-3 flex items-center justify-center gap-3 text-center text-xs text-muted"><span data-ballot-total>${result.ballots} ${t('ballots')}</span></p>`);
     }
   };
 
@@ -500,42 +476,13 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
     if (result.hidden) {
       if (existing) return;
       const markup = `<p class="mt-3 mb-0 text-center text-sm text-muted" data-results-hidden>${t('resultsHidden').replace('{n}', String(result.threshold))}</p>`;
-      const anchor = document.querySelector('[data-vote-group]') ?? document.querySelector('[data-choice-form]');
-      anchor?.insertAdjacentHTML('afterend', markup);
+      document.querySelector('[data-choice-form]')?.insertAdjacentHTML('afterend', markup);
       return;
     }
     existing?.remove();
   };
 
-  // Verdict ballots (type 1): one button per preset row of the poll.
-  document.querySelectorAll<HTMLButtonElement>('[data-option-id]').forEach((button) => {
-    button.addEventListener('click', async () => {
-      if (hasVoted || voteStatusError || statsError) return;
-      const optionId = Number(button.getAttribute('data-option-id') ?? 0);
-      if (!Number.isSafeInteger(optionId) || optionId < 1) return;
-      const result = await sendBallot({ optionIds: [optionId] });
-      if (!result) return;
-
-      const chosen = (resultOptions ?? pollOptions).find((option) => option.id === optionId);
-      const message = `${t('voteRecord')}: ${chosen ? optionLabel(chosen) : ''}`;
-      if (result.ok) {
-        const voteGroup = document.querySelector<HTMLElement>(`[data-vote-group="${poll.id}"]`);
-        hasVoted = true;
-        markVotedLocally(poll.id, hash);
-        if (voteGroup) {
-          // The chosen button is marked as selected and the group is disabled.
-          // When the response still hides the counts (the ballot is below the
-          // threshold), the numbers stay hidden and the notice stays in place.
-          selectVoteOption(voteGroup, optionId);
-          updateVoteGroup(voteGroup, result.options);
-        }
-        updateThresholdNotice(result);
-      }
-      showToast(message, result.ok ? 'success' : 'error');
-    });
-  });
-
-  // Choice ballots (types 2 and 3).
+  // Choice ballots for both poll types.
   const choiceForm = document.querySelector<HTMLFormElement>('[data-choice-form]');
   if (choiceForm) {
     const submitButton = choiceForm.querySelector<HTMLButtonElement>('[data-choice-submit]');

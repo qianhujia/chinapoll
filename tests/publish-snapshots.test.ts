@@ -62,29 +62,30 @@ describe('mergeSnapshots', () => {
   });
 });
 describe('snapshot schema version', () => {
-  it('merges a version 1 chain with the new fields without dropping it', () => {
-    // A chain copied out before the poll types release has no ballots or option
-    // counts. A later run must keep those rows and add the new ones.
+  it('merges a version 2 chain with a newer run without dropping it', () => {
+    // A chain copied out before the verdict counts left the payload carries them
+    // next to the ballots and the option counts. A later run must keep those rows
+    // and add the new ones.
     const legacy = [
-      { tsHourEpoch: 100, approve: 1, oppose: 0, neutral: 0, prevHash: 'GENESIS', hash: 'v1', final: false }
+      { tsHourEpoch: 100, approve: 1, oppose: 0, neutral: 0, ballots: 1, optionCounts: null, prevHash: 'GENESIS', hash: 'v2', final: false }
     ];
     const added = [
       {
         tsHourEpoch: 101,
-        approve: 2,
+        approve: 0,
         oppose: 0,
         neutral: 0,
         ballots: 2,
-        optionCounts: null,
-        prevHash: 'v1',
-        hash: 'v2',
+        optionCounts: [{ position: 1, count: 1 }],
+        prevHash: 'v2',
+        hash: 'v3',
         final: false
       }
     ];
     const merged = mergeSnapshots(legacy, added);
     expect(merged).toHaveLength(2);
-    // The legacy row is untouched: no `ballots` field is invented for it.
-    expect(merged[0]).not.toHaveProperty('ballots');
-    expect(merged[1]).toMatchObject({ ballots: 2 });
+    // The legacy row keeps its own fields.
+    expect(merged[0]).toMatchObject({ approve: 1, ballots: 1, hash: 'v2' });
+    expect(merged[1]).toMatchObject({ ballots: 2, hash: 'v3' });
   });
 });

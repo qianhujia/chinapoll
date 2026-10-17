@@ -10,11 +10,11 @@ export enum PollStatus {
   Pending = 4
 }
 
-// Ballot shape of a poll. Every type keeps its options in `poll_options` and its
-// selections in `vote_selections`; only the option rows differ (preset rows for
-// a verdict poll, labeled rows for a choice poll).
+// Ballot shape of a poll. There are two: a single choice poll (one option per
+// ballot) and a multiple choice poll (one to seven options per ballot). A
+// "verdict" poll is not a type of its own - it is a single choice poll whose
+// options are the words Approve, Neutral, and Oppose.
 export enum PollType {
-  Verdict = 1,
   SingleChoice = 2,
   MultiChoice = 3
 }
@@ -40,7 +40,7 @@ export enum ReportResolution {
 
 export type PollModeLabel = 'deadline' | 'evergreen';
 export type PollStatusLabel = 'open' | 'closed' | 'archived';
-export type PollTypeLabel = 'verdict' | 'single_choice' | 'multi_choice';
+export type PollTypeLabel = 'single_choice' | 'multi_choice';
 export type PollReportReasonLabel =
   | 'spam'
   | 'inappropriate'
@@ -82,10 +82,10 @@ export function getPollStatusLabel(value: number): PollStatusLabel {
   }
 }
 
-// Ballot shapes a proposal can select.
+// Ballot shapes a proposal can select. A "verdict" poll is submitted as a single
+// choice poll, so it is not a code of its own.
 export function getPollTypeCode(value: unknown): PollType | null {
   switch (value) {
-    case 'verdict': return PollType.Verdict;
     case 'single_choice': return PollType.SingleChoice;
     case 'multi_choice': return PollType.MultiChoice;
     default: return null;
@@ -94,7 +94,6 @@ export function getPollTypeCode(value: unknown): PollType | null {
 
 export function getPollTypeLabel(value: number): PollTypeLabel {
   switch (value) {
-    case PollType.Verdict: return 'verdict';
     case PollType.SingleChoice: return 'single_choice';
     case PollType.MultiChoice: return 'multi_choice';
     default: throw new Error(`Unknown poll type code: ${value}`);

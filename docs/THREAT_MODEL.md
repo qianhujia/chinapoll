@@ -40,9 +40,8 @@ the schema or the network handling changes.
   password.
 - **Content tampering**: hourly signed snapshots form an append-only hash chain
   published for external verification. Each record's hash covers the poll id, the
-  hour, the approve/oppose/neutral counts, the number of ballots, the per-option
-  counts of every poll, the cumulative view total, and the previous record's
-  hash, so rewriting any of those values is detectable.
+  hour, the number of ballots, the per-option counts, the cumulative view total,
+  and the previous record's hash, so rewriting any of those values is detectable.
 
 ## Reports and views
 
@@ -71,38 +70,34 @@ rolled up into a single per-poll row, dropping daily resolution.
 
 ## Poll types, the options engine, and snapshots
 
-A poll is one of three ballot shapes: a verdict poll (approve, oppose, and
-optionally neutral), a single choice poll, or a multiple choice poll. The three
-stay distinct in the schema because the verdict scale is fixed, translated from
-the i18n files, and comparable across polls, but **one engine**
-(`worker/services/options.ts`) serves all three: every poll exposes a list of
-options stored in `poll_options`, every ballot is a set of selected option IDs in
-`vote_selections`, and one counting function, one results shape, and one snapshot
-shape are used throughout. Options are identified by `id` in every request and
-response.
+A poll is one of two ballot shapes: a **single choice** poll (one option per
+ballot) or a **multiple choice** poll (one to seven options per ballot). There is
+no separate verdict type: a "verdict" poll is a single choice poll whose options
+are the words Approve, Neutral, and Oppose, which the proposal form pre-fills and
+the submitter may edit like any other options.
 
-A verdict poll's rows are **presets**: `label` is NULL and `preset_key` is
-`approve`, `oppose`, or `neutral`, so the client renders the translated scale. A
-verdict poll always holds the `approve` and `oppose` rows and optionally the
-`neutral` one, which an admin may remove or restore while the poll is pending. A
-choice poll's rows carry the submitter's label. Since a verdict poll stores rows
-like any other poll, there is nothing special about a verdict ballot on the
-database side.
+**One engine** (`worker/services/options.ts`) serves both shapes: every poll
+exposes a list of options stored in `poll_options`, every ballot is a set of
+selected option IDs in `vote_selections`, and one counting function, one results
+shape, and one snapshot shape are used throughout. Options are identified by `id`
+in every request and response, and every option row is plain text: there is no
+preset, virtual, or translated column, so one poll's labels are as ordinary as
+another's.
 
 `votes` is therefore a **ballot table only**: `id`, `poll_id`,
-`voter_token_hash`, and `created_at`. It no longer carries an `option` column, so
-a ballot row holds no choice data at all, and the choice is recorded as one
-`vote_selections` row per selected option for every poll type.
+`voter_token_hash`, and `created_at`. It carries no `option` column, so a ballot
+row holds no choice data at all, and the choice is recorded as one
+`vote_selections` row per selected option for both poll types.
 
 A ballot stays **one row per (poll, token)** in `votes`, so the existing unique
-index still enforces one ballot per browser and a multi-choice vote cannot be
+index still enforces one ballot per browser and a multiple choice vote cannot be
 split across several rows.
 
 Two exposures are worth stating explicitly:
 
 - **Option combinations per anonymous ballot.** `vote_selections` links each
   chosen option to one ballot row, so a database reader can group the options
-  chosen together on a single ballot — for a multi-choice poll that is the whole
+  chosen together on a single ballot — for a multiple choice poll that is the whole
   combination of one ballot. That grouping is the ballot's own data: the ballot
   still has no account link, no address, no network value, and only an
   hour-coarsened timestamp. A leak therefore reveals *combinations per anonymous
@@ -117,24 +112,22 @@ Two exposures are worth stating explicitly:
 ## The snapshot hash, what it covers, and its schema version
 
 The canonical payload that `makeSnapshot` hashes (and that verification
-recomputes) covers the number of ballots and the per-option counts of every poll
-type, in addition to the verdict counts, the cumulative view total, and the
-previous record's hash. `optionCounts` is stored as JSON in
-`stats_snapshots.option_counts` and `ballots` in `stats_snapshots.ballots`; both
-are normalized (sorted by position, numeric) before hashing so the chain is
-stable. The three verdict columns are filled from the poll's preset rows by
-`preset_key`, so a verdict poll keeps their original meaning and reports 0 when it
-has no neutral row, while a choice poll reports three zeros. Rewriting a published
-ballot total or option count after the fact therefore breaks verification.
+recomputes) covers the number of ballots and the per-option counts of the poll, in
+addition to the cumulative view total and the previous record's hash.
+`optionCounts` is stored as JSON in `stats_snapshots.option_counts` and `ballots`
+in `stats_snapshots.ballots`; both are normalized (sorted by position, numeric)
+before hashing so the chain is stable. Rewriting a published ballot total or
+option count after the fact therefore breaks verification.
 
 The payload carries a **schema version**. Version 1 is the original shape (poll
 id, hour, the three verdict counts, the cumulative views, and the chain link);
-version 2 adds `ballots` and `optionCounts` and is what the Worker writes from now
-on. Verification accepts a record without the new fields as version 1 and
-reproduces the stored hash under either version, so a chain copied out before this
-release still verifies and is never falsely reported as tampered with. The version
-is included in the `/api/snapshots/:id` response and in the published JSON file,
-so an external verifier can tell which payload a given chain was hashed with.
+version 2 adds `ballots` and `optionCounts`; version 3 drops the three verdict
+counts and is what the Worker writes from now on. Verification accepts a record
+without the newer fields and reproduces the stored hash under any supported
+version, so a chain copied out before either change still verifies and is never
+falsely reported as tampered with. The version is included in the
+`/api/snapshots/:id` response and in the published JSON file, so an external
+verifier can tell which payload a given chain was hashed with.
 
 ## Workers AI data flow
 
@@ -196,10 +189,13 @@ When it is on:
   integer. Added `schemaVersion` to the canonical snapshot payload (version 2) and
   taught verification to accept version 1 chains, so chains published before this
   release still verify.
-- Every poll type now keeps its options in `poll_options` and records one
-  `vote_selections` row per chosen option. Removed the `votes.option` column, so a
-  ballot holds no choice data, and made a verdict poll's rows the preset keys
-  `approve`, `oppose`, and optional `neutral`, translated client-side.
+- Removed the verdict poll type: it is a single choice poll whose options are the
+  words Approve, Neutral, and Oppose, pre-filled by the proposal form and editable
+  by the submitter. `poll_options` now holds plain text labels only (no
+  `preset_key`), the legacy `option` label is gone from `/api/vote` and
+  `/api/vote/status`, and the `{ approve, oppose, neutral }` counts object is gone
+  from every response. The canonical snapshot payload moved to schema version 3
+  without the three verdict counts; verification still reproduces versions 1 and 2.
 
 ## Known trade-offs
 

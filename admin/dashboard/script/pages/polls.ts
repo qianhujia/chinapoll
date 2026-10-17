@@ -10,47 +10,24 @@ export const scriptPolls = `  function statusOptions(selected, includeAll, inclu
     }).join('');
   }
 
-  // Display text of an option: a verdict preset row shows its preset key, and a
-  // choice row shows the label the submitter wrote.
-  function optionText(option) {
-    if (option.presetKey) return option.presetKey.charAt(0).toUpperCase() + option.presetKey.slice(1);
-    return option.label || '';
-  }
-
   function optionSummary(item) {
     if (!item.options || item.options.length === 0) return '';
     var list = item.options.map(function (option) {
-      return esc(option.position) + '. ' + esc(optionText(option)) + ' (' + esc(option.count) + ')';
+      return esc(option.position) + '. ' + esc(option.label) + ' (' + esc(option.count) + ')';
     }).join(' · ');
     return '<div class="small muted">' + list + '</div>';
   }
 
   // Option rows may only be edited while a poll is still pending and has no
-  // ballots. A choice poll replaces its labels; a verdict poll only offers to
-  // remove or restore its neutral preset row.
+  // ballots. Saving replaces the set by position.
   function optionEditor(item) {
-    if (item.pollType === 'verdict') {
-      var presetRows = item.options.map(function (option) {
-        return '<div class="option-row" data-option-preset="' + esc(option.presetKey) + '">' +
-          '<span class="grow">' + esc(optionText(option)) + '</span>' +
-          '<span class="small muted">' + esc(option.count) + '</span>' +
-          '</div>';
-      }).join('');
-      var hasNeutral = item.options.some(function (option) { return option.presetKey === 'neutral'; });
-      var neutralButton = hasNeutral
-        ? '<button data-action="save-poll-options" data-id="' + esc(item.id) + '" data-neutral="0">Remove neutral</button>'
-        : '<button class="primary" data-action="save-poll-options" data-id="' + esc(item.id) + '" data-neutral="1">Restore neutral</button>';
-      return '<div class="option-editor" data-option-editor="' + esc(item.id) + '" data-poll-type="verdict">' + presetRows +
-        '<div class="toolbar">' + neutralButton +
-        '<span class="small muted">Approve and oppose are fixed. Only the neutral row can be added or removed, and only while the poll is pending with no ballots.</span></div></div>';
-    }
     var rows = item.options.map(function (option) {
       return '<div class="option-row" data-option-position="' + esc(option.position) + '">' +
-        '<input class="grow" data-option-label value="' + esc(optionText(option)) + '" maxlength="80">' +
+        '<input class="grow" data-option-label value="' + esc(option.label) + '" maxlength="80">' +
         '<span class="small muted">' + esc(option.count) + '</span>' +
         '</div>';
     }).join('');
-    return '<div class="option-editor" data-option-editor="' + esc(item.id) + '" data-poll-type="choice">' + rows +
+    return '<div class="option-editor" data-option-editor="' + esc(item.id) + '">' + rows +
       '<div class="toolbar"><button class="primary" data-action="save-poll-options" data-id="' + esc(item.id) + '">Save options</button>' +
       '<span class="small muted">Editable while the poll is pending with no ballots. The count column is read-only.</span></div></div>';
   }
@@ -84,14 +61,14 @@ export const scriptPolls = `  function statusOptions(selected, includeAll, inclu
           return '<tr><td>' + esc(item.id) + '</td>' +
             '<td>' + titleCell + '</td>' +
             '<td><span class="badge ' + esc(item.status) + '">' + esc(item.status) + '</span></td>' +
-            '<td class="small">' + esc(item.counts.approve) + ' / ' + esc(item.counts.neutral) + ' / ' + esc(item.counts.oppose) + '</td>' +
+            '<td class="small">' + esc(item.ballots) + '</td>' +
             '<td class="small">' + esc(item.views) + '</td>' +
             '<td style="min-width:150px">' + selector + '</td></tr>';
         }).join('')
       : '<tr><td colspan="6"><div class="empty">No polls match this filter.</div></td></tr>';
 
     view.innerHTML = '<section class="card"><h2>Polls</h2>' + toolbar +
-      '<table><thead><tr><th>ID</th><th>Title</th><th>Status</th><th>Approve / Neutral / Oppose</th><th>Views</th><th>Change status</th></tr></thead>' +
+      '<table><thead><tr><th>ID</th><th>Title</th><th>Status</th><th>Ballots</th><th>Views</th><th>Change status</th></tr></thead>' +
       '<tbody>' + rows + '</tbody></table>' +
       '<div class="pager">' +
       '<span>Page ' + esc(data.page) + ' of ' + esc(data.totalPages) + ' · ' + esc(data.total) + ' total</span>' +
@@ -112,14 +89,7 @@ export const scriptPolls = `  function statusOptions(selected, includeAll, inclu
   function savePollOptions(id, target) {
     var editor = document.querySelector('[data-option-editor="' + id + '"]');
     if (!editor) return;
-    // A verdict poll only changes its optional neutral preset row; a choice poll
-    // replaces its labels by position.
-    if (editor.getAttribute('data-poll-type') === 'verdict') {
-      var presetKeys = ['approve', 'oppose'];
-      if (target.getAttribute('data-neutral') === '1') presetKeys.push('neutral');
-      submitPollOptions(id, target, { presetKeys: presetKeys });
-      return;
-    }
+    // Every poll replaces its labels by position.
     var inputs = editor.querySelectorAll('[data-option-label]');
     var options = [];
     for (var index = 0; index < inputs.length; index += 1) {
@@ -129,7 +99,6 @@ export const scriptPolls = `  function statusOptions(selected, includeAll, inclu
     }
     submitPollOptions(id, target, { options: options });
   }
-
   // Sends one option-set change and refreshes the listing.
   function submitPollOptions(id, target, body) {
     target.disabled = true;

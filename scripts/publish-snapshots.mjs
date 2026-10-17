@@ -10,16 +10,17 @@
 //   * new snapshots are appended to the existing poll file, and a poll file is
 //     never deleted.
 //
-// Each stored snapshot carries the poll id, the hour, the approve/oppose/neutral
-// counts, the number of ballots, the per-option counts of a choice poll
-// (`optionCounts`, null for a verdict poll), the cumulative view total (`views`),
-// the chain link, and the `final` flag, exactly as returned by
-// /api/snapshots/:id.
+// Each stored snapshot carries the poll id, the hour, the number of ballots, the
+// per-option counts of the poll (`optionCounts`), the cumulative view total
+// (`views`), the chain link, and the `final` flag, exactly as returned by
+// /api/snapshots/:id. The three verdict counts the response also reports are
+// legacy fields: they were part of the payload up to schema version 2 and are 0
+// on every newer record.
 //
-// Schema version: the chain added `ballots` and `optionCounts` in schema version
-// 2. A file written by an older run has no `schemaVersion` field (version 1) and
-// still verifies against the original payload, so an old chain is never
-// rewritten or dropped.
+// Schema version: the chain moved to version 3 when the verdict counts left the
+// canonical payload. A file written by an older run is version 2 (or carries no
+// `schemaVersion` field at all, which is version 1) and still verifies against
+// its own payload, so an old chain is never rewritten or dropped.
 //
 // Environment:
 //   API_BASE         base URL of the public Worker (for example https://chinapoll.org)
@@ -33,10 +34,10 @@ const apiBase = process.env.API_BASE;
 const outputDir = process.env.DATA_REPO_PATH ?? '.';
 const PAGE_SIZE = 100;
 const CLOSED_DAYS = 35;
-// The chain schema version this script copies out. The server adds `ballots` and
-// `optionCounts` to every snapshot in version 2; a file written before that is
-// version 1 and stays readable.
-const SNAPSHOT_SCHEMA_VERSION = 2;
+// The chain schema version this script copies out. The server signs version 3
+// payloads; a file written before that is version 2 or version 1 and stays
+// readable.
+const SNAPSHOT_SCHEMA_VERSION = 3;
 
 async function getJson(path) {
   const response = await fetch(new URL(path, apiBase));

@@ -23,7 +23,7 @@ export async function enhanceTitle(payload: {
 export async function suggestOptions(payload: {
   title: string;
   description?: string;
-  pollType: Exclude<PollType, 'verdict'>;
+  pollType: PollType;
   count?: number;
   locale: AiLocale;
 }): Promise<{ options: string[] }> {

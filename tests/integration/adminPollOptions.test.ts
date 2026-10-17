@@ -3,8 +3,7 @@ import { env } from 'cloudflare:test';
 import type { AdminActor } from '../../admin/auth';
 import { handlePollsRequest } from '../../admin/api/polls';
 import { getPollOptions } from '../../worker/services/options';
-import type { PresetKey } from '../../worker/services/pollType';
-import { applySchema, insertBallot, seedOptions, seedPoll } from './helpers';
+import { applySchema, insertBallot, seedOptions, seedPoll, seedVerdictTemplatePoll } from './helpers';
 
 // The admin Worker is deployed separately and has no test harness of its own, so
 // its handlers are exercised directly against the shared D1 binding.
@@ -27,20 +26,15 @@ function optionsRequest(pollId: number, options: Array<{ position: number; label
   return optionUpdateRequest(pollId, { options });
 }
 
-// A verdict poll sends preset keys instead of labels.
-function presetRequest(pollId: number, presetKeys: PresetKey[]): Promise<Response> {
-  return optionUpdateRequest(pollId, { presetKeys });
-}
-
 function listRequest(query = '?pageSize=100'): Promise<Response> {
   const target = url(`/api/admin/polls${query}`);
   return handlePollsRequest(new Request(target), target, env, ACTOR);
 }
 
-// The stored preset keys of a verdict poll, in position order.
-async function storedPresetKeys(pollId: number): Promise<string[]> {
-  const options = await getPollOptions(env, { id: pollId, poll_type: 1 });
-  return options.map((option) => String(option.presetKey));
+// The stored labels of a poll, in position order.
+async function storedLabels(pollId: number): Promise<string[]> {
+  const options = await getPollOptions(env, { id: pollId, poll_type: 2 });
+  return options.map((option) => option.label);
 }
 
 beforeAll(async () => {
@@ -71,11 +65,11 @@ describe('admin poll options', () => {
     });
 
     const stored = await env.DB.prepare(
-      'SELECT position, label, preset_key FROM poll_options WHERE poll_id = ? ORDER BY position ASC'
-    ).bind(pollId).all<{ position: number; label: string; preset_key: string | null }>();
+      'SELECT position, label FROM poll_options WHERE poll_id = ? ORDER BY position ASC'
+    ).bind(pollId).all<{ position: number; label: string }>();
     expect(stored.results).toEqual([
-      { position: 1, label: 'New one', preset_key: null },
-      { position: 2, label: 'New two', preset_key: null }
+      { position: 1, label: 'New one' },
+      { position: 2, label: 'New two' }
     ]);
 
     const audit = await env.DB.prepare(
@@ -140,43 +134,22 @@ describe('admin poll options', () => {
     expect(frozen.status).toBe(409);
     expect(await frozen.json()).toMatchObject({ message: expect.stringContaining('already has ballots') });
 
-    // A verdict poll's preset rows cannot be replaced with custom options.
-    const verdictPoll = await seedPoll({ title: 'Verdict options poll', status: 4 });
-    expect((await optionsRequest(verdictPoll, [
-      { position: 1, label: 'A' }, { position: 2, label: 'B' }
-    ])).status).toBe(409);
+    // A verdict template poll is an ordinary single choice poll, so its labels can
+    // be rewritten and trimmed like any other poll's.
+    const { pollId: templatePoll } = await seedVerdictTemplatePoll({
+      title: 'Verdict template options poll',
+      status: 4
+    });
+    const edited = await optionsRequest(templatePoll, [
+      { position: 1, label: 'Yes' },
+      { position: 2, label: 'No' }
+    ]);
+    expect(edited.status).toBe(200);
+    expect(await storedLabels(templatePoll)).toEqual(['Yes', 'No']);
 
     expect((await optionsRequest(999_999, [
       { position: 1, label: 'A' }, { position: 2, label: 'B' }
     ])).status).toBe(404);
-  });
-
-  it('only removes or restores the neutral preset row of a verdict poll', async () => {
-    const pollId = await seedPoll({ title: 'Neutral options poll', status: 4 });
-    expect(await storedPresetKeys(pollId)).toEqual(['approve', 'oppose', 'neutral']);
-
-    // Removing neutral keeps approve and oppose.
-    const removed = await presetRequest(pollId, ['approve', 'oppose']);
-    expect(removed.status).toBe(200);
-    expect(await removed.json()).toMatchObject({ ok: true, pollId, presetKeys: ['approve', 'oppose'] });
-    expect(await storedPresetKeys(pollId)).toEqual(['approve', 'oppose']);
-
-    // Restoring it puts the same optional row back.
-    const restored = await presetRequest(pollId, ['approve', 'oppose', 'neutral']);
-    expect(restored.status).toBe(200);
-    expect(await storedPresetKeys(pollId)).toEqual(['approve', 'oppose', 'neutral']);
-
-    // The required rows cannot be dropped and unknown keys are refused.
-    expect((await presetRequest(pollId, ['approve', 'neutral'])).status).toBe(400);
-    expect((await presetRequest(pollId, ['oppose'])).status).toBe(400);
-    expect((await presetRequest(pollId, ['approve', 'oppose', 'maybe'] as PresetKey[])).status).toBe(400);
-    expect(await storedPresetKeys(pollId)).toEqual(['approve', 'oppose', 'neutral']);
-
-    const audit = await env.DB.prepare(
-      "SELECT details FROM admin_audit_log WHERE action = 'poll.options' AND target_id = ? ORDER BY id DESC LIMIT 1"
-    ).bind(String(pollId)).first<{ details: string }>();
-    const details = JSON.parse(audit?.details ?? '{}');
-    expect(details.presetKeys).toEqual(['approve', 'oppose', 'neutral']);
   });
 });
 
@@ -196,29 +169,27 @@ describe('admin poll listing', () => {
     expect(row.pollType).toBe('single_choice');
     expect(row.durationSeconds).toBe(86_400);
     expect(row.ballots).toBe(1);
+    // There is no separate counts object; each option carries its own count.
+    expect(row.counts).toBeUndefined();
     expect(row.options).toEqual([
-      { id: ids.get(1), label: 'First', presetKey: null, position: 1, count: 1 },
-      { id: ids.get(2), label: 'Second', presetKey: null, position: 2, count: 0 }
+      { id: ids.get(1), label: 'First', position: 1, count: 1 },
+      { id: ids.get(2), label: 'Second', position: 2, count: 0 }
     ]);
   });
 
-  it('shows the preset rows of a verdict poll with their counts', async () => {
-    const pollId = await seedPoll({ title: 'Listed verdict poll' });
-    const presets = await getPollOptions(env, { id: pollId, poll_type: 1 });
-    const approve = presets.find((option) => option.presetKey === 'approve')!;
-    await insertBallot(pollId, 'e'.repeat(64), [approve.id]);
+  it('shows the option rows of a verdict template poll with their counts', async () => {
+    const { pollId, options } = await seedVerdictTemplatePoll({ title: 'Listed verdict poll' });
+    await insertBallot(pollId, 'e'.repeat(64), [options.get(1)!]);
 
     const response = await listRequest();
     const body = await response.json() as any;
     const row = body.polls.find((entry: any) => entry.id === pollId);
-    expect(row.pollType).toBe('verdict');
+    expect(row.pollType).toBe('single_choice');
     expect(row.ballots).toBe(1);
-    // The legacy counts are filled from the preset rows by preset key.
-    expect(row.counts).toEqual({ approve: 1, neutral: 0, oppose: 0 });
-    expect(row.options.map((option: any) => [option.presetKey, option.position, option.count])).toEqual([
-      ['approve', 1, 1],
-      ['oppose', 2, 0],
-      ['neutral', 3, 0]
+    expect(row.options.map((option: any) => [option.label, option.position, option.count])).toEqual([
+      ['Approve', 1, 1],
+      ['Neutral', 2, 0],
+      ['Oppose', 3, 0]
     ]);
   });
 });

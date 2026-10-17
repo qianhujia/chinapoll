@@ -5,9 +5,10 @@ import {
   applySchema,
   choiceVoteRequest,
   insertBallot,
+  legacyOptionVoteRequest,
   seedOptions,
   seedPoll,
-  voteRequest,
+  seedVerdictTemplatePoll,
   voteStatusRequest
 } from './helpers';
 
@@ -46,8 +47,8 @@ describe('single choice polls', () => {
     expect(hidden.options).toBeNull();
     expect(hidden.ballots).toBe(1);
     expect(hidden.hidden).toBe(true);
-    // The legacy verdict counts are not part of a choice response.
-    expect(hidden.counts).toBeNull();
+    // There is no separate counts object: the count lives on each option.
+    expect(hidden.counts).toBeUndefined();
 
     // Nine more ballots reveal the counts and keep one row per option.
     for (let index = 0; index < 9; index += 1) {
@@ -59,13 +60,13 @@ describe('single choice polls', () => {
     expect(stats.hidden).toBe(false);
     expect(stats.ballots).toBe(10);
     // Every ballot chose the same option, so that row carries all ten counts.
-    expect(stats.options.map((option: any) => [option.position, option.count, option.presetKey])).toEqual([
-      [1, 0, null], [2, 10, null], [3, 0, null]
+    expect(stats.options.map((option: any) => [option.position, option.count])).toEqual([
+      [1, 0], [2, 10], [3, 0]
     ]);
     expect(stats.options[1].label).toBe('Metro');
   });
 
-  it('rejects a ballot with no option, two options, a duplicate, and a verdict', async () => {
+  it('rejects a ballot with no option, two options, a duplicate, and a verdict label', async () => {
     const pollId = await seedPoll({ title: 'Single choice strictness', pollType: 2 });
     const ids = await seedOptions(pollId, [
       { position: 1, label: 'Yes' },
@@ -75,8 +76,8 @@ describe('single choice polls', () => {
     expect((await choiceVoteRequest(pollId, TOKENS(2), [])).status).toBe(400);
     expect((await choiceVoteRequest(pollId, TOKENS(2), [ids.get(1)!, ids.get(2)!])).status).toBe(400);
     expect((await choiceVoteRequest(pollId, TOKENS(2), [ids.get(1)!, ids.get(1)!])).status).toBe(400);
-    // A verdict is not accepted on a choice poll.
-    expect((await voteRequest(pollId, TOKENS(2), 'approve')).status).toBe(400);
+    // The removed legacy `option` label is not accepted either.
+    expect((await legacyOptionVoteRequest(pollId, TOKENS(2), 'approve')).status).toBe(400);
   });
 
   it('rejects an option that belongs to another poll', async () => {
@@ -130,8 +131,8 @@ describe('choice poll responses', () => {
     const detail = await (await SELF.fetch(`${ORIGIN}/api/polls/${pollId}`)).json() as any;
     expect(detail.poll.pollType).toBe('single_choice');
     expect(detail.poll.options).toEqual([
-      { id: ids.get(1), label: 'Keep', presetKey: null, position: 1 },
-      { id: ids.get(2), label: 'Change', presetKey: null, position: 2 }
+      { id: ids.get(1), label: 'Keep', position: 1 },
+      { id: ids.get(2), label: 'Change', position: 2 }
     ]);
 
     const listing = await listingFor(pollId);
@@ -139,11 +140,12 @@ describe('choice poll responses', () => {
     expect(listing.poll.options).toHaveLength(2);
     expect(listing.stats.pollType).toBe('single_choice');
     expect(listing.stats.ballots).toBe(1);
-    expect(listing.stats.counts).toBeNull();
+    expect(listing.stats.counts).toBeUndefined();
+    // The options are hidden below the display threshold, so no count is shown.
+    expect(listing.stats.options).toBeNull();
 
     const status = await (await voteStatusRequest(pollId, TOKENS(6))).json() as any;
     expect(status.voted).toBe(true);
-    expect(status.option).toBeNull();
     expect(status.optionIds).toEqual([ids.get(1)]);
 
     const noVote = await (await voteStatusRequest(pollId, TOKENS(7))).json() as any;
@@ -151,38 +153,30 @@ describe('choice poll responses', () => {
     expect(noVote.optionIds).toEqual([]);
   });
 
-  it('reports the preset rows and an optionIds ballot for a verdict poll', async () => {
-    const pollId = await seedPoll({ title: 'Verdict response shape' });
-    await voteRequest(pollId, TOKENS(8), 'oppose');
-    // A verdict can also be cast with the option id of its preset row.
-    const detail = await (await SELF.fetch(`${ORIGIN}/api/polls/${pollId}`)).json() as any;
-    const opposeId = detail.poll.options.find((option: any) => option.presetKey === 'oppose').id;
-    await choiceVoteRequest(pollId, TOKENS(9), [opposeId]);
+  it('treats a verdict template poll as an ordinary single choice poll', async () => {
+    // The Verdict card submits a single choice poll whose options are the three
+    // verdict words, so nothing about the response is special.
+    const { pollId, options } = await seedVerdictTemplatePoll({ title: 'Verdict template response' });
+    await choiceVoteRequest(pollId, TOKENS(8), [options.get(3)!]);
 
-    expect(detail.poll.pollType).toBe('verdict');
-    // The preset rows carry a preset key and no label.
+    const detail = await (await SELF.fetch(`${ORIGIN}/api/polls/${pollId}`)).json() as any;
+    expect(detail.poll.pollType).toBe('single_choice');
     expect(detail.poll.options).toEqual([
-      { id: expect.any(Number), label: null, presetKey: 'approve', position: 1 },
-      { id: expect.any(Number), label: null, presetKey: 'oppose', position: 2 },
-      { id: expect.any(Number), label: null, presetKey: 'neutral', position: 3 }
+      { id: options.get(1), label: 'Approve', position: 1 },
+      { id: options.get(2), label: 'Neutral', position: 2 },
+      { id: options.get(3), label: 'Oppose', position: 3 }
     ]);
 
     const stats = await statsFor(pollId);
-    expect(stats.pollType).toBe('verdict');
-    // The same results shape as a choice poll, plus the legacy counts. Two
-    // ballots are below the default threshold of 10, so every option count is
+    expect(stats.pollType).toBe('single_choice');
+    // One ballot is below the default threshold of 10, so every option count is
     // withheld while the ballot total is still reported.
-    expect(stats.ballots).toBe(2);
+    expect(stats.ballots).toBe(1);
     expect(stats.hidden).toBe(true);
     expect(stats.options).toBeNull();
-    expect(stats.counts).toBeNull();
 
-    // Both spellings of the verdict resolve to the same stored selection.
-    const byLabel = await (await voteStatusRequest(pollId, TOKENS(8))).json() as any;
-    expect(byLabel.option).toBe('oppose');
-    expect(byLabel.optionIds).toEqual([opposeId]);
-    const byId = await (await voteStatusRequest(pollId, TOKENS(9))).json() as any;
-    expect(byId.option).toBe('oppose');
-    expect(byId.optionIds).toEqual([opposeId]);
+    const status = await (await voteStatusRequest(pollId, TOKENS(8))).json() as any;
+    expect(status.voted).toBe(true);
+    expect(status.optionIds).toEqual([options.get(3)!]);
   });
 });

@@ -22,7 +22,7 @@ import {
   POLL_DURATIONS,
   type PollDuration
 } from '../enums';
-import { presetOptionRows, validatePollOptions, validatePresetKeys, type ParsedOption } from '../services/pollType';
+import { validatePollOptions, type ParsedOption } from '../services/pollType';
 import { checkRateLimit } from '../services/rateLimit';
 import { enforceSameOrigin } from '../services/csrf';
 import { ownerHash } from '../services/owner';
@@ -114,9 +114,9 @@ export async function handleProposalRequest(request: Request, env: HandlerEnv): 
       autoApprove ? Math.floor(Date.now() / 1000) : null
     ),
     ...options.map((option) => env.DB.prepare(
-      `INSERT INTO poll_options (poll_id, position, label, preset_key)
-       VALUES (${newPollId}, ?, ?, ?)`
-    ).bind(option.position, option.label, option.presetKey))
+      `INSERT INTO poll_options (poll_id, position, label)
+       VALUES (${newPollId}, ?, ?)`
+    ).bind(option.position, option.label))
   ];
 
   const results = await env.DB.batch(statements);
@@ -152,9 +152,9 @@ export type ProposalValidation =
 
 // Validates a proposal payload. The description is optional: an empty or omitted
 // description is accepted and stored as NULL, while a provided description must
-// be substantive (at least MIN_DESCRIPTION_LENGTH characters). The duration is
-// required and must be one of the seven offered labels; a choice poll must carry
-// 2 to 7 options, each 1 to 80 characters after trimming and all distinct.
+// be substantive (at least MIN_DESCRIPTION_LENGTH characters). The duration and
+// the poll type are required, and the poll must carry 2 to 7 options, each 1 to
+// 80 characters after trimming and all distinct.
 export function validateProposal(body: Record<string, unknown>): ProposalValidation {
   const title = typeof body.title === 'string' ? body.title.trim() : '';
   if (!title || title.length > MAX_TITLE_LENGTH) {
@@ -174,11 +174,9 @@ export function validateProposal(body: Record<string, unknown>): ProposalValidat
   }
   const description = trimmedDescription.length > 0 ? trimmedDescription : null;
 
-  // `pollType` is optional and defaults to verdict so a client that predates the
-  // poll types release keeps working.
-  const pollType = body.pollType === undefined
-    ? PollType.Verdict
-    : getPollTypeCode(body.pollType);
+  // `pollType` is required and is one of the two remaining types. A "verdict"
+  // poll is submitted as a single choice poll whose options are its three words.
+  const pollType = getPollTypeCode(body.pollType);
   if (pollType === null) {
     return { ok: false, message: 'a poll needs a valid type' };
   }
@@ -187,26 +185,12 @@ export function validateProposal(body: Record<string, unknown>): ProposalValidat
     return { ok: false, message: `duration must be one of ${POLL_DURATIONS.join(', ')}` };
   }
 
-  // A verdict poll carries preset rows and no custom options; a choice poll
-  // requires 2 to 7 custom options, each 1 to 80 characters after trimming and
-  // all distinct. A plain string array is accepted as well as
+  // A poll needs 2 to 7 custom options, each 1 to 80 characters after trimming
+  // and all distinct. A plain string array is accepted as well as
   // `{ position, label }` entries, so the client can submit the rows in order.
-  let options: ParsedOption[] = [];
-  if (pollType === PollType.Verdict) {
-    if (Array.isArray(body.options) && body.options.length > 0) {
-      return { ok: false, message: 'a verdict poll does not accept options' };
-    }
-    const presetValidation = validatePresetKeys(body.presetKeys);
-    if (!presetValidation.ok) return { ok: false, message: presetValidation.message };
-    options = presetOptionRows(presetValidation.presetKeys);
-  } else {
-    if (body.presetKeys !== undefined) {
-      return { ok: false, message: 'a choice poll does not accept preset keys' };
-    }
-    const optionValidation = validatePollOptions(body.options);
-    if (!optionValidation.ok) return { ok: false, message: optionValidation.message };
-    options = optionValidation.options;
-  }
+  const optionValidation = validatePollOptions(body.options);
+  if (!optionValidation.ok) return { ok: false, message: optionValidation.message };
+  const options = optionValidation.options;
 
   return {
     ok: true,

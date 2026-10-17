@@ -121,9 +121,9 @@ login endpoint) or an `Authorization: Bearer <session-token>` header.
 | `DELETE` | `/api/admin/session` | Logout |
 | `POST` | `/api/admin/setup` | Create the first admin user when none exist |
 | `GET` | `/api/admin/overview` | Dashboard counts and recent submissions |
-| `GET` | `/api/admin/polls` | List polls including pending submissions (`status`, `page`, `pageSize`, `q`); each row carries `pollType`, `durationSeconds`, `ballots`, and the option list with counts (the preset rows of a verdict poll, identified by `presetKey`) |
+| `GET` | `/api/admin/polls` | List polls including pending submissions (`status`, `page`, `pageSize`, `q`); each row carries `pollType`, `durationSeconds`, `ballots`, and the option list with a count per option |
 | `POST` | `/api/admin/polls/:id/status` | Set poll status (`{ "status": "open" }`); opening a deadline poll stamps `end_at` from `duration_seconds` |
-| `PUT` | `/api/admin/polls/:id/options` | Replace the option set of a **pending choice** poll (`{ "options": [{ "position": 1, "label": "…" }] }`), or remove/restore a verdict poll's `neutral` row (`{ "presetKeys": ["approve", "oppose"] }`); rejected when the poll is not pending, already has ballots, or when a verdict poll's preset rows are named as custom `options` (`409`); writes a `poll.options` audit entry |
+| `PUT` | `/api/admin/polls/:id/options` | Replace the option set of a **pending** poll (`{ "options": [{ "position": 1, "label": "…" }] }`); rejected when the poll is not pending or already has ballots (`409`); writes a `poll.options` audit entry |
 | `GET` | `/api/admin/reports` | List polls with reports, priority first (`status=open\|resolved\|all`, `page`, `pageSize`) |
 | `POST` | `/api/admin/reports/:pollId/resolve` | Resolve every open report for a poll (`{ "resolution": "dismissed" \| "action_taken" }`) |
 | `GET` | `/api/admin/comments` | List comments (`pollId`, `page`, `pageSize`, `q`) |
@@ -174,17 +174,14 @@ are never written. Client IP addresses are never stored.
 ## Polls
 
 The Polls tab lists every poll, pending submissions first when the status filter
-is set to `pending`. Each row shows the poll type (verdict, single choice, or
-multiple choice) next to the mode, and a one-line option summary with the count
-per option. A **Show options** toggle opens an editor. For a choice poll the
-editor replaces the position/label pairs; for a verdict poll it shows the preset
-rows read-only and offers a single **Remove neutral** / **Restore neutral**
-button, because `approve` and `oppose` are part of the question itself. Saving
-calls `PUT /api/admin/polls/:id/options` and writes a `poll.options` audit entry.
-Editing is only allowed while the poll is still **pending and has no ballots**:
-once a poll is open (or has votes) its options are part of the published question
-and of the counts that the signed snapshot chain covers. Setting a choice poll to
-`open` is refused with `422` when it has no options.
+is set to `pending`. Each row shows the poll type (single choice or multiple
+choice) next to the mode, and a one-line option summary with the count per option.
+A **Show options** toggle opens an editor that replaces the position/label pairs;
+saving calls `PUT /api/admin/polls/:id/options` and writes a `poll.options` audit
+entry. Editing is only allowed while the poll is still **pending and has no
+ballots**: once a poll is open (or has votes) its options are part of the
+published question and of the counts that the signed snapshot chain covers.
+Setting a poll to `open` is refused with `422` when it has no options.
 
 Opening a deadline poll stamps `end_at` as `duration_seconds` after the moment it
 opens (unless an end date already exists), so a poll that waited for review still

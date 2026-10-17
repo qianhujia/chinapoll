@@ -32,17 +32,17 @@ full duration.
 | id | internal option id, the option identity used by every request and response | Public | until the poll is deleted |
 | poll_id | poll reference | Public | as above |
 | position | display position, 1 to 7 | Public | as above |
-| label | option text of a choice row, 1 to 80 characters, NULL on a preset row | Public | as above |
-| preset_key | `approve`, `oppose`, or `neutral` on a verdict row, NULL on a choice row | Public | as above |
+| label | option text, 1 to 80 characters | Public | as above |
 
-Note: every poll type has rows here. A verdict poll always holds the preset rows
-`approve` and `oppose` and optionally `neutral` (in that row order); their
-`label` is NULL and their text comes from the i18n files on the client, so a
-verdict poll has **two or three** option rows that are translated client-side. A
-choice poll holds 2 to 7 rows whose `label` is the text the submitter wrote.
-`position` is display order only. Admins may edit a choice poll's labels, and may
-remove or restore a verdict poll's `neutral` row, only while the poll is pending
-and has no ballots, and every change writes an audit entry.
+Note: every poll has rows here, and every row is plain text the submitter wrote;
+there is no preset or virtual column. A single choice poll's ballot picks one row,
+a multiple choice poll's ballot picks one to seven. `position` is display order
+only. Admins may edit a pending poll's labels while it has no ballots, and every
+change writes an audit entry.
+
+A "verdict" poll (Approve, Neutral, Oppose) is not a type of its own: the
+proposal form's Verdict card pre-fills those three labels into an ordinary single
+choice poll, and the submitter may rename them, drop to two, or add up to seven.
 
 ## votes
 
@@ -54,8 +54,8 @@ and has no ballots, and every change writes an audit entry.
 | created_at | hour-coarsened timestamp | none | as above |
 
 Note: `votes` is a ballot table only. It holds **no choice data at all** - there
-is no `option` column any more - so the only thing a ballot row carries is the
-one-way token hash and the poll it belongs to. The unique index on
+is no `option` column - so the only thing a ballot row carries is the one-way
+token hash and the poll it belongs to. The unique index on
 (poll_id, voter_token_hash) still enforces one ballot per browser.
 
 ## vote_selections
@@ -66,17 +66,17 @@ one-way token hash and the poll it belongs to. The unique index on
 | vote_id | reference to the one anonymous ballot row | none | as above |
 | option_id | reference to a `poll_options` row | Public (aggregated counts only) | as above |
 
-Note: `vote_selections` records one row per chosen option for **every** poll type,
-so a verdict ballot is stored the same way as a choice ballot and the options are
-always referenced by ID. It links the chosen options to one anonymous ballot
-token hash: a database leak therefore reveals which options were chosen together
-on a single ballot, but the ballot itself carries no identity. There is no
-account link, no address, no network value, and only an hour-coarsened
-timestamp. The primary key is (vote_id, option_id) and the index on
-(poll_id, option_id) serves the per-option counts. Every reference cascades on
-delete, so purging a poll's ballots removes their selections too. Public
-responses show per-option counts only and never the combination, so the grouping
-is never published.
+Note: `vote_selections` records one row per chosen option for **both** poll types,
+so every ballot is stored the same way and the options are always referenced by
+ID. It links the chosen options to one anonymous ballot token hash: a database
+leak therefore reveals which options were chosen together on a single ballot - for
+a multiple choice poll that is the whole combination of one ballot - but the
+ballot itself carries no identity. There is no account link, no address, no
+network value, and only an hour-coarsened timestamp. The primary key is
+(vote_id, option_id) and the index on (poll_id, option_id) serves the per-option
+counts. Every reference cascades on delete, so purging a poll's ballots removes
+their selections too. Public responses show per-option counts only and never the
+combination, so the grouping is never published.
 
 ## comments
 
@@ -163,9 +163,9 @@ by design; the hash chain makes rewriting detectable.
 | Column | Contents | Readers | Retention |
 | --- | --- | --- | --- |
 | poll_id, ts_hour | poll reference and hour bucket | Public | forever |
-| approve, oppose, neutral | verdict counts at that hour, filled from the poll's preset rows (0 for a choice poll, and 0 when a verdict poll has no neutral row) | Public | forever |
-| ballots | number of ballots cast at that hour, for every poll type | Public | forever |
-| option_counts | JSON array of `{ position, count }` for every poll type | Public | forever |
+| approve, oppose, neutral | verdict counts of a record signed before schema version 3 (0 on every newer record, which does not sign them) | Public | forever |
+| ballots | number of ballots cast at that hour | Public | forever |
+| option_counts | JSON array of `{ position, count }` for the poll | Public | forever |
 | views | cumulative view total at that hour | Public | forever |
 | prev_hash, hash | chain link and record hash | Public | forever |
 | final | 1 on the terminal snapshot written when the poll closed, 0 otherwise | Public | forever |
@@ -173,7 +173,9 @@ by design; the hash chain makes rewriting detectable.
 Note: `ballots` and `option_counts` are part of the canonical JSON that the
 record hash covers, so a rewritten ballot total or option count breaks the
 chain. Both are aggregate values for one poll at one hour; neither can be traced
-back to a ballot.
+back to a ballot. The three verdict counts were part of the payload up to schema
+version 3; they are kept so those older records stay verifiable and are 0 on
+every record written since.
 
 
 ## admin_users, admin_sessions, admin_audit_log

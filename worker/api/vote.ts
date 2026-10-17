@@ -6,10 +6,11 @@
 // the RateLimiter Durable Object, so no IP-derived value is written to D1.
 //
 // A ballot is one row in `votes`, which holds no choice data at all, plus one
-// `vote_selections` row per chosen option for every poll type. The unique index
-// on (poll_id, voter_token_hash) still enforces one ballot per browser, and the
+// `vote_selections` row per chosen option. The unique index on
+// (poll_id, voter_token_hash) still enforces one ballot per browser, and the
 // options are validated, counted, and rendered through the shared engine in
-// worker/services/options.ts.
+// worker/services/options.ts. A ballot always reports its selections as option
+// IDs; there is no separate verdict field.
 
 import type { HandlerEnv } from '../index';
 import { checkRateLimit } from '../services/rateLimit';
@@ -18,8 +19,6 @@ import { verifyTurnstile } from '../services/turnstile';
 import {
   countPollBallots,
   getPollOptions,
-  isChoicePollType,
-  legacyVerdictCounts,
   toPublicResults,
   validateSelections,
   type PublicResults
@@ -51,27 +50,21 @@ export async function handleVoteStatusRequest(request: Request, env: HandlerEnv)
     'SELECT id FROM votes WHERE poll_id = ? AND voter_token_hash = ? LIMIT 1'
   ).bind(pollId, tokenHash).first();
 
-  // Every type reports the stored selections as option IDs. A preset selection
-  // is also reported through the legacy `option` label, resolved from the
-  // poll's preset row, so a verdict poll keeps the old field.
+  // The stored choices are reported as option IDs, in display order.
   let optionIds: number[] = [];
-  let option: string | null = null;
   if (vote) {
     const selections = await env.DB.prepare(
-      `SELECT vs.option_id, o.preset_key
+      `SELECT vs.option_id
        FROM vote_selections vs
        JOIN poll_options o ON o.id = vs.option_id
        WHERE vs.vote_id = ? ORDER BY o.position ASC`
-    ).bind(vote.id).all<{ option_id: number; preset_key: string | null }>();
-    const rows = selections.results ?? [];
-    optionIds = rows.map((row) => Number(row.option_id));
-    option = rows.find((row) => row.preset_key !== null)?.preset_key ?? null;
+    ).bind(vote.id).all<{ option_id: number }>();
+    optionIds = (selections.results ?? []).map((row) => Number(row.option_id));
   }
 
   return Response.json({
     pollId,
     voted: Boolean(vote),
-    option,
     optionIds
   }, {
     headers: { 'cache-control': 'no-store' }
@@ -115,7 +108,7 @@ export async function handleVoteRequest(request: Request, env: HandlerEnv): Prom
     return Response.json({ ok: false, message: 'poll not found' }, { status: 404 });
   }
 
-  const pollType = Number(poll.poll_type ?? PollType.Verdict);
+  const pollType = Number(poll.poll_type ?? PollType.SingleChoice);
   const options = await getPollOptions(env, poll);
   const selection = validateSelections(poll, options, body);
   if (!selection.ok) {
@@ -187,8 +180,6 @@ export async function handleVoteRequest(request: Request, env: HandlerEnv): Prom
     ok: true,
     message: 'vote accepted',
     ...results,
-    // Kept so existing clients keep reading the verdict counts the same way.
-    counts: isChoicePollType(pollType) || results.hidden ? null : legacyVerdictCounts(options, tally),
     voted: true
   });
 }

@@ -1,14 +1,13 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { env, SELF } from 'cloudflare:test';
-import { getPollOptions } from '../../worker/services/options';
 import {
   ORIGIN,
   applySchema,
   choiceVoteRequest,
   insertBallot,
+  legacyOptionVoteRequest,
   seedOptions,
   seedPoll,
-  voteRequest as vote,
   voteStatusRequest
 } from './helpers';
 
@@ -19,67 +18,107 @@ beforeAll(async () => {
   await env.DB.prepare("INSERT INTO settings (key, value) VALUES ('vote_rate_limit', '1000/h')").run();
 });
 
-function countsFor(listing: any, pollId: number) {
+function statsFor(listing: any, pollId: number) {
   return listing.polls.find((entry: any) => entry.poll.id === pollId)?.stats;
 }
 
 describe('vote endpoint', () => {
   it('refuses a vote on a closed poll', async () => {
     const id = await seedPoll({ title: 'Closed poll', status: 2, closedAt: 1 });
+    const options = await seedOptions(id, [
+      { position: 1, label: 'Yes' },
+      { position: 2, label: 'No' }
+    ]);
 
-    const response = await vote(id, 'a'.repeat(64));
+    const response = await choiceVoteRequest(id, 'a'.repeat(64), [options.get(1)!]);
     expect(response.status).toBe(409);
     expect(await response.json()).toMatchObject({ ok: false, message: 'poll is not open' });
   });
 
   it('rejects a duplicate vote but accepts a second device token', async () => {
     const id = await seedPoll({ title: 'Duplicate poll' });
+    const options = await seedOptions(id, [
+      { position: 1, label: 'Yes' },
+      { position: 2, label: 'No' }
+    ]);
 
-    expect((await vote(id, 'a'.repeat(64))).status).toBe(200);
-    const duplicate = await vote(id, 'a'.repeat(64));
+    expect((await choiceVoteRequest(id, 'a'.repeat(64), [options.get(1)!])).status).toBe(200);
+    const duplicate = await choiceVoteRequest(id, 'a'.repeat(64), [options.get(1)!]);
     expect(duplicate.status).toBe(409);
     expect(await duplicate.json()).toMatchObject({ ok: false, message: 'duplicate vote' });
 
-    expect((await vote(id, 'b'.repeat(64), 'oppose')).status).toBe(200);
-    // Each ballot is one row and carries exactly one selection on its preset row.
+    expect((await choiceVoteRequest(id, 'b'.repeat(64), [options.get(2)!])).status).toBe(200);
+    // Each ballot is one row and carries exactly one selection.
     const ballots = await env.DB.prepare('SELECT COUNT(*) AS total FROM votes WHERE poll_id = ?')
       .bind(id).first<{ total: number }>();
     expect(ballots?.total).toBe(2);
     const selections = await env.DB.prepare(
-      `SELECT o.preset_key, COUNT(*) AS count
+      `SELECT o.label, COUNT(*) AS count
        FROM vote_selections vs JOIN poll_options o ON o.id = vs.option_id
-       WHERE vs.poll_id = ? GROUP BY o.preset_key ORDER BY o.preset_key ASC`
+       WHERE vs.poll_id = ? GROUP BY o.label ORDER BY o.label ASC`
     ).bind(id).all();
     expect(selections.results).toEqual([
-      { preset_key: 'approve', count: 1 },
-      { preset_key: 'oppose', count: 1 }
+      { label: 'No', count: 1 },
+      { label: 'Yes', count: 1 }
     ]);
+  });
+
+  // The ballot body is `{ optionIds }` only: the verdict-era `option` label was
+  // removed together with the verdict poll type.
+  it('refuses the removed legacy option label', async () => {
+    const id = await seedPoll({ title: 'Legacy option poll' });
+    await seedOptions(id, [
+      { position: 1, label: 'Approve' },
+      { position: 2, label: 'Neutral' },
+      { position: 3, label: 'Oppose' }
+    ]);
+
+    const response = await legacyOptionVoteRequest(id, 'c'.repeat(64), 'approve');
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ ok: false, message: 'bad request' });
+
+    // Nothing was stored.
+    const ballots = await env.DB.prepare('SELECT COUNT(*) AS total FROM votes WHERE poll_id = ?')
+      .bind(id).first<{ total: number }>();
+    expect(ballots?.total).toBe(0);
   });
 
   it('hides counts below the display threshold and reveals them at it', async () => {
     const id = await seedPoll({ title: 'Threshold poll' });
-    const presets = await getPollOptions(env, { id, poll_type: 1 });
-    const approveId = presets.find((option) => option.presetKey === 'approve')!.id;
-    await vote(id, 'c'.repeat(64));
+    const options = await seedOptions(id, [
+      { position: 1, label: 'Yes' },
+      { position: 2, label: 'No' }
+    ]);
+    await choiceVoteRequest(id, 'd'.repeat(64), [options.get(1)!]);
 
     let listing = await (await SELF.fetch(`${ORIGIN}/api/polls?pageSize=100`)).json() as any;
-    expect(countsFor(listing, id).hidden).toBe(true);
-    expect(countsFor(listing, id).counts).toBeNull();
+    expect(statsFor(listing, id).hidden).toBe(true);
+    expect(statsFor(listing, id).options).toBeNull();
 
     // The default display threshold is 10, so nine more ballots reveal the counts.
     for (let index = 0; index < 9; index += 1) {
-      await insertBallot(id, String(index).padStart(64, 'd'), [approveId]);
+      await insertBallot(id, String(index).padStart(64, 'e'), [options.get(1)!]);
     }
 
     listing = await (await SELF.fetch(`${ORIGIN}/api/polls?pageSize=100`)).json() as any;
-    expect(countsFor(listing, id).hidden).toBe(false);
-    expect(countsFor(listing, id).counts.approve).toBe(10);
+    const stats = statsFor(listing, id);
+    expect(stats.hidden).toBe(false);
+    expect(stats.ballots).toBe(10);
+    // The count lives on the option itself; there is no separate counts object.
+    expect(stats.counts).toBeUndefined();
+    expect(stats.options.map((option: any) => [option.label, option.count])).toEqual([
+      ['Yes', 10], ['No', 0]
+    ]);
   });
 
   it('accepts a vote below the display threshold and withholds only the counts', async () => {
     const id = await seedPoll({ title: 'Votable below threshold poll' });
+    const options = await seedOptions(id, [
+      { position: 1, label: 'Yes' },
+      { position: 2, label: 'No' }
+    ]);
 
-    const response = await vote(id, 'e'.repeat(64));
+    const response = await choiceVoteRequest(id, 'f'.repeat(64), [options.get(1)!]);
     expect(response.status).toBe(200);
 
     const body = await response.json() as any;
@@ -88,7 +127,6 @@ describe('vote endpoint', () => {
     expect(body.ok).toBe(true);
     expect(body.voted).toBe(true);
     expect(body.hidden).toBe(true);
-    expect(body.counts).toBeNull();
     expect(body.options).toBeNull();
     expect(body.ballots).toBe(1);
     expect(body.threshold).toBe(10);
@@ -102,21 +140,23 @@ describe('vote endpoint', () => {
     expect(selections?.total).toBe(1);
   });
 
-  it('restores the stored selection through vote/status', async () => {
-    const id = await seedPoll({ title: 'Restored selection poll' });
-    const presets = await getPollOptions(env, { id, poll_type: 1 });
-    const neutralId = presets.find((option) => option.presetKey === 'neutral')!.id;
+  it('restores the stored selections through vote/status', async () => {
+    const id = await seedPoll({ title: 'Restored selection poll', pollType: 3 });
+    const options = await seedOptions(id, [
+      { position: 1, label: 'One' },
+      { position: 2, label: 'Two' },
+      { position: 3, label: 'Three' }
+    ]);
 
-    expect((await vote(id, 'f'.repeat(64), 'neutral')).status).toBe(200);
-    const status = await (await voteStatusRequest(id, 'f'.repeat(64))).json() as any;
+    expect((await choiceVoteRequest(id, '1a'.repeat(32), [options.get(1)!, options.get(3)!])).status).toBe(200);
+    const status = await (await voteStatusRequest(id, '1a'.repeat(32))).json() as any;
     expect(status.voted).toBe(true);
-    // The legacy verdict field and the option ids agree.
-    expect(status.option).toBe('neutral');
-    expect(status.optionIds).toEqual([neutralId]);
+    // The selections come back in display order, and there is no legacy field.
+    expect(status.optionIds).toEqual([options.get(1)!, options.get(3)!]);
+    expect(status.option).toBeUndefined();
 
-    const noVote = await (await voteStatusRequest(id, '0'.repeat(64))).json() as any;
+    const noVote = await (await voteStatusRequest(id, '2a'.repeat(32))).json() as any;
     expect(noVote.voted).toBe(false);
-    expect(noVote.option).toBeNull();
     expect(noVote.optionIds).toEqual([]);
   });
 
@@ -132,26 +172,12 @@ describe('vote endpoint', () => {
       { position: 2, label: 'Also theirs' }
     ]);
 
-    const foreign = await choiceVoteRequest(first, 'a1'.repeat(32), [secondOptions.get(1)!]);
+    const foreign = await choiceVoteRequest(first, '3a'.repeat(32), [secondOptions.get(1)!]);
     expect(foreign.status).toBe(400);
     expect(await foreign.json()).toMatchObject({ ok: false, message: 'unknown option' });
 
     // A valid ballot on the same poll is still accepted.
-    expect((await choiceVoteRequest(first, 'a1'.repeat(32), [firstOptions.get(1)!])).status).toBe(200);
-  });
-
-  it('accepts a verdict on a poll without a neutral row and refuses an unknown verdict', async () => {
-    const id = await seedPoll({ title: 'No neutral poll', presets: ['approve', 'oppose'] });
-    const presets = await getPollOptions(env, { id, poll_type: 1 });
-    expect(presets.map((option) => option.presetKey)).toEqual(['approve', 'oppose']);
-
-    expect((await vote(id, 'b1'.repeat(32), 'oppose')).status).toBe(200);
-    const status = await (await voteStatusRequest(id, 'b1'.repeat(32))).json() as any;
-    expect(status.option).toBe('oppose');
-
-    // The missing neutral row cannot be selected.
-    expect((await vote(id, 'b2'.repeat(32), 'neutral')).status).toBe(400);
-    expect((await vote(id, 'b3'.repeat(32), 'nonsense')).status).toBe(400);
+    expect((await choiceVoteRequest(first, '3a'.repeat(32), [firstOptions.get(1)!])).status).toBe(200);
   });
 
   it('carries the Content Security Policy on a deep link', async () => {

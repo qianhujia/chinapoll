@@ -1,14 +1,8 @@
-import { ArrowBigDown, ArrowBigUp, CircleAlert, CircleCheck, EllipsisVertical, Eye, Minus, Search, X, type IconNode } from 'lucide';
+import { CircleAlert, CircleCheck, EllipsisVertical, Eye, Search, X, type IconNode } from 'lucide';
 import { DEFAULT_LOCALE, getLocaleText } from './i18n';
-import { getComments, type CommentsResponse, type PollOption, type PollSummary, type VoteOption } from './lib/poll';
+import { getComments, type CommentsResponse, type PollSummary } from './lib/poll';
 import { getCurrentUser } from './lib/session';
 import { getPublicSettings } from './config';
-
-const voteButtonStyles: Record<VoteOption, { color: string; empty: string }> = {
-  approve: { color: '#1fa36a', empty: '#e7f5ed' },
-  neutral: { color: '#7a8798', empty: '#edf0f4' },
-  oppose: { color: '#d95b5b', empty: '#faeaea' }
-};
 
 // Lucide icon nodes are inlined into SVG markup at build time; no icon library ships at runtime.
 function iconMarkup(node: IconNode, cssClass: string): string {
@@ -21,12 +15,6 @@ function iconMarkup(node: IconNode, cssClass: string): string {
   }).join('');
   return `<svg class="${cssClass}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${children}</svg>`;
 }
-
-const voteIcons: Record<VoteOption, IconNode> = {
-  approve: ArrowBigUp,
-  neutral: Minus,
-  oppose: ArrowBigDown
-};
 
 export function searchIconMarkup(cssClass: string): string {
   return iconMarkup(Search, cssClass);
@@ -276,155 +264,11 @@ export function renderModeBadge(mode: PollSummary['mode']): string {
 }
 
 // Small badge that names the ballot shape of a poll, using the same badge style
-// as the mode badge. A choice poll also shows how many options it carries.
+// as the mode badge, plus how many options it carries.
 export function renderPollTypeBadge(pollType: string, optionCount = 0): string {
-  const label = pollType === 'single_choice'
-    ? t('pollTypeSingleChoice')
-    : pollType === 'multi_choice'
-      ? t('pollTypeMultiChoice')
-      : t('pollTypeVerdict');
-  const suffix = pollType === 'verdict' || optionCount <= 0 ? '' : ` · ${optionCount} ${t('options')}`;
+  const label = pollType === 'multi_choice' ? t('pollTypeMultiChoice') : t('pollTypeSingleChoice');
+  const suffix = optionCount <= 0 ? '' : ` · ${optionCount} ${t('options')}`;
   return `<span class="shrink-0 rounded-full bg-[#eef3fb] px-[9px] py-[3px] text-xs leading-[1.5] font-light whitespace-nowrap text-muted">${label}${suffix}</span>`;
-}
-
-function voteFillPath(percent: number): string {
-  if (percent >= 100) return 'M0 0 H100 V100 H0 Z';
-  const level = 100 - percent;
-  return `M0 ${level} H100 V100 H0 Z`;
-}
-
-// Shared styles for a button whose vote has been cast (or restored from the
-// stored vote status), so a voter sees the same selected state on the poll page,
-// including while counts are hidden.
-export const VOTE_SELECTED_CLASS = 'font-bold ring-1 ring-inset ring-current';
-
-// The label shown for an option from the shared options array: a verdict preset
-// row carries a preset key that is translated here, a choice row carries the
-// submitter's own text.
-export function optionLabel(option: Pick<PollOption, 'label' | 'presetKey'>): string {
-  return option.presetKey ? t(option.presetKey) : (option.label ?? '');
-}
-
-// Colour and icon of a vote button. Only a verdict poll renders vote buttons, so
-// the preset key selects the scale; anything else falls back to the neutral
-// style.
-function voteButtonStyle(option: PollOption): { color: string; empty: string } {
-  const key = option.presetKey as VoteOption | null;
-  return key && key in voteButtonStyles ? voteButtonStyles[key] : voteButtonStyles.neutral;
-}
-
-function voteButtonIcon(option: PollOption): IconNode {
-  const key = option.presetKey as VoteOption | null;
-  return key && key in voteIcons ? voteIcons[key] : Minus;
-}
-
-// The number and the fill bar are rendered only when a count is known. Below the
-// display threshold the server withholds every count, so the button keeps its
-// label and icon and the group is marked with `data-counts-hidden`.
-export function renderVoteButton(
-  option: PollOption,
-  count: number | null,
-  total: number,
-  disabled: boolean,
-  title: string
-): string {
-  const style = voteButtonStyle(option);
-  const label = optionLabel(option);
-  const hiddenCounts = count === null;
-  const value = hiddenCounts ? 0 : count;
-  const percent = !hiddenCounts && total > 0 ? value / total * 100 : 0;
-
-  return `
-    <button
-      type="button"
-      class="relative flex min-w-0 flex-1 flex-wrap cursor-pointer items-center justify-center gap-x-1 gap-y-0.5 border-r border-border px-1 py-2 text-xs text-ink transition-[filter] hover:enabled:brightness-95 focus-visible:z-10 focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-primary last:border-r-0 disabled:cursor-not-allowed disabled:opacity-[0.65]"
-      style="background:${style.empty}"
-      data-option-id="${option.id}"
-      aria-label="${hiddenCounts ? label : `${label}: ${value}`}"
-      title="${title}"
-      ${disabled ? 'disabled' : ''}
-    >
-      <svg class="pointer-events-none absolute inset-0 h-full w-full" data-vote-fill="${option.id}" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
-        <path d="${!hiddenCounts && value > 0 ? voteFillPath(percent) : ''}" fill="${style.color}"></path>
-      </svg>
-      ${iconMarkup(voteButtonIcon(option), 'relative z-10 h-4 w-4 shrink-0')}<span class="relative z-10 whitespace-nowrap">${label}</span>
-      <span class="choice-count relative z-10 shrink-0 tabular-nums" data-vote-count="${option.id}">${hiddenCounts ? '' : value}</span>
-    </button>
-  `;
-}
-
-// Builds one vote group for the poll page from the poll's own option rows, so a
-// verdict poll with two or three preset rows renders exactly those buttons.
-// `hidden` withholds every number below the display threshold, and `selectedId`
-// marks the option the visitor already chose.
-export function renderVoteGroup(input: {
-  pollId: number;
-  options: PollOption[];
-  hidden: boolean;
-  disabled: boolean;
-  title: string;
-  selectedId?: number | null;
-}): string {
-  const { pollId, options, hidden, disabled, title, selectedId = null } = input;
-  const total = hidden ? 0 : options.reduce((sum, option) => sum + Number(option.count ?? 0), 0);
-  const buttons = options.map((option) => {
-    const isSelected = selectedId === option.id;
-    const button = renderVoteButton(
-      option,
-      hidden ? null : Number(option.count ?? 0),
-      total,
-      disabled || isSelected,
-      isSelected ? t('alreadyVoted') : title
-    );
-    // The selected state reuses the shared styling and is applied here rather
-    // than inside renderVoteButton so the button markup stays cacheable.
-    return isSelected
-      ? button.replace('class="relative flex', `class="${VOTE_SELECTED_CLASS} relative flex`)
-      : button;
-  }).join('');
-
-  return `<div class="mx-auto mt-6 flex w-full max-w-[300px] overflow-hidden rounded-xl border border-border" role="group" aria-label="${t('vote')}" data-vote-group="${pollId}"${hidden ? ' data-counts-hidden="true"' : ''} title="${title}">
-      ${buttons}
-    </div>`;
-}
-
-// Applies a fresh option set to a rendered group, or clears the numbers and fill
-// bars when the options are withheld. The selected state is left untouched in
-// both cases.
-export function updateVoteGroup(group: HTMLElement, options: PollOption[] | null): void {
-  const byId = new Map((options ?? []).map((option) => [Number(option.id), option]));
-  const total = (options ?? []).reduce((sum, option) => sum + Number(option.count ?? 0), 0);
-  group.dataset.countsHidden = options ? 'false' : 'true';
-
-  for (const button of Array.from(group.querySelectorAll<HTMLButtonElement>('[data-option-id]'))) {
-    const id = Number(button.dataset.optionId ?? 0);
-    const option = byId.get(id);
-    const label = option ? optionLabel(option) : '';
-    const count = option ? Number(option.count ?? 0) : null;
-    const percent = count !== null && total > 0 ? count / total * 100 : 0;
-
-    const countElement = button.querySelector<HTMLElement>('[data-vote-count]');
-    if (countElement) countElement.textContent = count === null ? '' : String(count);
-    const fillPath = button.querySelector<SVGPathElement>('[data-vote-fill] path');
-    if (fillPath) fillPath.setAttribute('d', count !== null && count > 0 ? voteFillPath(percent) : '');
-    if (label) button.setAttribute('aria-label', count === null ? label : `${label}: ${count}`);
-  }
-}
-
-// Marks one button in a group as the visitor's choice and disables the group,
-// without touching the numbers. Used after a vote that is still below the
-// display threshold and when the stored vote status is restored on load.
-export function selectVoteOption(group: HTMLElement, optionId: number): void {
-  for (const button of Array.from(group.querySelectorAll<HTMLButtonElement>('[data-option-id]'))) {
-    const isSelected = Number(button.dataset.optionId ?? 0) === Number(optionId);
-    // The class is a list, so each token is toggled individually: `classList`
-    // treats a space-separated string as a single (invalid) token.
-    for (const token of VOTE_SELECTED_CLASS.split(' ')) {
-      button.classList.toggle(token, isSelected);
-    }
-    button.disabled = true;
-  }
-  group.setAttribute('title', t('alreadyVoted'));
 }
 
 export function getNavigationMarkup(activeRoute: string): string {
