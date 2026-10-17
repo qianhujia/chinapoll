@@ -1,4 +1,4 @@
-import { ArrowBigDown, ArrowBigUp, CircleAlert, CircleCheck, Eye, Minus, Search, X, type IconNode } from 'lucide';
+import { ArrowBigDown, ArrowBigUp, CircleAlert, CircleCheck, EllipsisVertical, Eye, Minus, Search, X, type IconNode } from 'lucide';
 import { DEFAULT_LOCALE, getLocaleText } from './i18n';
 import { getComments, type CommentsResponse, type PollSummary, type VoteOption } from './lib/poll';
 import { getCurrentUser } from './lib/session';
@@ -43,6 +43,11 @@ export function closeIconMarkup(cssClass: string): string {
 // Eye icon used next to a poll's view count.
 export function viewIconMarkup(cssClass: string): string {
   return iconMarkup(Eye, cssClass);
+}
+
+// Vertical three-dot icon used by a "more actions" menu button.
+export function moreIconMarkup(cssClass: string): string {
+  return iconMarkup(EllipsisVertical, cssClass);
 }
 
 const toastIcons: Record<'success' | 'error', IconNode> = {
@@ -293,8 +298,8 @@ function voteFillPath(percent: number): string {
 }
 
 // Shared styles for a button whose vote has been cast (or restored from the
-// stored vote status). Reused by the poll page and the home page so a voter sees
-// the same selected state in both places, including while counts are hidden.
+// stored vote status), so a voter sees the same selected state on the poll page,
+// including while counts are hidden.
 export const VOTE_SELECTED_CLASS = 'font-bold ring-1 ring-inset ring-current';
 
 // The number and the fill bar are rendered only when a count is known. Below the
@@ -305,17 +310,13 @@ export function renderVoteButton(
   count: number | null,
   total: number,
   disabled: boolean,
-  title: string,
-  homePollId?: number
+  title: string
 ): string {
   const style = voteButtonStyles[option];
   const label = t(option);
   const hiddenCounts = count === null;
   const value = hiddenCounts ? 0 : count;
   const percent = !hiddenCounts && total > 0 ? value / total * 100 : 0;
-  const homeAttributes = homePollId === undefined
-    ? ''
-    : `data-home-vote data-poll-id="${homePollId}"`;
 
   return `
     <button
@@ -325,24 +326,21 @@ export function renderVoteButton(
       data-option="${option}"
       aria-label="${hiddenCounts ? label : `${label}: ${value}`}"
       title="${title}"
-      ${homeAttributes}
       ${disabled ? 'disabled' : ''}
     >
       <svg class="pointer-events-none absolute inset-0 h-full w-full" data-vote-fill="${option}" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
         <path d="${!hiddenCounts && value > 0 ? voteFillPath(percent) : ''}" fill="${style.color}"></path>
       </svg>
-      ${homePollId === undefined
-    ? `${voteIconMarkup(option, 'relative z-10 h-4 w-4 shrink-0')}<span class="relative z-10 whitespace-nowrap">${label}</span>`
-    : voteIconMarkup(option, 'relative z-10 h-4 w-4 shrink-0')}
+      ${voteIconMarkup(option, 'relative z-10 h-4 w-4 shrink-0')}<span class="relative z-10 whitespace-nowrap">${label}</span>
       <span class="choice-count relative z-10 shrink-0 tabular-nums" data-vote-count="${option}">${hiddenCounts ? '' : value}</span>
     </button>
   `;
 }
 
-// Builds one vote group. `counts` may be null when the results are hidden below
-// the display threshold: the buttons are then rendered without numbers and the
-// group carries `data-counts-hidden="true"`. `selected` marks the option the
-// visitor already voted for, so a returning voter sees their choice.
+// Builds one vote group for the poll page. `counts` may be null when the results
+// are hidden below the display threshold: the buttons are then rendered without
+// numbers and the group carries `data-counts-hidden="true"`. `selected` marks the
+// option the visitor already voted for, so a returning voter sees their choice.
 export function renderVoteGroup(options: {
   pollId: number;
   counts: Record<VoteOption, number> | null;
@@ -350,9 +348,8 @@ export function renderVoteGroup(options: {
   disabled: boolean;
   title: string;
   selected?: VoteOption | null;
-  homePage?: boolean;
 }): string {
-  const { pollId, counts, hidden, disabled, title, selected = null, homePage = false } = options;
+  const { pollId, counts, hidden, disabled, title, selected = null } = options;
   const total = counts ? counts.approve + counts.neutral + counts.oppose : 0;
   const buttons = (['approve', 'neutral', 'oppose'] as const).map((option) => {
     const count = counts ? counts[option] : null;
@@ -362,8 +359,7 @@ export function renderVoteGroup(options: {
       count,
       total,
       disabled || isSelected,
-      isSelected ? t('alreadyVoted') : title,
-      homePage ? pollId : undefined
+      isSelected ? t('alreadyVoted') : title
     );
     // The selected state reuses the shared styling and is applied here rather
     // than inside renderVoteButton so the button markup stays cacheable.
@@ -372,7 +368,7 @@ export function renderVoteGroup(options: {
       : button;
   }).join('');
 
-  return `<div class="mx-auto mt-6 flex w-full max-w-[300px] overflow-hidden rounded-xl border border-border${homePage ? ' max-[700px]:col-start-1 max-[700px]:mt-0' : ''}" role="group" aria-label="${t('vote')}" data-vote-group="${pollId}"${hidden ? ' data-counts-hidden="true"' : ''} title="${title}">
+  return `<div class="mx-auto mt-6 flex w-full max-w-[300px] overflow-hidden rounded-xl border border-border" role="group" aria-label="${t('vote')}" data-vote-group="${pollId}"${hidden ? ' data-counts-hidden="true"' : ''} title="${title}">
       ${buttons}
     </div>`;
 }

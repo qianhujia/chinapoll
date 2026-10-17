@@ -1,19 +1,12 @@
 import {
-  MAX_LABEL_LENGTH,
-  MAX_OPTIONS,
-  MIN_OPTIONS,
-  AI_PRIVACY_NOTE_MARKUP,
-  AI_TITLE_MARKUP,
-  DURATION_OPTIONS_MARKUP,
-  OPTIONS_FIELDSET_MARKUP,
-  advancedPanelMarkup,
-  optionRowMarkup,
-  pollTypeCard,
-  type PollDuration,
-  type PollType
+  aiPrivacyNoteMarkup,
+  aiTitleMarkup,
+  descriptionFieldMarkup,
+  durationFieldMarkup,
+  optionsFieldsetMarkup,
+  pollTypeCard
 } from './proposal';
 import { bindProposalForm } from './proposalForm';
-import { rememberMyPoll } from '../lib/poll';
 import { getCurrentUser } from '../lib/session';
 import { getPublicSettings } from '../config';
 import { renderFooter, renderHeader, renderToast, t } from '../ui';
@@ -92,15 +85,17 @@ export function mountProposePage(app: HTMLElement, bindNavigation: () => void): 
               <input class="w-full rounded-[14px] border border-border bg-[#f9fbff] px-3.5 py-3" id="proposal-title" name="title" type="text" maxlength="200" required>
             </label>
 
-            ${aiEnabled ? AI_TITLE_MARKUP : ''}
+            ${aiEnabled ? aiTitleMarkup() : ''}
 
-            ${OPTIONS_FIELDSET_MARKUP}
+            ${optionsFieldsetMarkup()}
 
-            ${advancedPanelMarkup()}
+            ${durationFieldMarkup()}
+
+            ${descriptionFieldMarkup()}
 
             <button class="mx-auto mt-2 cursor-pointer rounded-full border border-primary bg-primary px-4 py-2.5 text-white" type="submit">${t('submitProposal')}</button>
           </form>
-          ${aiEnabled ? AI_PRIVACY_NOTE_MARKUP : ''}
+          ${aiEnabled ? aiPrivacyNoteMarkup() : ''}
         </section>
       </main>
       ${renderToast()}
@@ -111,7 +106,3 @@ export function mountProposePage(app: HTMLElement, bindNavigation: () => void): 
   bindProposalForm(app, bindNavigation, aiEnabled);
   bindNavigation();
 }
-
-// Builds the `<details>` advanced panel: the duration dropdown and the
-// optional description. The duration mapping is defined in worker/enums.ts and
-// re-exported through src/lib/poll.ts.

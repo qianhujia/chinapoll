@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { SESSION_TTL_SECONDS, createSession as createAdminSession, type AdminEnv } from '../admin/auth';
+import { USER_SESSION_TTL_SECONDS, createSession as createUserSession } from '../worker/services/session';
 import { parseRateLimit } from '../worker/services/rateLimit';
 import { ipBucket, hashedNetworkBucket, isValidServerKey } from '../worker/services/ip';
 import { makeSnapshot, verifySnapshotHash, SNAPSHOT_SCHEMA_VERSION } from '../worker/services/snapshot';
@@ -623,3 +625,63 @@ describe('snapshot schema version', () => {
     expect(await verifySnapshotHash(legacyRecord)).toBe(legacyHash);
   });
 });
+
+// A D1 stand-in that records every bound statement, so a test can inspect the
+// values a session insert would write without touching a database.
+interface RecordedStatement {
+  sql: string;
+  binds: unknown[];
+}
+
+function recordingDb(recorded: RecordedStatement[]): D1Database {
+  return {
+    prepare(sql: string) {
+      const statement = {
+        binds: [] as unknown[],
+        bind(...args: unknown[]) {
+          statement.binds = args;
+          recorded.push({ sql, binds: args });
+          return statement;
+        }
+      };
+      return statement;
+    },
+    batch: async (statements: unknown[]) => statements
+  } as unknown as D1Database;
+}
+
+function boundInsert(recorded: RecordedStatement[], table: string): RecordedStatement {
+  const statement = recorded.find((entry) => entry.sql.includes(`INSERT INTO ${table}`));
+  if (!statement) throw new Error(`no insert into ${table} was bound`);
+  return statement;
+}
+
+describe('session timestamps', () => {
+  it('writes created_at at hour resolution for a user session', async () => {
+    const recorded: RecordedStatement[] = [];
+    await createUserSession({ DB: recordingDb(recorded) }, 7);
+
+    const insert = boundInsert(recorded, 'user_sessions');
+    const createdAt = Number(insert.binds[2]);
+    const expiresAt = Number(insert.binds[3]);
+    expect(createdAt % 3600).toBe(0);
+    // Only the creation time is coarsened: the sliding expiry stays exact.
+    expect(expiresAt - createdAt).toBeGreaterThanOrEqual(USER_SESSION_TTL_SECONDS);
+    expect(expiresAt - createdAt).toBeLessThan(USER_SESSION_TTL_SECONDS + 3600);
+  });
+
+  it('writes created_at at hour resolution for an admin session', async () => {
+    const recorded: RecordedStatement[] = [];
+    await createAdminSession({ DB: recordingDb(recorded) } as unknown as AdminEnv, 7);
+
+    const insert = boundInsert(recorded, 'admin_sessions');
+    const createdAt = Number(insert.binds[2]);
+    const expiresAt = Number(insert.binds[3]);
+    expect(createdAt % 3600).toBe(0);
+    expect(expiresAt - createdAt).toBeGreaterThanOrEqual(SESSION_TTL_SECONDS);
+    expect(expiresAt - createdAt).toBeLessThan(SESSION_TTL_SECONDS + 3600);
+    // The single-session policy drops the admin's other sessions in the same batch.
+    expect(recorded.some((entry) => entry.sql.includes('DELETE FROM admin_sessions WHERE admin_user_id = ?'))).toBe(true);
+  });
+});
+

@@ -89,6 +89,7 @@ export function bindProposalForm(app: HTMLElement, bindNavigation: () => void, a
   const titleInput = form.querySelector<HTMLInputElement>('#proposal-title');
   const durationSelect = form.querySelector('#proposal-duration') as HTMLSelectElement | null;
   const descriptionInput = form.querySelector<HTMLTextAreaElement>('#proposal-description');
+  const descriptionDetails = form.querySelector<HTMLDetailsElement>('[data-description-details]');
   const optionsFieldset = form.querySelector<HTMLFieldSetElement>('[data-options-fieldset]');
   const optionRows = form.querySelector<HTMLDivElement>('[data-option-rows]');
   const addOptionButton = form.querySelector<HTMLButtonElement>('[data-add-option]');
@@ -196,7 +197,10 @@ export function bindProposalForm(app: HTMLElement, bindNavigation: () => void, a
       return;
     }
     if (description.length > 0 && (description.length < 20 || description.length > 2000)) {
-      showToast(t('proposalDescriptionLabel'), 'error');
+      // The description starts collapsed, so the panel is opened to show the
+      // field that needs fixing.
+      if (descriptionDetails) descriptionDetails.open = true;
+      showToast(t('proposalDescriptionInvalid'), 'error');
       return;
     }
 
@@ -241,6 +245,7 @@ export function bindProposalForm(app: HTMLElement, bindNavigation: () => void, a
       if (verdictRadio) verdictRadio.checked = true;
       if (titleInput) titleInput.value = '';
       if (descriptionInput) descriptionInput.value = '';
+      if (descriptionDetails) descriptionDetails.open = false;
       if (durationSelect) durationSelect.value = 'none';
       rows().forEach((row) => row.remove());
       setOptionsEnabled(false);

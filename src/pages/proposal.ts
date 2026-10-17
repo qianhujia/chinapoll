@@ -42,7 +42,11 @@ export function optionRowMarkup(position: number, label = '', suggested = false)
   `;
 }
 
-export const OPTIONS_FIELDSET_MARKUP = `
+// The options editor for a choice poll. Built on demand: the labels are
+// translated when the markup is created, since `t()` only knows the locale after
+// the translations have been loaded.
+export function optionsFieldsetMarkup(): string {
+  return `
   <fieldset class="m-0 grid gap-2 border-0 p-0" data-options-fieldset hidden>
     <legend class="mb-2 font-semibold">${t('optionsLabel')}</legend>
     <div class="grid gap-2" data-option-rows></div>
@@ -52,11 +56,13 @@ export const OPTIONS_FIELDSET_MARKUP = `
       <button class="cursor-pointer text-xs text-primary hover:underline" type="button" data-ai-discard hidden>${t('aiDiscardSuggestions')}</button>
     </div>
   </fieldset>
-`;
+  `;
+}
 
 // The AI block next to the title field: a button, a hint, and the suggestion
 // list. It is only rendered when the `ai_enable` setting is on.
-export const AI_TITLE_MARKUP = `
+export function aiTitleMarkup(): string {
+  return `
   <div class="grid gap-2" data-ai-title>
     <div class="flex flex-wrap items-center gap-2.5">
       <button class="cursor-pointer rounded-full border border-border bg-panel px-3.5 py-2 text-sm text-ink disabled:cursor-not-allowed disabled:opacity-60" type="button" data-ai-enhance disabled>${t('aiEnhanceTitle')}</button>
@@ -65,23 +71,42 @@ export const AI_TITLE_MARKUP = `
     <ul class="m-0 grid list-none gap-2 p-0" data-ai-suggestions hidden></ul>
     <p class="m-0 text-xs text-muted">${t('aiPrivacyNote')}</p>
   </div>
-`;
+  `;
+}
 
-export const AI_PRIVACY_NOTE_MARKUP = `<p class="m-0 text-xs text-muted">${t('aiPrivacyNote')}</p>`;
+export function aiPrivacyNoteMarkup(): string {
+  return `<p class="m-0 text-xs text-muted">${t('aiPrivacyNote')}</p>`;
+}
 
-// The `<details>` advanced panel: the duration dropdown (with "No end date"
-// preselected) and the optional description textarea.
-export function advancedPanelMarkup(): string {
+// The duration dropdown, with "No end date" preselected. A poll always has a
+// duration, so this is a top-level form field rather than something hidden behind
+// a toggle. The mapping is defined in worker/enums.ts and re-exported through
+// src/lib/poll.ts.
+export function durationFieldMarkup(): string {
+  // The option labels are translated here rather than in a module constant:
+  // a constant would be built on import, before the locale has been loaded.
+  const options = POLL_DURATIONS
+    .map((duration) => `<option value="${duration}"${duration === 'none' ? ' selected' : ''}>${t(DURATION_LABEL_KEYS[duration])}</option>`)
+    .join('');
   return `
-    <details class="grid gap-3 rounded-[14px] border border-border bg-[#f9fbff] px-3.5 py-3">
-      <summary class="cursor-pointer font-semibold">${t('advancedOptions')}</summary>
+    <label class="grid gap-2" for="proposal-duration">${t('durationLabel')}
+      <select class="w-full rounded-[14px] border border-border bg-[#f9fbff] px-3.5 py-3" id="proposal-duration" name="duration">
+        ${options}
+      </select>
+    </label>
+  `;
+}
+
+// The optional description, collapsed by default so the form stays short. The
+// summary names the field, and the label inside it stays available to assistive
+// technology once the textarea is revealed.
+export function descriptionFieldMarkup(): string {
+  return `
+    <details class="grid gap-3 rounded-[14px] border border-border bg-[#f9fbff] px-3.5 py-3" data-description-details>
+      <summary class="cursor-pointer font-semibold">${t('proposalDescriptionToggle')}</summary>
       <div class="grid gap-3 pt-3">
-        <label class="grid gap-2" for="proposal-duration">${t('durationLabel')}
-          <select class="w-full rounded-[14px] border border-border bg-white px-3.5 py-3" id="proposal-duration" name="duration">
-            ${DURATION_OPTIONS_MARKUP}
-          </select>
-        </label>
-        <label class="grid gap-2" for="proposal-description">${t('proposalDescriptionLabel')}
+        <label class="grid gap-2" for="proposal-description">
+          <span class="sr-only">${t('proposalDescriptionLabel')}</span>
           <textarea class="min-h-[140px] w-full resize-y rounded-[14px] border border-border bg-white px-3.5 py-3" id="proposal-description" name="description" maxlength="2000"></textarea>
         </label>
       </div>
@@ -119,10 +144,6 @@ export function confirmationMarkup(summary: ConfirmationMarkupInput): string {
     </section>
   `;
 }
-
-export const DURATION_OPTIONS_MARKUP = POLL_DURATIONS
-  .map((duration) => `<option value="${duration}"${duration === 'none' ? ' selected' : ''}>${t(DURATION_LABEL_KEYS[duration])}</option>`)
-  .join('');
 
 export const MAX_OPTIONS = MAX_POLL_OPTIONS;
 export const MIN_OPTIONS = MIN_POLL_OPTIONS;

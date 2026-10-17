@@ -134,7 +134,8 @@ Note: `ip_prefix` was removed; account cap counters live in `auth_attempts`.
 | Column | Contents | Readers | Retention |
 | --- | --- | --- | --- |
 | token_hash | SHA-256 of the session token | none | 30 days sliding, purged hourly |
-| user_id, created_at, expires_at | bookkeeping | Admin | as above |
+| user_id, expires_at | bookkeeping; `expires_at` is exact | Admin | as above |
+| created_at | hour resolution | Admin | as above |
 
 ## auth_attempts
 
@@ -174,6 +175,12 @@ back to a ballot.
 
 Administrative credentials, sessions, and an action log that records no client
 IP address. Read only by the admin Worker.
+
+| Table | Column | Contents | Readers | Retention |
+| --- | --- | --- | --- | --- |
+| admin_sessions | token_hash | SHA-256 of the session token | none | 30 minutes sliding |
+| admin_sessions | admin_user_id, expires_at | bookkeeping; `expires_at` is exact | Admin | as above |
+| admin_sessions | created_at | hour resolution | Admin | as above |
 
 ## What a breach or legal request would reveal
 

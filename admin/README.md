@@ -12,7 +12,7 @@ an audit log, and update application settings.
 | `index.ts` | Worker entry point, routing, and security headers |
 | `auth.ts` | Session cookies, session lookup, and CSRF origin checks |
 | `api/session.ts` | Login, logout, session status, and first-run setup |
-| `api/admins.ts` | Admin user CRUD, password reset, lock reset, status |
+| `api/admins.ts` | Admin user CRUD, password reset, lock reset, status, and role |
 | `api/comments.ts` | List and delete comments |
 | `api/audit.ts` | Read-only audit log |
 | `api/overview.ts` | Aggregate counts for the dashboard |
@@ -85,8 +85,10 @@ so local development stays usable without keys.
   `pbkdf2$iterations$salt$hash`.
 - Five consecutive failed sign-ins lock an account for fifteen minutes. An admin
   can clear the lock from the Admins tab.
-- Sessions live in `admin_sessions` with a thirty-minute sliding expiry and are
-  revoked on password reset, disable, and delete.
+- Sessions live in `admin_sessions` with a thirty-minute sliding expiry, and an
+  admin holds a single active session: logging in elsewhere ends the previous one.
+  A password reset, a role change, a disable, or a delete ends every session of
+  that admin.
 
 ## Local development
 
@@ -134,6 +136,7 @@ login endpoint) or an `Authorization: Bearer <session-token>` header.
 | `POST` | `/api/admin/admins` | Create an admin user (`{ username, password, role? }`) |
 | `POST` | `/api/admin/admins/:id/password` | Reset a password (`{ password }`) |
 | `POST` | `/api/admin/admins/:id/status` | Enable or disable (`{ "status": "active" }`) |
+| `POST` | `/api/admin/admins/:id/role` | Change a role (`{ "role": "super_admin" }`), super admins only; revokes that admin's sessions |
 | `POST` | `/api/admin/admins/:id/unlock` | Reset failed attempts and lock expiry |
 | `DELETE` | `/api/admin/admins/:id` | Delete an admin user |
 | `GET` | `/api/admin/audit` | Audit log, super admins only (`action`, `page`, `pageSize`, `q`) |

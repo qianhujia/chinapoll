@@ -5,6 +5,7 @@ import {
   getCurrentUser,
   getRecoveryCodeStatus,
   getUserPolls,
+  logoutAllDevices,
   logoutUser,
   regenerateRecoveryCode,
   type UserPoll
@@ -103,6 +104,12 @@ export async function mountAccountPage(
             <button class="cursor-pointer rounded-full border border-border bg-panel px-3.5 py-2 text-sm text-ink hover:border-primary hover:text-primary" type="button" data-regenerate-recovery>${t('recoveryCodeRegenerate')}</button>
           </div>
           <div data-recovery-output></div>
+          <div class="grid gap-2 border-t border-border pt-3">
+            <p class="m-0 text-sm text-muted">${t('accountLogoutAllNote')}</p>
+            <div>
+              <button class="cursor-pointer rounded-full border border-border bg-panel px-3.5 py-2 text-sm text-ink hover:border-primary hover:text-primary" type="button" data-logout-all>${t('accountLogoutAll')}</button>
+            </div>
+          </div>
         </section>
 
         <section class="grid gap-3 rounded-[22px] border border-[#e2a9a9] bg-panel p-6 shadow-card">
@@ -144,6 +151,19 @@ export async function mountAccountPage(
     } catch (error) {
       showToast(`${t('accountActionFailed')} ${getErrorMessage(error)}`, 'error');
     } finally {
+      button.disabled = false;
+    }
+  });
+
+  document.querySelector('[data-logout-all]')?.addEventListener('click', async (event) => {
+    const button = event.currentTarget as HTMLButtonElement;
+    button.disabled = true;
+    try {
+      await logoutAllDevices();
+      showToast(t('accountLogoutAllDone'));
+      navigate('/login');
+    } catch (error) {
+      showToast(`${t('accountActionFailed')} ${getErrorMessage(error)}`, 'error');
       button.disabled = false;
     }
   });

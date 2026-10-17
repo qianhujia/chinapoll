@@ -37,7 +37,7 @@ export async function handleAdminsRequest(
   env: AdminEnv,
   actor: AdminActor
 ): Promise<Response> {
-  const match = url.pathname.match(/^\/api\/admin\/admins(?:\/(\d+)(?:\/(password|status|unlock))?)?$/);
+  const match = url.pathname.match(/^\/api\/admin\/admins(?:\/(\d+)(?:\/(password|status|unlock|role))?)?$/);
   if (!match) return noStoreJson({ message: 'not found' }, 404);
 
   const [, idText, action] = match;
@@ -62,6 +62,7 @@ export async function handleAdminsRequest(
   if (action === 'unlock') return unlockAdmin(adminId, env, actor);
   if (action === 'password') return resetPassword(adminId, request, env, actor);
   if (action === 'status') return updateStatus(adminId, request, env, actor);
+  if (action === 'role') return updateRole(adminId, request, env, actor);
   return noStoreJson({ message: 'not found' }, 404);
 }
 
@@ -188,12 +189,13 @@ async function resetPassword(
      WHERE id = ?`
   ).bind(passwordHash, adminId).run();
 
-  // Invalidate any existing sessions for the account.
+  // Invalidate any existing sessions for the account, so a session opened with
+  // the old password is closed.
   await env.DB.prepare('DELETE FROM admin_sessions WHERE admin_user_id = ?').bind(adminId).run();
 
   await logAudit(env, {
     actor, action: 'admin.password_reset', targetType: 'admin_user', targetId: adminId,
-    details: { username: admin.username }
+    details: { username: admin.username, sessionsRevoked: true }
   });
 
   return noStoreJson({ ok: true, message: `Password reset for ${admin.username}.` });
@@ -248,6 +250,57 @@ async function updateStatus(
   });
 
   return noStoreJson({ ok: true, message: `Admin ${admin.username} is now ${adminStatusLabel(statusValue)}.` });
+}
+
+// Changes the role of another admin. Only a super admin may change roles, and
+// the last active super admin cannot be demoted. Every session of the target is
+// revoked so an already-open dashboard cannot keep acting on the old role.
+async function updateRole(
+  adminId: number,
+  request: Request,
+  env: AdminEnv,
+  actor: AdminActor
+): Promise<Response> {
+  const admin = await findAdmin(env, adminId);
+  if (!admin) return noStoreJson({ message: `admin ${adminId} was not found` }, 404);
+  if (!isSuper(actor)) {
+    return noStoreJson({ message: 'only a super admin can change an admin role' }, 403);
+  }
+
+  const body = await readJsonBody(request);
+  if (!body) return noStoreJson({ message: 'invalid JSON' }, 400);
+
+  const roleCode = adminRoleCode(readString(body, 'role'));
+  if (roleCode === null) {
+    return noStoreJson({ message: 'role must be "admin" or "super_admin"' }, 422);
+  }
+  if (roleCode === admin.role) {
+    return noStoreJson({ ok: true, message: `Admin ${admin.username} is already ${adminRoleLabel(roleCode)}.` });
+  }
+  if (adminId === actor.id) {
+    return noStoreJson({ message: 'you cannot change your own role' }, 409);
+  }
+  if (admin.role === ADMIN_ROLE_SUPER && admin.status === ADMIN_STATUS_ACTIVE
+    && await activeSuperAdminCount(env) <= 1) {
+    return noStoreJson({ message: 'at least one active super admin is required' }, 409);
+  }
+
+  await env.DB.batch([
+    env.DB.prepare('UPDATE admin_users SET role = ?, updated_at = unixepoch() WHERE id = ?')
+      .bind(roleCode, adminId),
+    env.DB.prepare('DELETE FROM admin_sessions WHERE admin_user_id = ?').bind(adminId)
+  ]);
+
+  await logAudit(env, {
+    actor, action: 'admin.role', targetType: 'admin_user', targetId: adminId,
+    details: { username: admin.username, role: adminRoleLabel(roleCode), sessionsRevoked: true }
+  });
+
+  return noStoreJson({
+    ok: true,
+    message: `Admin ${admin.username} is now ${adminRoleLabel(roleCode)}.`,
+    sessionsRevoked: true
+  });
 }
 
 async function deleteAdmin(adminId: number, env: AdminEnv, actor: AdminActor): Promise<Response> {

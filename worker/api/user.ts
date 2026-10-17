@@ -6,7 +6,7 @@
 // comment list or comment deletion endpoint here.
 
 import type { HandlerEnv } from '../index';
-import { requireUser } from '../services/session';
+import { buildClearSessionCookie, isSecureRequest, requireUser } from '../services/session';
 import { enforceSameOrigin } from '../services/csrf';
 import { verifyPassword } from '../../shared/password';
 import { generateRecoveryCode } from '../services/recovery';
@@ -31,10 +31,10 @@ function pollModeLabel(mode: number): string {
 
 type UserEnv = HandlerEnv;
 
-function noStoreJson(data: unknown, status = 200): Response {
+function noStoreJson(data: unknown, status = 200, headers: Record<string, string> = {}): Response {
   return Response.json(data, {
     status,
-    headers: { 'cache-control': 'no-store' }
+    headers: { 'cache-control': 'no-store', ...headers }
   });
 }
 
@@ -60,6 +60,11 @@ export async function handleUserRequest(request: Request, url: URL, env: UserEnv
     if (request.method === 'GET') return recoveryCodeStatus(env, auth.user.id);
     if (request.method === 'POST') return regenerateRecoveryCode(request, env, auth.user.id);
     return noStoreJson({ message: 'method not allowed' }, 405);
+  }
+
+  if (url.pathname === '/api/user/logout-all') {
+    if (request.method !== 'POST') return noStoreJson({ message: 'method not allowed' }, 405);
+    return logoutAllSessions(request, env, auth.user.id);
   }
 
   const pollMatch = url.pathname.match(/^\/api\/user\/polls\/(\d+)(?:\/(close))?$/);
@@ -213,6 +218,15 @@ async function regenerateRecoveryCode(request: Request, env: UserEnv, userId: nu
     'UPDATE users SET recovery_code_hash = ?, recovery_code_updated_at = unixepoch(), updated_at = unixepoch() WHERE id = ?'
   ).bind(recoveryCode.hash, userId).run();
   return noStoreJson({ ok: true, recoveryCode: recoveryCode.code });
+}
+
+// Signs every device out of the account. The cookie of the requesting browser is
+// cleared as well, so the browser that revoked the sessions is signed out too.
+async function logoutAllSessions(request: Request, env: UserEnv, userId: number): Promise<Response> {
+  await env.DB.prepare('DELETE FROM user_sessions WHERE user_id = ?').bind(userId).run();
+  return noStoreJson({ ok: true, revoked: true }, 200, {
+    'set-cookie': buildClearSessionCookie(isSecureRequest(request))
+  });
 }
 
 // Deletes the account after confirming the password. Sessions are revoked and

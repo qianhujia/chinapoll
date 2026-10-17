@@ -105,6 +105,13 @@ export async function logoutUser(): Promise<void> {
   currentUser = null;
 }
 
+// Signs every device out of the account, including the browser making the call,
+// and clears the cached session.
+export async function logoutAllDevices(): Promise<void> {
+  await fetchJson<{ ok: boolean }>('/api/user/logout-all', { method: 'POST' });
+  currentUser = null;
+}
+
 // Lists the remembered poll ids that the account actually owns.
 export async function getUserPolls(ids: number[]): Promise<UserPoll[]> {
   if (ids.length === 0) return [];

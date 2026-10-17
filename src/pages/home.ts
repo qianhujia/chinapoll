@@ -1,13 +1,4 @@
-import {
-  createToken,
-  getPolls,
-  getVoteStatus,
-  hasVotedLocally,
-  hashToken,
-  markVotedLocally,
-  submitVote,
-  type VoteOption
-} from '../lib/poll';
+import { getPolls } from '../lib/poll';
 import {
   escapeHtml,
   getErrorMessage,
@@ -19,13 +10,42 @@ import {
   renderPagination,
   renderPollTypeBadge,
   renderToast,
-  renderVoteGroup,
-  selectVoteOption,
-  showToast,
   t,
-  updateVoteGroup,
   viewIconMarkup
 } from '../ui';
+
+// One row of the poll list. Every poll type is rendered the same way: identity,
+// badges, the ballot total (or the threshold notice), the view count, and a vote
+// link to the poll page. The list page never votes in place, so no vote controls
+// are built here.
+export function renderPollRow({ poll, stats, views }: Awaited<ReturnType<typeof getPolls>>['polls'][number]): string {
+  const pollType = poll.pollType ?? stats.pollType ?? 'verdict';
+  const isChoice = pollType !== 'verdict';
+  const resultsHidden = stats.hidden === true;
+  // The threshold notice replaces the ballot total, never the link.
+  const voteTotalLine = resultsHidden
+    ? `<span class="shrink-0 whitespace-nowrap text-xs leading-[1.2] text-muted">${t('resultsHidden').replace('{n}', String(stats.threshold))}</span>`
+    : `<span class="shrink-0 whitespace-nowrap text-xs leading-[1.2] text-muted">${stats.ballots} ${isChoice ? t('ballots') : t('votes')}</span>`;
+
+  return `
+    <article class="grid grid-cols-[minmax(0,1fr)_minmax(190px,240px)] items-center gap-x-8 border-b border-border py-[22px] max-[700px]:grid-cols-1 max-[700px]:gap-y-3" data-poll-row="${poll.id}">
+      <div class="col-start-1 flex items-start justify-between gap-[18px]">
+        <div class="flex flex-wrap items-center gap-2">
+          <span class="shrink-0 font-bold tabular-nums text-muted">#${poll.id}</span>
+          <h2 class="m-0 flex-[1_1_auto] text-[1.15rem] leading-[1.5]"><a class="text-inherit no-underline hover:text-primary hover:underline focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-[3px] focus-visible:outline-primary" href="/poll/${poll.id}" data-route="/poll/${poll.id}">${escapeHtml(poll.title)}</a></h2>
+          ${renderModeBadge(poll.mode)}
+          ${renderPollTypeBadge(pollType, poll.options?.length ?? 0)}
+        </div>
+      </div>
+
+      <div class="col-start-2 row-start-1 flex items-center justify-center gap-5 max-[700px]:col-start-1">
+        ${voteTotalLine}
+        ${views ? `<span class="inline-flex shrink-0 items-center gap-1 text-xs leading-[1.2] text-muted" title="${t('views')}">${viewIconMarkup('h-3.5 w-3.5')}${views.total}</span>` : ''}
+        <a class="shrink-0 whitespace-nowrap rounded-full border border-border bg-panel px-3 py-1.5 text-xs text-ink no-underline hover:border-primary hover:text-primary max-[700px]:col-start-1" href="/poll/${poll.id}" data-route="/poll/${poll.id}">${t('vote')}</a>
+      </div>
+    </article>
+  `;
+}
 
 export async function mountHome(app: HTMLElement, page: number, bindNavigation: () => void, settings?: Record<string, any>): Promise<void> {
   const pollsPerPage = getPollsPerPage();
@@ -54,26 +74,6 @@ export async function mountHome(app: HTMLElement, page: number, bindNavigation: 
 
   const totalPages = Math.max(1, Math.ceil(openPolls / pollsPerPage));
   const currentPage = Math.min(Math.max(1, page), totalPages);
-  const tokenHash = await hashToken(createToken());
-  const pollVoteStates = new Map<number, { voted: boolean; error: string; option: VoteOption | null }>();
-  await Promise.all(pollStats.map(async ({ poll }) => {
-    let voted = hasVotedLocally(poll.id, tokenHash);
-    let error = '';
-    let option: VoteOption | null = null;
-    try {
-      const status = await getVoteStatus(poll.id, tokenHash);
-      voted ||= status.voted;
-      if (status.voted) {
-        markVotedLocally(poll.id, tokenHash);
-        // Restore the chosen verdict so a returning voter sees it highlighted
-        // even while the counts are hidden below the display threshold.
-        option = status.option;
-      }
-    } catch (statusError) {
-      error = getErrorMessage(statusError);
-    }
-    pollVoteStates.set(poll.id, { voted, error, option });
-  }));
 
   const heroTitle = settings?.hero_title || t('heroTitle');
   const heroSubtitle = settings?.hero_subtitle || t('heroBody');
@@ -134,51 +134,7 @@ export async function mountHome(app: HTMLElement, page: number, bindNavigation: 
         <section class="border-t border-border">
           ${pollStats.length === 0
     ? `<p class="py-6 text-center text-muted">${searchQuery ? t('searchNoResults') : t('noPolls')}</p>`
-    : pollStats.map(({ poll, stats, views }) => {
-            const counts = stats.counts;
-            const pollType = poll.pollType ?? stats.pollType ?? 'verdict';
-            const isChoice = pollType !== 'verdict';
-            const verdictCounts = !isChoice && counts && 'approve' in counts ? counts : null;
-            const total = verdictCounts ? verdictCounts.approve + verdictCounts.oppose + verdictCounts.neutral : 0;
-            const voteState = pollVoteStates.get(poll.id) ?? { voted: false, error: '', option: null };
-            // Voting is disabled only for a visitor who has already voted or
-            // whose vote status could not be read. The display threshold hides
-            // results; it never disables the buttons.
-            const voteDisabled = voteState.voted || Boolean(voteState.error);
-            const resultsHidden = stats.hidden === true;
-            // The threshold notice replaces the vote total, not the buttons.
-            const voteTotalLine = resultsHidden
-              ? `<span class="shrink-0 whitespace-nowrap text-xs leading-[1.2] text-muted">${t('resultsHidden').replace('{n}', String(stats.threshold))}</span>`
-              : `<span class="shrink-0 whitespace-nowrap text-xs leading-[1.2] text-muted" data-home-total="${poll.id}">${total} ${isChoice ? t('ballots') : t('votes')}</span>`;
-            return `
-              <article class="grid grid-cols-[minmax(0,1fr)_minmax(190px,240px)] items-center gap-x-8 border-b border-border py-[22px] max-[700px]:grid-cols-1 max-[700px]:gap-y-3" data-poll-row="${poll.id}">
-                <div class="col-start-1 flex items-start justify-between gap-[18px]">
-                  <div class="flex flex-wrap items-center gap-2">
-                    <span class="shrink-0 font-bold tabular-nums text-muted">#${poll.id}</span>
-                    <h2 class="m-0 flex-[1_1_auto] text-[1.15rem] leading-[1.5]"><a class="text-inherit no-underline hover:text-primary hover:underline focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-[3px] focus-visible:outline-primary" href="/poll/${poll.id}" data-route="/poll/${poll.id}">${escapeHtml(poll.title)}</a></h2>
-                    ${renderModeBadge(poll.mode)}
-                    ${renderPollTypeBadge(pollType, poll.options?.length ?? 0)}
-                  </div>
-                </div>
-
-                <div class="col-start-2 row-start-1 flex items-center justify-center gap-5 max-[700px]:col-start-1">
-                  ${voteTotalLine}
-                  ${views ? `<span class="inline-flex shrink-0 items-center gap-1 text-xs leading-[1.2] text-muted" title="${t('views')}">${viewIconMarkup('h-3.5 w-3.5')}${views.total}</span>` : ''}
-                  ${isChoice
-                    ? `<a class="shrink-0 whitespace-nowrap rounded-full border border-border bg-panel px-3 py-1.5 text-xs text-ink no-underline hover:border-primary hover:text-primary max-[700px]:col-start-1" href="/poll/${poll.id}" data-route="/poll/${poll.id}">${t('vote')}</a>`
-                    : renderVoteGroup({
-                      pollId: poll.id,
-                      counts: resultsHidden ? null : verdictCounts,
-                      hidden: resultsHidden,
-                      disabled: voteDisabled,
-                      title: voteState.voted ? t('alreadyVoted') : voteState.error || t('vote'),
-                      selected: voteState.option ?? null,
-                      homePage: true
-                    })}
-                </div>
-              </article>
-            `;
-          }).join('')}
+    : pollStats.map(renderPollRow).join('')}
         </section>
         ${renderPagination(currentPage, totalPages, (targetPage) => searchQuery
     ? `/?q=${encodeURIComponent(searchQuery)}&page=${targetPage}`
@@ -191,57 +147,4 @@ export async function mountHome(app: HTMLElement, page: number, bindNavigation: 
   `;
 
   bindNavigation();
-  document.querySelectorAll<HTMLButtonElement>('[data-home-vote]').forEach((button) => {
-    button.addEventListener('click', async () => {
-      const pollId = Number(button.dataset.pollId);
-      const option = button.dataset.option as VoteOption;
-      const state = pollVoteStates.get(pollId);
-      const pollStatsEntry = pollStats.find(({ poll }) => poll.id === pollId);
-      if (!state || !pollStatsEntry || state.voted || state.error) return;
-
-      const pollButtons = document.querySelectorAll<HTMLButtonElement>(`[data-home-vote][data-poll-id="${pollId}"]`);
-      pollButtons.forEach((voteButton) => { voteButton.disabled = true; });
-
-      try {
-        const result = await submitVote({ pollId, tokenHash, option });
-        if (!result.ok) throw new Error(result.message);
-
-        pollStatsEntry.stats.counts = result.counts;
-        pollStatsEntry.stats.hidden = result.hidden;
-        state.voted = true;
-        markVotedLocally(pollId, tokenHash);
-        const counts = result.counts && 'approve' in result.counts ? result.counts : null;
-        const pollTotal = counts ? counts.approve + counts.oppose + counts.neutral : 0;
-        totalVotes += 1;
-        const totalVotesElement = document.querySelector('[data-total-votes]');
-        if (totalVotesElement) totalVotesElement.textContent = String(totalVotes);
-        // Below the display threshold the numbers stay hidden: the chosen button
-        // is marked as selected and the group is disabled instead.
-        const voteGroup = document.querySelector<HTMLElement>(`[data-vote-group="${pollId}"]`);
-        if (voteGroup) {
-          selectVoteOption(voteGroup, option);
-          updateVoteGroup(voteGroup, counts);
-        }
-        const pollTotalElement = document.querySelector(`[data-home-total="${pollId}"]`);
-        if (pollTotalElement) pollTotalElement.textContent = counts ? `${pollTotal} ${t('votes')}` : '';
-        showToast(`${t('voteRecord')}: ${t(option)}`);
-      } catch (error) {
-        let alreadyVoted = false;
-        let message = `${t('submitFailed')}: ${getErrorMessage(error)}`;
-        try {
-          const currentStatus = await getVoteStatus(pollId, tokenHash);
-          if (currentStatus.voted) {
-            alreadyVoted = true;
-            state.voted = true;
-            markVotedLocally(pollId, tokenHash);
-            message = t('alreadyVoted');
-          }
-        } catch {
-          // Keep the original submission error if the follow-up status check fails.
-        }
-        showToast(message, alreadyVoted ? 'success' : 'error');
-        if (!alreadyVoted) pollButtons.forEach((voteButton) => { voteButton.disabled = false; });
-      }
-    });
-  });
 }

@@ -13,6 +13,11 @@ export const SESSION_COOKIE_NAME = 'chinapoll_admin_session';
 export const SESSION_TTL_SECONDS = 30 * 60;
 // Active sessions are extended at most about once per minute to limit writes.
 const SESSION_SLIDE_THRESHOLD_SECONDS = 60;
+// Admins are few, sessions last 30 minutes, and a stale admin session is a real
+// risk, so an admin holds a single active session: signing in elsewhere ends the
+// previous one. Kept as a constant because it is a deliberate policy choice, not
+// an implementation detail.
+export const ADMIN_SINGLE_SESSION = true;
 
 export interface AdminEnv {
   DB: D1Database;
@@ -81,12 +86,26 @@ export async function createSession(env: AdminEnv, adminUserId: number): Promise
   const token = toHex(crypto.getRandomValues(new Uint8Array(32)));
   const tokenHash = await sha256Hex(token);
   const now = Math.floor(Date.now() / 1000);
-  await env.DB.batch([
-    env.DB.prepare('DELETE FROM admin_sessions WHERE expires_at <= ?').bind(now),
+  // `created_at` is rounded to the hour so a session row cannot be matched
+  // against edge logs by time; `expires_at` stays exact because the sliding
+  // expiry depends on it.
+  const coarseNow = now - (now % 3600);
+  const statements = [
+    env.DB.prepare('DELETE FROM admin_sessions WHERE expires_at <= ?').bind(now)
+  ];
+  if (ADMIN_SINGLE_SESSION) {
+    // Single session per admin: the login that is being completed replaces any
+    // session this admin already had.
+    statements.push(
+      env.DB.prepare('DELETE FROM admin_sessions WHERE admin_user_id = ?').bind(adminUserId)
+    );
+  }
+  statements.push(
     env.DB.prepare(
       'INSERT INTO admin_sessions (token_hash, admin_user_id, created_at, expires_at) VALUES (?, ?, ?, ?)'
-    ).bind(tokenHash, adminUserId, now, now + SESSION_TTL_SECONDS)
-  ]);
+    ).bind(tokenHash, adminUserId, coarseNow, now + SESSION_TTL_SECONDS)
+  );
+  await env.DB.batch(statements);
   return token;
 }
 

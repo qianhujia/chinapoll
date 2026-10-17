@@ -45,11 +45,16 @@ export async function createSession(env: SessionEnv, userId: number): Promise<st
   const token = toHex(crypto.getRandomValues(new Uint8Array(32)));
   const tokenHash = await sha256Hex(token);
   const now = Math.floor(Date.now() / 1000);
+  // `created_at` is rounded to the hour so a session row cannot be matched
+  // against edge logs by time, like votes, comments, and the account-cap rows.
+  // `expires_at` stays exact: the sliding expiry depends on it and it reveals
+  // nothing beyond "active within the last 30 days".
+  const coarseNow = now - (now % 3600);
   await env.DB.batch([
     env.DB.prepare('DELETE FROM user_sessions WHERE expires_at <= ?').bind(now),
     env.DB.prepare(
       'INSERT INTO user_sessions (token_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)'
-    ).bind(tokenHash, userId, now, now + USER_SESSION_TTL_SECONDS)
+    ).bind(tokenHash, userId, coarseNow, now + USER_SESSION_TTL_SECONDS)
   ]);
   return token;
 }

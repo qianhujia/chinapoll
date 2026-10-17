@@ -30,6 +30,7 @@ import {
   escapeHtml,
   getErrorMessage,
   getQueryPage,
+  moreIconMarkup,
   renderCommentsContent,
   renderFooter,
   renderHeader,
@@ -110,6 +111,87 @@ function renderResults(results: PollResults): string {
         </div>
       `;
   }).join('')}
+    </div>
+  `;
+}
+
+// The three-dot "more actions" menu at the top right of the poll title. It hosts
+// the report entry, which opens the report dialog. A browser that already
+// reported the poll sees the confirmation note in place of the entry.
+export function renderPollMenu(alreadyReported: boolean): string {
+  const label = escapeHtml(t('moreActions'));
+  return `
+    <div class="relative shrink-0" data-poll-menu-root>
+      <button
+        type="button"
+        class="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full text-muted transition-colors hover:text-primary"
+        data-poll-menu-toggle
+        aria-expanded="false"
+        aria-haspopup="menu"
+        aria-controls="poll-menu"
+        aria-label="${label}"
+        title="${label}"
+      >
+        ${moreIconMarkup('h-5 w-5')}
+      </button>
+      <div
+        class="absolute right-0 z-20 mt-2 w-48 rounded-xl border border-border bg-panel p-1 shadow-card"
+        id="poll-menu"
+        role="menu"
+        aria-label="${label}"
+        data-poll-menu
+        hidden
+      >
+        ${reportMenuEntryMarkup(alreadyReported)}
+      </div>
+      <div class="fixed inset-0 z-10" data-poll-menu-backdrop hidden></div>
+    </div>
+  `;
+}
+
+// The entries of the poll menu. Reporting is the only action for now, so a
+// browser that already reported the poll sees the confirmation note instead.
+export function reportMenuEntryMarkup(alreadyReported: boolean): string {
+  if (alreadyReported) {
+    return `<p class="m-0 px-3 py-2 text-sm text-muted" data-report-already>${t('reportAlreadySent')}</p>`;
+  }
+
+  return `<button
+          type="button"
+          class="w-full cursor-pointer rounded-lg px-3 py-2 text-left text-sm text-ink transition-colors hover:bg-primary-soft hover:text-primary"
+          role="menuitem"
+          data-report-open
+        >${t('reportLink')}</button>`;
+}
+
+// The report dialog. It is built when the report entry is chosen and removed
+// again on cancel or once the report is sent, so the page itself never carries a
+// trailing report card. The page supplies the overlay that centres this card.
+export function reportModalMarkup(): string {
+  return `
+    <div class="grid max-h-full w-full max-w-[520px] gap-3 overflow-auto rounded-[22px] border border-border bg-panel p-6 shadow-card" role="dialog" aria-modal="true" aria-labelledby="report-modal-title" data-report-dialog>
+      <form class="grid gap-3" data-report-form>
+        <h2 class="m-0 text-lg font-bold" id="report-modal-title">${t('reportTitle')}</h2>
+        <fieldset class="m-0 grid gap-2 border-0 p-0">
+          <legend class="sr-only">${t('reportTitle')}</legend>
+          ${REPORT_REASONS.map((reason) => `
+            <label class="flex cursor-pointer items-center gap-2.5 rounded-[14px] border border-border bg-[#f9fbff] px-3.5 py-2.5">
+              <input type="radio" name="report-reason" value="${reason}" data-report-reason>
+              <span>${t(REPORT_REASON_LABELS[reason])}</span>
+            </label>
+          `).join('')}
+        </fieldset>
+        <div class="grid gap-1" data-report-note-wrap hidden>
+          <textarea class="w-full resize-y rounded-[14px] border border-border bg-[#f9fbff] px-3.5 py-3" data-report-note maxlength="300" rows="3" placeholder="${t('reportNotePlaceholder')}"></textarea>
+          <div class="text-right text-xs text-muted"><span data-report-note-count>0</span>/300</div>
+        </div>
+        ${turnstileSiteKey() ? '<div class="flex justify-center" data-turnstile-report></div>' : ''}
+        <div class="flex flex-wrap items-center justify-end gap-2.5">
+          <button class="cursor-pointer rounded-full border border-border bg-panel px-4 py-2.5 text-sm text-ink hover:border-primary hover:text-primary" type="button" data-report-cancel>${t('reportCancel')}</button>
+          <button class="cursor-pointer rounded-full border border-primary bg-primary px-4 py-2.5 text-white disabled:cursor-not-allowed disabled:opacity-60" type="button" data-report-submit disabled>${t('reportSubmit')}</button>
+        </div>
+        <p class="m-0 min-h-5 text-center text-[0.9rem] text-muted" role="status" aria-live="polite" data-report-status></p>
+      </form>
     </div>
   `;
 }
@@ -250,11 +332,14 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
 
       <main class="grid gap-5">
         <section class="rounded-[22px] border border-border bg-panel p-6 shadow-card">
-          <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
-            <span class="shrink-0 font-bold tabular-nums text-muted">#${poll.id}</span>
-            <h1 class="m-0 text-2xl font-bold">${escapeHtml(poll.title)}</h1>
-            ${renderModeBadge(poll.mode)}
-            ${renderPollTypeBadge(pollType)}
+          <div class="flex items-start justify-between gap-4">
+            <div class="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
+              <span class="shrink-0 font-bold tabular-nums text-muted">#${poll.id}</span>
+              <h1 class="m-0 text-2xl font-bold">${escapeHtml(poll.title)}</h1>
+              ${renderModeBadge(poll.mode)}
+              ${renderPollTypeBadge(pollType)}
+            </div>
+            ${renderPollMenu(alreadyReported)}
           </div>
 
           ${poll.description ? `<p class="mt-3 mb-0 whitespace-pre-wrap text-muted">${escapeHtml(poll.description)}</p>` : ''}
@@ -304,33 +389,6 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
         <section class="rounded-[22px] border border-border bg-panel p-6 shadow-card">
           <h2 class="mb-3.5 text-xl font-bold">${t('commentsTitle')}</h2>
           <div id="comments-content">${commentsContent}</div>
-        </section>
-
-        <section class="rounded-[22px] border border-border bg-panel p-6 shadow-card" data-report-root>
-          <p class="m-0 text-center text-sm text-muted" data-report-already ${alreadyReported ? '' : 'hidden'}>${t('reportAlreadySent')}</p>
-          <div class="text-center" data-report-collapsed ${alreadyReported ? 'hidden' : ''}>
-            <button class="cursor-pointer text-sm text-primary hover:underline" type="button" data-report-toggle>${t('reportLink')}</button>
-          </div>
-          <form class="grid gap-3" data-report-form hidden>
-            <h2 class="m-0 text-lg font-bold">${t('reportTitle')}</h2>
-            <fieldset class="m-0 grid gap-2 border-0 p-0">
-              <legend class="sr-only">${t('reportTitle')}</legend>
-              ${REPORT_REASONS.map((reason) => `
-                <label class="flex cursor-pointer items-center gap-2.5 rounded-[14px] border border-border bg-[#f9fbff] px-3.5 py-2.5">
-                  <input type="radio" name="report-reason" value="${reason}" data-report-reason>
-                  <span>${t(REPORT_REASON_LABELS[reason])}</span>
-                </label>
-              `).join('')}
-            </fieldset>
-            <div class="grid gap-1" data-report-note-wrap hidden>
-              <textarea class="w-full resize-y rounded-[14px] border border-border bg-[#f9fbff] px-3.5 py-3" data-report-note maxlength="300" rows="3" placeholder="${t('reportNotePlaceholder')}"></textarea>
-              <div class="text-right text-xs text-muted"><span data-report-note-count>0</span>/300</div>
-            </div>
-            ${turnstileSiteKey() ? '<div class="flex justify-center" data-turnstile-report></div>' : ''}
-            <button class="mx-auto cursor-pointer rounded-full border border-primary bg-primary px-4 py-2.5 text-white disabled:cursor-not-allowed disabled:opacity-60" type="button" data-report-submit disabled>${t('reportSubmit')}</button>
-            <button class="mx-auto cursor-pointer text-sm text-muted hover:text-primary" type="button" data-report-cancel>${t('reportCancel')}</button>
-            <p class="m-0 min-h-5 text-center text-[0.9rem] text-muted" role="status" aria-live="polite" data-report-status></p>
-          </form>
         </section>
       </main>
       ${renderToast()}
@@ -549,78 +607,109 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
   const voteWidget = document.querySelector<HTMLElement>('[data-turnstile-vote]');
   if (voteWidget) await renderTurnstile('vote', voteWidget);
 
-  // Report form: opens inline, reveals the note field only for "Other", and
-  // remembers a submitted report in localStorage so the link is replaced.
-  const reportForm = document.querySelector<HTMLFormElement>('[data-report-form]');
-  const reportToggle = document.querySelector<HTMLButtonElement>('[data-report-toggle]');
-  const reportCollapsed = document.querySelector<HTMLElement>('[data-report-collapsed]');
-  const reportAlready = document.querySelector<HTMLElement>('[data-report-already]');
-  const reportSubmit = document.querySelector<HTMLButtonElement>('[data-report-submit]');
-  const reportCancel = document.querySelector<HTMLButtonElement>('[data-report-cancel]');
-  const reportNoteWrap = document.querySelector<HTMLElement>('[data-report-note-wrap]');
-  const reportNote = document.querySelector<HTMLTextAreaElement>('[data-report-note]');
-  const reportNoteCount = document.querySelector<HTMLElement>('[data-report-note-count]');
-  const reportStatus = document.querySelector<HTMLElement>('[data-report-status]');
-  const reportRadios = Array.from(document.querySelectorAll<HTMLInputElement>('[data-report-reason]'));
-
-  const selectedReportReason = (): ReportReason | null => {
-    const checked = reportRadios.find((radio) => radio.checked);
-    return checked ? checked.value as ReportReason : null;
+  // The three-dot poll menu: the toggle opens the dropdown that hosts the report
+  // entry, the backdrop closes it on a click anywhere outside, and Escape closes
+  // it from the toggle or an entry.
+  const menuToggle = document.querySelector<HTMLButtonElement>('[data-poll-menu-toggle]');
+  const menuPanel = document.querySelector<HTMLElement>('[data-poll-menu]');
+  const menuBackdrop = document.querySelector<HTMLElement>('[data-poll-menu-backdrop]');
+  const setMenuOpen = (open: boolean) => {
+    if (menuPanel) menuPanel.hidden = !open;
+    if (menuBackdrop) menuBackdrop.hidden = !open;
+    menuToggle?.setAttribute('aria-expanded', String(open));
   };
-  const updateReportNoteVisibility = () => {
-    const isOther = selectedReportReason() === 'other';
-    if (reportNoteWrap) reportNoteWrap.hidden = !isOther;
-    if (!isOther && reportNote) reportNote.value = '';
-    if (reportNoteCount) reportNoteCount.textContent = String(reportNote?.value.length ?? 0);
-  };
+  const closeMenu = () => setMenuOpen(false);
+  menuToggle?.addEventListener('click', () => setMenuOpen(menuPanel?.hidden !== false));
+  menuBackdrop?.addEventListener('click', closeMenu);
+  for (const element of [menuToggle, menuPanel]) {
+    element?.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') closeMenu();
+    });
+  }
 
-  reportToggle?.addEventListener('click', async () => {
-    if (reportCollapsed) reportCollapsed.hidden = true;
-    if (reportForm) reportForm.hidden = false;
-    const widget = document.querySelector<HTMLElement>('[data-turnstile-report]');
-    if (widget) await renderTurnstile('report', widget);
-  });
-  reportCancel?.addEventListener('click', () => {
-    if (reportForm) {
-      reportForm.hidden = true;
-      reportForm.reset();
-    }
-    if (reportStatus) reportStatus.textContent = '';
-    if (reportNoteWrap) reportNoteWrap.hidden = true;
-    if (reportSubmit) reportSubmit.disabled = true;
-    if (reportCollapsed) reportCollapsed.hidden = false;
-    resetTurnstile('report');
-  });
-  reportRadios.forEach((radio) => radio.addEventListener('change', () => {
-    if (reportSubmit) reportSubmit.disabled = selectedReportReason() === null;
-    updateReportNoteVisibility();
-  }));
-  reportNote?.addEventListener('input', () => {
-    if (reportNoteCount) reportNoteCount.textContent = String(reportNote.value.length);
-  });
-  reportSubmit?.addEventListener('click', async () => {
-    const reason = selectedReportReason();
-    if (!reason) return;
-    reportSubmit.disabled = true;
-    if (reportStatus) reportStatus.textContent = '';
-    try {
-      await submitReport({
-        pollId: poll.id,
-        reason,
-        note: reason === 'other' ? (reportNote?.value.trim() ?? '') : undefined,
-        turnstileToken: turnstileToken('report')
-      });
-      markReportedLocally(poll.id);
-      if (reportForm) reportForm.hidden = true;
-      if (reportCollapsed) reportCollapsed.hidden = true;
-      if (reportAlready) reportAlready.hidden = false;
-      showToast(t('reportThanks'));
-    } catch (error) {
-      if (reportStatus) reportStatus.textContent = `${t('submitFailed')}: ${getErrorMessage(error)}`;
-      reportSubmit.disabled = false;
+  // The report dialog is built when the report entry is chosen and removed again
+  // on cancel or once the report is sent, so no report card is appended to the
+  // page. The note field is offered only for "Other", and a submitted report is
+  // remembered in localStorage so the menu entry becomes the confirmation note.
+  const openReportModal = async () => {
+    closeMenu();
+    if (app.querySelector('[data-report-modal]')) return;
+
+    const host = document.createElement('div');
+    host.className = 'fixed inset-0 z-30 flex items-center justify-center bg-black/40 p-4';
+    host.dataset.reportModal = '1';
+    host.innerHTML = reportModalMarkup();
+    app.appendChild(host);
+
+    const submit = host.querySelector<HTMLButtonElement>('[data-report-submit]');
+    const cancel = host.querySelector<HTMLButtonElement>('[data-report-cancel]');
+    const noteWrap = host.querySelector<HTMLElement>('[data-report-note-wrap]');
+    const note = host.querySelector<HTMLTextAreaElement>('[data-report-note]');
+    const noteCount = host.querySelector<HTMLElement>('[data-report-note-count]');
+    const status = host.querySelector<HTMLElement>('[data-report-status]');
+    const radios = Array.from(host.querySelectorAll<HTMLInputElement>('[data-report-reason]'));
+
+    const selectedReason = (): ReportReason | null => {
+      const checked = radios.find((radio) => radio.checked);
+      return checked ? checked.value as ReportReason : null;
+    };
+    const close = () => {
+      host.remove();
       resetTurnstile('report');
-    }
-  });
+    };
+    const syncNote = () => {
+      const isOther = selectedReason() === 'other';
+      if (noteWrap) noteWrap.hidden = !isOther;
+      if (!isOther && note) note.value = '';
+      if (noteCount) noteCount.textContent = String(note?.value.length ?? 0);
+    };
+
+    radios.forEach((radio) => radio.addEventListener('change', () => {
+      if (submit) submit.disabled = selectedReason() === null;
+      syncNote();
+    }));
+    note?.addEventListener('input', () => {
+      if (noteCount) noteCount.textContent = String(note.value.length);
+    });
+    cancel?.addEventListener('click', close);
+    // A click on the dimmed area and Escape both dismiss the dialog.
+    host.addEventListener('click', (event) => {
+      if (event.target === host) close();
+    });
+    host.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') close();
+    });
+    submit?.addEventListener('click', async () => {
+      const reason = selectedReason();
+      if (!reason) return;
+      submit.disabled = true;
+      if (status) status.textContent = '';
+      try {
+        await submitReport({
+          pollId: poll.id,
+          reason,
+          note: reason === 'other' ? (note?.value.trim() ?? '') : undefined,
+          turnstileToken: turnstileToken('report')
+        });
+        markReportedLocally(poll.id);
+        close();
+        // Reporting is the only action the menu offers, so its entry becomes the
+        // confirmation note.
+        if (menuPanel) menuPanel.innerHTML = reportMenuEntryMarkup(true);
+        showToast(t('reportThanks'));
+      } catch (error) {
+        if (status) status.textContent = `${t('submitFailed')}: ${getErrorMessage(error)}`;
+        submit.disabled = false;
+        resetTurnstile('report');
+      }
+    });
+
+    const widget = host.querySelector<HTMLElement>('[data-turnstile-report]');
+    if (widget) await renderTurnstile('report', widget);
+    radios[0]?.focus();
+  };
+  menuPanel?.querySelector<HTMLButtonElement>('[data-report-open]')
+    ?.addEventListener('click', () => { void openReportModal(); });
 
   bindNavigation();
 }
