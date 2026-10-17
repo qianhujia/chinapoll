@@ -40,6 +40,23 @@ Note: `ip_prefix` was removed; no network value is stored for a poll.
 
 Note: `ip_prefix` and `ts_bucket` were removed, and comments carry no owner.
 
+## poll_reports
+
+| Column | Contents | Readers | Retention |
+| --- | --- | --- | --- |
+| id | internal report id | none (never returned) | 90 days after resolution |
+| poll_id | poll reference | Admin (aggregated) | as above |
+| reason | one of eight reason codes | Admin (aggregated) | as above |
+| note | optional free text, only with reason `other` | Admin | as above |
+| created_at | hour-coarsened timestamp | none | as above |
+| resolved_at | hour-coarsened resolution time | Admin | as above |
+| resolution | 1 dismissed, 2 action taken | Admin | as above |
+
+Note: a report carries **no reporter identifier** — no address, no network
+bucket, no user id — and the report id is never returned by the public API. Rate
+limiting uses the keyed daily network hash in the Durable Object, which is never
+written here. Reports are removed with the poll by the foreign key cascade.
+
 ## users
 
 | Column | Contents | Readers | Retention |
@@ -101,3 +118,5 @@ IP address. Read only by the admin Worker.
 - Per-network account-cap counters only as keyed hashes; the raw address cannot
   be recovered without `SERVER_HMAC_KEY`. Because the cap hash rotates per calendar
   month, rows sharing a hash are linkable within one month.
+- Reports reveal nothing about who filed them: `poll_reports` stores no reporter
+  identifier and only an hour-coarsened timestamp.

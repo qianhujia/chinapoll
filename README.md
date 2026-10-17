@@ -17,9 +17,9 @@ This starts:
 
 The local start command builds the frontend and Worker before starting them without hot reload. To apply code or style changes, stop the running processes and start `npm run dev` again.
 
-Application settings are stored in the local D1 `settings` table and served to the front end by `/api/settings/public`. The `settings` table is the single source of truth for feature flags: read-only mode (`read_only_mode`), Turnstile (`turnstile_enable` plus the private `turnstile_secret_key`, which is never exposed by the public endpoint), rate limits (`vote_rate_limit`, `comment_rate_limit`, `proposal_rate_limit` in `"<count>/<unit>"` format with unit `w|d|h|m|s`), and the homepage hero (`hero_title`, `hero_subtitle`, `hero_background_color` — a CSS color (hex, rgb/a, hsl/a, or named) or CSS gradient; empty means no background). `.dev.vars` still holds local Worker secrets, and Turnstile is disabled locally by default (`turnstile_enable=false`).
+Application settings are stored in the local D1 `settings` table and served to the front end by `/api/settings/public`. The `settings` table is the single source of truth for feature flags: read-only mode (`read_only_mode`), Turnstile (`turnstile_enable` plus the private `turnstile_secret_key`, which is never exposed by the public endpoint), rate limits (`vote_rate_limit`, `comment_rate_limit`, `proposal_rate_limit`, `report_rate_limit` in `"<count>/<unit>"` format with unit `w|d|h|m|s`), and the homepage hero (`hero_title`, `hero_subtitle`, `hero_background_color` — a CSS color (hex, rgb/a, hsl/a, or named) or CSS gradient; empty means no background). `.dev.vars` still holds local Worker secrets, and Turnstile is disabled locally by default (`turnstile_enable=false`).
 
-Public application settings use these self-explanatory keys: `default_locale` (`en`, `zh-CN`, or `zh-TW`), `site_name`, `site_slogan`, `data_repository_url`, `polls_per_page`, `comments_per_page`, `page_max_width_px`, `hero_title`, `hero_subtitle`, `hero_background_color`, `read_only_mode`, `turnstile_enable`, `turnstile_site_key`, `min_votes_to_display`, `vote_rate_limit`, `comment_rate_limit`, and `proposal_rate_limit`. Page sizes are limited to 1–100; the page width is in pixels; `min_votes_to_display` (default 10) hides vote totals until a poll reaches that many votes. Missing or invalid settings fall back to built-in defaults. The locale supports `en`, `zh-CN`, and `zh-TW`; translations are loaded from `public/i18n/en.json`, `public/i18n/zh.json`, and `public/i18n/zh-TW.json`.
+Public application settings use these self-explanatory keys: `default_locale` (`en`, `zh-CN`, or `zh-TW`), `site_name`, `site_slogan`, `data_repository_url`, `polls_per_page`, `comments_per_page`, `page_max_width_px`, `hero_title`, `hero_subtitle`, `hero_background_color`, `read_only_mode`, `turnstile_enable`, `turnstile_site_key`, `min_votes_to_display`, `report_rate_limit`, `report_auto_hide_threshold`, `report_auto_hide_priority_threshold`, `vote_rate_limit`, `comment_rate_limit`, and `proposal_rate_limit`. Page sizes are limited to 1–100; the page width is in pixels; `min_votes_to_display` (default 10) hides vote totals until a poll reaches that many votes. Missing or invalid settings fall back to built-in defaults. The locale supports `en`, `zh-CN`, and `zh-TW`; translations are loaded from `public/i18n/en.json`, `public/i18n/zh.json`, and `public/i18n/zh-TW.json`.
 
 User-account settings are also stored in the `settings` table and served by the same endpoint: `user_poll_delay_hours` (default 48) and `user_comment_delay_hours` (default 24) set how long a new account must wait before it can submit a poll or post a comment, `max_accounts_per_ip` (default 4) caps how many accounts one anonymized network bucket may create, `login_max_failed_attempts` (default 5) and `login_lock_minutes` (default 15) control the lock after repeated failed sign-ins, and `login_rate_limit` (default `10/h`) and `register_rate_limit` (default `5/d`) rate limit sign-in and sign-up attempts per network bucket. Delay values are whole hours; the rate limits use the shared `"<count>/<unit>"` format with unit `w|d|h|m|s`. `login_badge_enable` (default `false`) is an optional navbar flag: when set to `true`, a small "Optional" badge is shown on the top-right corner of the login and sign-up links next to the header search to make clear that signing in is not required. `auto_approve_polls` (default `false`) controls moderation: when `true`, a submitted poll is published immediately; when `false`, it stays pending until an admin approves it from the dashboard's Polls tab.
 
@@ -59,13 +59,35 @@ This keeps schema changes reproducible across local development. Future schema u
 
 Review and publish pending submissions from the dashboard's Polls tab: set a poll's status to `open` to approve it or to `closed` to reject it. A poll keeps the same ID from submission through approval.
 
+## Poll reports
+
+Visitors can report a poll from the poll page without an account:
+`POST /api/polls/:id/report` accepts `{ "reason": "<label>", "note"?: "<text>" }`.
+The reason labels are `spam`, `inappropriate`, `misleading`, `copyright`,
+`personal_info`, `harassment`, `illegal`, and `other`; a note is accepted only
+with `other` and is limited to 300 characters. The endpoint is rate limited with
+`report_rate_limit` (default `3/d`) using the keyed, daily-rotated network hash,
+and it never stores or returns any reporter identifier.
+
+A report stores no address, network bucket, user id, or exact timestamp: the
+creation time is coarsened to the hour, and the report id is not returned. Codes
+`personal_info`, `harassment`, and `illegal` are treated as high priority. After
+each report the open-report counts are checked against `report_auto_hide_threshold`
+(default 5) and `report_auto_hide_priority_threshold` (default 2); when either is
+reached the poll is set back to pending with `reviewed_at` cleared so it leaves
+public listings until an admin reviews it, and an audit entry with action
+`poll.auto_hidden` is written. Setting a threshold to `0` disables that rule.
+
+Retention: resolved reports are deleted 90 days after `resolved_at`, and reports
+are removed with the poll by the foreign key cascade.
+
 ## Admin Worker
 
 The admin tools are packaged as a standalone Cloudflare Worker that shares the
 main application's D1 database. It serves a browser dashboard plus a JSON API for
-reviewing submissions, adjusting polls, moderating comments, managing admin
+reviewing submissions, adjusting polls, reviewing poll reports, moderating comments, managing admin
 users, managing public accounts, reviewing an audit log, and updating settings. Each dashboard view has a
-dedicated URL (`/polls`, `/comments`, `/users`, `/admins`, `/audit`, `/settings`, and
+dedicated URL (`/polls`, `/reports`, `/comments`, `/users`, `/admins`, `/audit`, `/settings`, and
 `/overview`). See `admin/README.md` for the full endpoint reference.
 
 ```bash
@@ -100,9 +122,12 @@ records admin actions without client IP addresses. Deploy with
   D1 and the RateLimiter Durable Object. They cover the vote path, threshold
   hiding, rate-limit exhaustion and reset, the account comment delay, CSRF
   rejection, the cron snapshot chain including the close-hour terminal snapshot,
-  the Content Security Policy on a deep link, and a full `verify` of a chain
-  longer than one API page. The migration is applied to the isolated test database
-  from `migrations/0001_initial.sql`.
+  the Content Security Policy on a deep link, a full `verify` of a chain
+  longer than one API page, poll reporting (validation, the hourly timestamp, the
+  report rate limit, and both auto-hide thresholds), and the admin report list and
+  resolve handlers. Every migration is applied to the isolated test database in
+  order (`migrations/0001_initial.sql`, then
+  `migrations/0002_reports_and_views.sql`).
 
 ```bash
 npm test              # unit + integration

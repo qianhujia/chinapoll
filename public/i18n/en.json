@@ -185,5 +185,20 @@
   "accountDeleteConfirm": "Delete your account permanently?",
   "accountDeleted": "Account deleted.",
   "accountPasswordPrompt": "Enter your current password to continue",
-  "siteNotConfigured": "This site is not fully configured yet"
+  "siteNotConfigured": "This site is not fully configured yet",
+  "reportLink": "Report this poll",
+  "reportTitle": "Why are you reporting this poll?",
+  "reportReasonSpam": "Spam or promotional content",
+  "reportReasonInappropriate": "Inappropriate or offensive content",
+  "reportReasonMisleading": "Misleading or false information",
+  "reportReasonCopyright": "Copyright infringement",
+  "reportReasonPersonalInfo": "Personal information or doxxing",
+  "reportReasonHarassment": "Harassment or hate speech",
+  "reportReasonIllegal": "Illegal or harmful content",
+  "reportReasonOther": "Other",
+  "reportNotePlaceholder": "Tell us more (optional, up to 300 characters)",
+  "reportSubmit": "Send report",
+  "reportCancel": "Cancel",
+  "reportThanks": "Thank you. The report has been sent for review.",
+  "reportAlreadySent": "You reported this poll"
 }

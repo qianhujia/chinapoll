@@ -185,5 +185,20 @@
   "accountDeleteConfirm": "确定要永久删除账号吗？",
   "accountDeleted": "账号已删除。",
   "accountPasswordPrompt": "请输入当前密码以继续",
-  "siteNotConfigured": "本站尚未完成配置"
+  "siteNotConfigured": "本站尚未完成配置",
+  "reportLink": "举报此投票",
+  "reportTitle": "你为什么要举报此投票？",
+  "reportReasonSpam": "垃圾信息或推广内容",
+  "reportReasonInappropriate": "不当或冒犯性内容",
+  "reportReasonMisleading": "误导性或虚假信息",
+  "reportReasonCopyright": "侵犯版权",
+  "reportReasonPersonalInfo": "个人信息或人肉搜索",
+  "reportReasonHarassment": "骚扰或仇恨言论",
+  "reportReasonIllegal": "违法或有害内容",
+  "reportReasonOther": "其他",
+  "reportNotePlaceholder": "补充说明（可选，最多 300 字）",
+  "reportSubmit": "发送举报",
+  "reportCancel": "取消",
+  "reportThanks": "谢谢。举报已提交审核。",
+  "reportAlreadySent": "你已举报此投票"
 }

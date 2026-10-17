@@ -6,6 +6,15 @@ import { normalizeRecoveryCode } from '../worker/services/recovery';
 import { checkAccountAge, validateUserPassword } from '../worker/services/users';
 import { enforceSameOrigin } from '../worker/services/csrf';
 import { validateProposal } from '../worker/api/proposal';
+import {
+  getPollReportReasonCode,
+  getPollReportReasonLabel,
+  getReportResolutionCode,
+  getReportResolutionLabel,
+  isPriorityReportReason,
+  PollReportReason,
+  ReportResolution
+} from '../worker/enums';
 
 const KEY = '1f2e3d4c5b6a798807162534435261708f9e0d1c2b3a495867758493a2b1c0d1';
 
@@ -189,5 +198,32 @@ describe('validateProposal', () => {
       endAt: '2026-10-19T00:00:00Z'
     }, now);
     expect(result.ok).toBe(true);
+  });
+});
+
+describe('poll report enums', () => {
+  it('round-trips every reason label and code', () => {
+    const labels = ['spam', 'inappropriate', 'misleading', 'copyright', 'personal_info', 'harassment', 'illegal', 'other'] as const;
+    labels.forEach((label, index) => {
+      const code = getPollReportReasonCode(label);
+      expect(code).toBe(index + 1);
+      expect(getPollReportReasonLabel(code!)).toBe(label);
+    });
+    expect(getPollReportReasonCode('nonsense')).toBeNull();
+  });
+
+  it('treats codes 5, 6, and 7 as high priority', () => {
+    expect(isPriorityReportReason(PollReportReason.PersonalInfo)).toBe(true);
+    expect(isPriorityReportReason(PollReportReason.Harassment)).toBe(true);
+    expect(isPriorityReportReason(PollReportReason.Illegal)).toBe(true);
+    expect(isPriorityReportReason(PollReportReason.Spam)).toBe(false);
+    expect(isPriorityReportReason(PollReportReason.Other)).toBe(false);
+  });
+
+  it('maps resolution codes', () => {
+    expect(getReportResolutionCode('dismissed')).toBe(ReportResolution.Dismissed);
+    expect(getReportResolutionCode('action_taken')).toBe(ReportResolution.ActionTaken);
+    expect(getReportResolutionCode('nope')).toBeNull();
+    expect(getReportResolutionLabel(ReportResolution.ActionTaken)).toBe('action_taken');
   });
 });

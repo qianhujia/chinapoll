@@ -6,8 +6,10 @@ export const scriptCore = `  var app = document.getElementById('app');
     user: null,
     session: null,
     turnstile: { enabled: false, siteKey: '' },
+    publicSiteOrigin: '',
     overview: null,
     polls: null,
+    reports: null,
     comments: null,
     users: null,
     admins: null,
@@ -15,6 +17,7 @@ export const scriptCore = `  var app = document.getElementById('app');
     settings: null,
     pollStatus: 'all',
     pollQuery: '',
+    reportStatus: 'open',
     commentQuery: '',
     commentPollId: '',
     userStatus: 'all',
@@ -22,6 +25,7 @@ export const scriptCore = `  var app = document.getElementById('app');
     auditAction: '',
     auditQuery: '',
     pollPage: 1,
+    reportPage: 1,
     commentPage: 1,
     userPage: 1,
     auditPage: 1
@@ -43,8 +47,8 @@ export const scriptCore = `  var app = document.getElementById('app');
 
   // Each dashboard view has a dedicated URL. The overview is also reachable at
   // "/overview" as an alias of "/".
-  var VIEW_PATHS = { overview: '/', polls: '/polls', comments: '/comments', users: '/users', admins: '/admins', audit: '/audit', settings: '/settings' };
-  var PATH_VIEWS = { '/': 'overview', '/overview': 'overview', '/polls': 'polls', '/comments': 'comments', '/users': 'users', '/admins': 'admins', '/audit': 'audit', '/settings': 'settings' };
+  var VIEW_PATHS = { overview: '/', polls: '/polls', reports: '/reports', comments: '/comments', users: '/users', admins: '/admins', audit: '/audit', settings: '/settings' };
+  var PATH_VIEWS = { '/': 'overview', '/overview': 'overview', '/polls': 'polls', '/reports': 'reports', '/comments': 'comments', '/users': 'users', '/admins': 'admins', '/audit': 'audit', '/settings': 'settings' };
 
   function viewFromPath(pathname) {
     var path = pathname || '/';

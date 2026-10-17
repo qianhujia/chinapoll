@@ -1,5 +1,27 @@
 export type VoteOption = 'approve' | 'oppose' | 'neutral';
 
+// Reasons a visitor can report a poll, in the order they are shown.
+export type ReportReason =
+  | 'spam'
+  | 'inappropriate'
+  | 'misleading'
+  | 'copyright'
+  | 'personal_info'
+  | 'harassment'
+  | 'illegal'
+  | 'other';
+
+export const REPORT_REASONS: readonly ReportReason[] = [
+  'spam',
+  'inappropriate',
+  'misleading',
+  'copyright',
+  'personal_info',
+  'harassment',
+  'illegal',
+  'other'
+];
+
 export interface PollSummary {
   id: number;
   title: string;
@@ -101,6 +123,38 @@ export async function getPolls(page: number, pageSize: number, query = ''): Prom
 export async function getPoll(pollId: number): Promise<PollSummary> {
   const response = await fetchJson<{ poll: PollSummary }>(`/api/polls/${pollId}`);
   return response.poll;
+}
+
+export async function submitReport(payload: {
+  pollId: number;
+  reason: ReportReason;
+  note?: string;
+  turnstileToken?: string;
+}): Promise<{ ok: boolean }> {
+  return fetchJson(`/api/polls/${payload.pollId}/report`, {
+    method: 'POST',
+    body: JSON.stringify({
+      reason: payload.reason,
+      note: payload.note || undefined,
+      turnstileToken: payload.turnstileToken || undefined
+    })
+  });
+}
+
+export function hasReportedLocally(pollId: number): boolean {
+  try {
+    return localStorage.getItem(`chinapoll.reported.${pollId}`) === '1';
+  } catch {
+    return false;
+  }
+}
+
+export function markReportedLocally(pollId: number): void {
+  try {
+    localStorage.setItem(`chinapoll.reported.${pollId}`, '1');
+  } catch {
+    // Ignore storage failures.
+  }
 }
 
 export async function getComments(pollId: number, page: number, pageSize: number): Promise<CommentsResponse> {

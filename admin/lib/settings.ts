@@ -53,6 +53,7 @@ export function validateSettingValue(key: string, value: string): SettingValidat
     case 'vote_rate_limit':
     case 'comment_rate_limit':
     case 'proposal_rate_limit':
+    case 'report_rate_limit':
     case 'login_rate_limit':
     case 'register_rate_limit': {
       const normalized = value.trim().toLowerCase();
@@ -102,6 +103,16 @@ export function validateSettingValue(key: string, value: string): SettingValidat
     case 'min_votes_to_display':
       if (!/^\d+$/.test(value) || Number(value) > 1000) {
         return { ok: false, error: 'min_votes_to_display must be an integer from 0 to 1000.' };
+      }
+      break;
+    case 'report_auto_hide_threshold':
+      if (!/^\d+$/.test(value) || Number(value) > 1000) {
+        return { ok: false, error: 'report_auto_hide_threshold must be an integer from 0 to 1000.' };
+      }
+      break;
+    case 'report_auto_hide_priority_threshold':
+      if (!/^\d+$/.test(value) || Number(value) > 1000) {
+        return { ok: false, error: 'report_auto_hide_priority_threshold must be an integer from 0 to 1000.' };
       }
       break;
     case 'turnstile_site_key':

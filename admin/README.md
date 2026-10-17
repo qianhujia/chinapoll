@@ -17,6 +17,7 @@ an audit log, and update application settings.
 | `api/audit.ts` | Read-only audit log |
 | `api/overview.ts` | Aggregate counts for the dashboard |
 | `api/polls.ts` | List polls, review pending submissions, and change poll status |
+| `api/reports.ts` | List polls with reports and resolve their open reports |
 | `api/users.ts` | List and manage public user accounts (disable, unlock, delete) |
 | `api/settings.ts` | List, validate, and update application settings |
 | `services/turnstile.ts` | Turnstile configuration and token verification |
@@ -44,6 +45,11 @@ The same consolidated migration also creates the `users`, `user_sessions`, and
 `auth_attempts` tables that back public accounts; the Users tab in the dashboard
 manages rows in `users`.
 
+The Reports tab reads the `poll_reports` table and the view counters read the
+`poll_views` table, both created by `migrations/0002_reports_and_views.sql`, which
+also adds the `views` column to `stats_snapshots`. That migration contains schema
+changes only.
+
 Apply it with the project migration command:
 
 ```bash
@@ -60,6 +66,7 @@ deploying.
 | --- | --- | --- |
 | `TURNSTILE_SITE_KEY` | No | Public Turnstile site key rendered on the login form |
 | `ADMIN_ORIGIN` | No | Extra origin allowed for cookie-authenticated mutations |
+| `PUBLIC_SITE_ORIGIN` | No | Origin of the public site, used to link a report row to its poll (for example `https://chinapoll.org`) |
 
 Turnstile verification runs only when the `turnstile_enable` setting is `true`
 and both the `turnstile_secret_key` setting and `TURNSTILE_SITE_KEY` are present,
@@ -114,6 +121,8 @@ login endpoint) or an `Authorization: Bearer <session-token>` header.
 | `GET` | `/api/admin/overview` | Dashboard counts and recent submissions |
 | `GET` | `/api/admin/polls` | List polls including pending submissions (`status`, `page`, `pageSize`, `q`) |
 | `POST` | `/api/admin/polls/:id/status` | Set poll status (`{ "status": "open" }`) |
+| `GET` | `/api/admin/reports` | List polls with reports, priority first (`status=open\|resolved\|all`, `page`, `pageSize`) |
+| `POST` | `/api/admin/reports/:pollId/resolve` | Resolve every open report for a poll (`{ "resolution": "dismissed" \| "action_taken" }`) |
 | `GET` | `/api/admin/comments` | List comments (`pollId`, `page`, `pageSize`, `q`) |
 | `DELETE` | `/api/admin/comments/:id` | Delete a comment |
 | `GET` | `/api/admin/users` | List public users (`status`, `page`, `pageSize`, `q`) |
@@ -139,7 +148,7 @@ active admin cannot be removed.
 ### Dashboard URLs
 
 The dashboard is a single page that gives every view its own URL: `/overview`
-(also `/`), `/polls`, `/comments`, `/users`, `/admins`, `/audit`, and
+(also `/`), `/polls`, `/reports`, `/comments`, `/users`, `/admins`, `/audit`, and
 `/settings`. The sidebar links are real anchors, and switching views updates the address bar, so
 views can be bookmarked, shared, refreshed, and reached with the browser back and
 forward buttons. The Worker serves the same dashboard HTML for each of these
@@ -153,8 +162,23 @@ The audit log is visible to super admins only. Every state change is recorded
 with the acting username, action, target, and JSON details: login
 success/failure/lock, logout, poll status changes (including approving or
 rejecting submissions), comment deletion, setting updates, public user status
-changes, unlocks and deletions, and admin user management. Secret setting values
+changes, unlocks and deletions, admin user management, and report resolution
+(`report.resolved`). The public Worker also writes `poll.auto_hidden` (with no
+actor) when a poll trips an automatic report-hide threshold. Secret setting values
 are never written. Client IP addresses are never stored.
+
+## Reports
+
+The Reports tab lists one row per poll that has reports. Each row shows the poll
+title, the open and total report counts, an eight-label reason breakdown sorted by
+count, and the newest free-text notes for the `other` reason. Polls with an open
+high-priority report (personal information, harassment, or illegal content) carry
+a red priority badge and sort first, followed by open-count order. The two resolve
+buttons mark every open report for that poll as `action_taken` or `dismissed` and
+write a `report.resolved` audit entry; resolving reports never changes the poll
+status, which is changed from the Polls tab. Both regular admins and super admins
+can view and resolve reports. Resolved reports are deleted 90 days after
+`resolved_at`.
 
 ## Deployment
 

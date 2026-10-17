@@ -1,7 +1,24 @@
-import { PollMode, PollStatus } from '../../worker/enums';
+import { PollMode, PollStatus, PollReportReason } from '../../worker/enums';
 
 export type AdminPollStatus = 'open' | 'closed' | 'archived' | 'pending';
 export type AdminPollMode = 'deadline' | 'evergreen';
+
+// Report reason codes and labels, shared with the public Worker so the admin
+// Worker and the report endpoint cannot drift apart.
+export const REPORT_REASON_CODES = PollReportReason;
+export {
+  PollReportReason,
+  PRIORITY_REPORT_REASONS,
+  getPollReportReasonCode,
+  getPollReportReasonLabel,
+  getReportResolutionCode,
+  getReportResolutionLabel,
+  isPriorityReportReason
+} from '../../worker/enums';
+export type {
+  PollReportReasonLabel,
+  ReportResolutionLabel
+} from '../../worker/enums';
 
 export const POLL_STATUS_VALUES: Record<AdminPollStatus, PollStatus> = {
   open: PollStatus.Open,

@@ -20,6 +20,9 @@ interface MaintenanceEnv {
 
 const RETENTION_SECONDS = 30 * 24 * 60 * 60;
 const ATTEMPT_RETENTION_SECONDS = 30 * 24 * 60 * 60;
+// Resolved reports are deleted 90 days after `resolved_at`. Reports are removed
+// with the poll by the foreign key cascade.
+const REPORT_RETENTION_SECONDS = 90 * 24 * 60 * 60;
 // A poll that closed within this window still needs its terminal snapshot
 // written if an earlier close path could not write one.
 const FINAL_SNAPSHOT_WINDOW_SECONDS = 3600;
@@ -120,7 +123,11 @@ export async function runMaintenanceTasks(env: MaintenanceEnv): Promise<void> {
 
   await env.DB.batch([
     env.DB.prepare('DELETE FROM user_sessions WHERE expires_at <= ?').bind(now),
-    env.DB.prepare('DELETE FROM auth_attempts WHERE created_at < ?').bind(now - ATTEMPT_RETENTION_SECONDS)
+    env.DB.prepare('DELETE FROM auth_attempts WHERE created_at < ?').bind(now - ATTEMPT_RETENTION_SECONDS),
+    // Resolved reports are removed 90 days after they were resolved.
+    env.DB.prepare(
+      'DELETE FROM poll_reports WHERE resolved_at IS NOT NULL AND resolved_at <= ?'
+    ).bind(now - REPORT_RETENTION_SECONDS)
   ]);
 }
 

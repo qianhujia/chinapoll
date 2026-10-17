@@ -25,6 +25,7 @@ export const DEFAULT_PUBLIC_SETTINGS = {
   vote_rate_limit: '5/h',
   comment_rate_limit: '3/h',
   proposal_rate_limit: '1/d',
+  report_rate_limit: '3/d',
   hero_title: 'Continuous polls · Anonymously cast · Openly auditable',
   hero_subtitle: 'Sign in to submit a poll or comment; votes stay anonymous.',
   hero_background_color: '',
@@ -48,7 +49,12 @@ export const DEFAULT_PUBLIC_SETTINGS = {
   login_rate_limit: '10/h',
   register_rate_limit: '5/d',
   // Vote totals below this number are hidden until the poll gathers more votes.
-  min_votes_to_display: 10
+  min_votes_to_display: 10,
+  // Automatic protection: a poll is hidden for review once it collects this many
+  // open reports in total, or this many open reports with a high-priority reason.
+  // Setting a threshold to 0 disables that rule.
+  report_auto_hide_threshold: 5,
+  report_auto_hide_priority_threshold: 2
 };
 
 export type PublicSettings = typeof DEFAULT_PUBLIC_SETTINGS;
@@ -142,12 +148,15 @@ export async function loadPublicSettings(db: D1Database): Promise<PublicSettings
         settings.login_lock_minutes = Number(value);
         break;
       case 'min_votes_to_display':
+      case 'report_auto_hide_threshold':
+      case 'report_auto_hide_priority_threshold':
         if (!isInteger(value, 0, 1000)) invalid(row.key, 'must be an integer from 0 to 1000');
-        settings.min_votes_to_display = Number(value);
+        (settings as Record<string, unknown>)[row.key] = Number(value);
         break;
       case 'vote_rate_limit':
       case 'comment_rate_limit':
       case 'proposal_rate_limit':
+      case 'report_rate_limit':
       case 'login_rate_limit':
       case 'register_rate_limit': {
         const normalized = value.trim().toLowerCase();

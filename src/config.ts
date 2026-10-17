@@ -23,7 +23,10 @@ export interface PublicSettings {
   login_lock_minutes: number;
   login_rate_limit: string;
   register_rate_limit: string;
+  report_rate_limit: string;
   min_votes_to_display: number;
+  report_auto_hide_threshold: number;
+  report_auto_hide_priority_threshold: number;
 }
 
 const defaultSettings: PublicSettings = {
@@ -49,7 +52,10 @@ const defaultSettings: PublicSettings = {
   login_lock_minutes: 15,
   login_rate_limit: '10/h',
   register_rate_limit: '5/d',
-  min_votes_to_display: 10
+  report_rate_limit: '3/d',
+  min_votes_to_display: 10,
+  report_auto_hide_threshold: 5,
+  report_auto_hide_priority_threshold: 2
 };
 
 let publicSettings = defaultSettings;
@@ -78,7 +84,10 @@ export async function loadPublicSettings(): Promise<PublicSettings> {
     || !Number.isSafeInteger(result.login_lock_minutes) || result.login_lock_minutes < 1
     || typeof result.login_rate_limit !== 'string'
     || typeof result.register_rate_limit !== 'string'
-    || !Number.isSafeInteger(result.min_votes_to_display) || result.min_votes_to_display < 0) {
+    || typeof result.report_rate_limit !== 'string'
+    || !Number.isSafeInteger(result.min_votes_to_display) || result.min_votes_to_display < 0
+    || !Number.isSafeInteger(result.report_auto_hide_threshold) || result.report_auto_hide_threshold < 0
+    || !Number.isSafeInteger(result.report_auto_hide_priority_threshold) || result.report_auto_hide_priority_threshold < 0) {
     throw new Error('Invalid public settings response.');
   }
   publicSettings = result;

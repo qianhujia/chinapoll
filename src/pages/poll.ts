@@ -4,11 +4,17 @@ import {
   getPoll,
   getStats,
   getVoteStatus,
+  hasReportedLocally,
   hasVotedLocally,
   hashToken,
+  markReportedLocally,
   markVotedLocally,
+  REPORT_REASONS,
   submitComment,
-  submitVote
+  submitReport,
+  submitVote,
+  type PollSummary,
+  type ReportReason
 } from '../lib/poll';
 import { getCurrentUser } from '../lib/session';
 import { renderTurnstile, resetTurnstile, turnstileSiteKey, turnstileToken } from '../lib/turnstile';
@@ -29,9 +35,21 @@ import {
   updateVoteGroup
 } from '../ui';
 
+// i18n key for each report reason, in the order the reasons are shown.
+const REPORT_REASON_LABELS: Record<ReportReason, string> = {
+  spam: 'reportReasonSpam',
+  inappropriate: 'reportReasonInappropriate',
+  misleading: 'reportReasonMisleading',
+  copyright: 'reportReasonCopyright',
+  personal_info: 'reportReasonPersonalInfo',
+  harassment: 'reportReasonHarassment',
+  illegal: 'reportReasonIllegal',
+  other: 'reportReasonOther'
+};
+
 export async function mountVotePage(pollId: number, app: HTMLElement, bindNavigation: () => void): Promise<void> {
   const commentsPerPage = getCommentsPerPage();
-  let poll;
+  let poll: PollSummary;
   try {
     poll = await getPoll(pollId);
   } catch (error) {
@@ -88,6 +106,7 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
       hasVoted ? t('alreadyVoted') : t(option)
     )).join('')
     : '';
+  const alreadyReported = hasReportedLocally(poll.id);
 
   app.innerHTML = `
     <div class="mx-auto max-w-[var(--page-width)] px-5 pt-6 pb-16">
@@ -143,6 +162,33 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
         <section class="rounded-[22px] border border-border bg-panel p-6 shadow-card">
           <h2 class="mb-3.5 text-xl font-bold">${t('commentsTitle')}</h2>
           <div id="comments-content">${commentsContent}</div>
+        </section>
+
+        <section class="rounded-[22px] border border-border bg-panel p-6 shadow-card" data-report-root>
+          <p class="m-0 text-center text-sm text-muted" data-report-already ${alreadyReported ? '' : 'hidden'}>${t('reportAlreadySent')}</p>
+          <div class="text-center" data-report-collapsed ${alreadyReported ? 'hidden' : ''}>
+            <button class="cursor-pointer text-sm text-primary hover:underline" type="button" data-report-toggle>${t('reportLink')}</button>
+          </div>
+          <form class="grid gap-3" data-report-form hidden>
+            <h2 class="m-0 text-lg font-bold">${t('reportTitle')}</h2>
+            <fieldset class="m-0 grid gap-2 border-0 p-0">
+              <legend class="sr-only">${t('reportTitle')}</legend>
+              ${REPORT_REASONS.map((reason) => `
+                <label class="flex cursor-pointer items-center gap-2.5 rounded-[14px] border border-border bg-[#f9fbff] px-3.5 py-2.5">
+                  <input type="radio" name="report-reason" value="${reason}" data-report-reason>
+                  <span>${t(REPORT_REASON_LABELS[reason])}</span>
+                </label>
+              `).join('')}
+            </fieldset>
+            <div class="grid gap-1" data-report-note-wrap hidden>
+              <textarea class="w-full resize-y rounded-[14px] border border-border bg-[#f9fbff] px-3.5 py-3" data-report-note maxlength="300" rows="3" placeholder="${t('reportNotePlaceholder')}"></textarea>
+              <div class="text-right text-xs text-muted"><span data-report-note-count>0</span>/300</div>
+            </div>
+            ${turnstileSiteKey() ? '<div class="flex justify-center" data-turnstile-report></div>' : ''}
+            <button class="mx-auto cursor-pointer rounded-full border border-primary bg-primary px-4 py-2.5 text-white disabled:cursor-not-allowed disabled:opacity-60" type="button" data-report-submit disabled>${t('reportSubmit')}</button>
+            <button class="mx-auto cursor-pointer text-sm text-muted hover:text-primary" type="button" data-report-cancel>${t('reportCancel')}</button>
+            <p class="m-0 min-h-5 text-center text-[0.9rem] text-muted" role="status" aria-live="polite" data-report-status></p>
+          </form>
         </section>
       </main>
       ${renderToast()}
@@ -273,6 +319,79 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
   // Render the Turnstile widget on the vote area when a site key is configured.
   const voteWidget = document.querySelector<HTMLElement>('[data-turnstile-vote]');
   if (voteWidget) await renderTurnstile('vote', voteWidget);
+
+  // Report form: opens inline, reveals the note field only for "Other", and
+  // remembers a submitted report in localStorage so the link is replaced.
+  const reportForm = document.querySelector<HTMLFormElement>('[data-report-form]');
+  const reportToggle = document.querySelector<HTMLButtonElement>('[data-report-toggle]');
+  const reportCollapsed = document.querySelector<HTMLElement>('[data-report-collapsed]');
+  const reportAlready = document.querySelector<HTMLElement>('[data-report-already]');
+  const reportSubmit = document.querySelector<HTMLButtonElement>('[data-report-submit]');
+  const reportCancel = document.querySelector<HTMLButtonElement>('[data-report-cancel]');
+  const reportNoteWrap = document.querySelector<HTMLElement>('[data-report-note-wrap]');
+  const reportNote = document.querySelector<HTMLTextAreaElement>('[data-report-note]');
+  const reportNoteCount = document.querySelector<HTMLElement>('[data-report-note-count]');
+  const reportStatus = document.querySelector<HTMLElement>('[data-report-status]');
+  const reportRadios = Array.from(document.querySelectorAll<HTMLInputElement>('[data-report-reason]'));
+
+  const selectedReportReason = (): ReportReason | null => {
+    const checked = reportRadios.find((radio) => radio.checked);
+    return checked ? checked.value as ReportReason : null;
+  };
+  const updateReportNoteVisibility = () => {
+    const isOther = selectedReportReason() === 'other';
+    if (reportNoteWrap) reportNoteWrap.hidden = !isOther;
+    if (!isOther && reportNote) reportNote.value = '';
+    if (reportNoteCount) reportNoteCount.textContent = String(reportNote?.value.length ?? 0);
+  };
+
+  reportToggle?.addEventListener('click', async () => {
+    if (reportCollapsed) reportCollapsed.hidden = true;
+    if (reportForm) reportForm.hidden = false;
+    const widget = document.querySelector<HTMLElement>('[data-turnstile-report]');
+    if (widget) await renderTurnstile('report', widget);
+  });
+  reportCancel?.addEventListener('click', () => {
+    if (reportForm) {
+      reportForm.hidden = true;
+      reportForm.reset();
+    }
+    if (reportStatus) reportStatus.textContent = '';
+    if (reportNoteWrap) reportNoteWrap.hidden = true;
+    if (reportSubmit) reportSubmit.disabled = true;
+    if (reportCollapsed) reportCollapsed.hidden = false;
+    resetTurnstile('report');
+  });
+  reportRadios.forEach((radio) => radio.addEventListener('change', () => {
+    if (reportSubmit) reportSubmit.disabled = selectedReportReason() === null;
+    updateReportNoteVisibility();
+  }));
+  reportNote?.addEventListener('input', () => {
+    if (reportNoteCount) reportNoteCount.textContent = String(reportNote.value.length);
+  });
+  reportSubmit?.addEventListener('click', async () => {
+    const reason = selectedReportReason();
+    if (!reason) return;
+    reportSubmit.disabled = true;
+    if (reportStatus) reportStatus.textContent = '';
+    try {
+      await submitReport({
+        pollId: poll.id,
+        reason,
+        note: reason === 'other' ? (reportNote?.value.trim() ?? '') : undefined,
+        turnstileToken: turnstileToken('report')
+      });
+      markReportedLocally(poll.id);
+      if (reportForm) reportForm.hidden = true;
+      if (reportCollapsed) reportCollapsed.hidden = true;
+      if (reportAlready) reportAlready.hidden = false;
+      showToast(t('reportThanks'));
+    } catch (error) {
+      if (reportStatus) reportStatus.textContent = `${t('submitFailed')}: ${getErrorMessage(error)}`;
+      reportSubmit.disabled = false;
+      resetTurnstile('report');
+    }
+  });
 
   bindNavigation();
 }

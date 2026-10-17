@@ -185,5 +185,20 @@
   "accountDeleteConfirm": "確定要永久刪除帳號嗎？",
   "accountDeleted": "帳號已刪除。",
   "accountPasswordPrompt": "請輸入目前密碼以繼續",
-  "siteNotConfigured": "本站尚未完成設定"
+  "siteNotConfigured": "本站尚未完成設定",
+  "reportLink": "檢舉此投票",
+  "reportTitle": "你為什麼要檢舉此投票？",
+  "reportReasonSpam": "垃圾訊息或推廣內容",
+  "reportReasonInappropriate": "不當或冒犯性內容",
+  "reportReasonMisleading": "誤導性或虛假資訊",
+  "reportReasonCopyright": "侵犯版權",
+  "reportReasonPersonalInfo": "個人資訊或人肉搜索",
+  "reportReasonHarassment": "騷擾或仇恨言論",
+  "reportReasonIllegal": "違法或有害內容",
+  "reportReasonOther": "其他",
+  "reportNotePlaceholder": "補充說明（選填，最多 300 字）",
+  "reportSubmit": "傳送檢舉",
+  "reportCancel": "取消",
+  "reportThanks": "謝謝。檢舉已提交審核。",
+  "reportAlreadySent": "你已檢舉此投票"
 }

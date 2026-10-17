@@ -20,6 +20,8 @@ the schema or the network handling changes.
   code hash, and lock/bookkeeping fields. Login time is rounded to the day.
 - The per-network account cap: a keyed, daily-rotated hash of the network bucket
   in `auth_attempts`. The raw address is never stored.
+- Poll reports: only the poll reference, the reason code, an optional free-text
+  note, and an hour-coarsened timestamp. There is no reporter identifier at all.
 
 ## Adversaries and mitigations
 
@@ -36,6 +38,21 @@ the schema or the network handling changes.
   password.
 - **Content tampering**: hourly signed snapshots form an append-only hash chain
   published for external verification.
+
+## Reports
+
+Reporting is anonymous: `POST /api/polls/:id/report` stores no address, no network
+bucket, no user id, and only an hour-coarsened `created_at`, and the report id is
+never returned, so a report cannot be tied back to a person or correlated with
+edge logs. Rate limiting uses the keyed, daily-rotated network hash through the
+Durable Object, which is never written to D1. Reason codes 5 (personal
+information), 6 (harassment), and 7 (illegal content) are treated as high
+priority: when a poll collects `report_auto_hide_priority_threshold` (default 2)
+open high-priority reports, or `report_auto_hide_threshold` (default 5) open
+reports in total, it is set back to pending with `reviewed_at` cleared so it
+leaves public listings until an admin reviews it. Setting a threshold to 0
+disables that rule. Resolving a report never changes the poll status; an admin
+does that from the Polls tab.
 
 ## Explicit non-goals
 
@@ -65,6 +82,8 @@ the schema or the network handling changes.
   migration.
 - Poll ownership moved to a one-way owner hash; comments carry no owner; the
   account-cap hash rotates per calendar month and is linkable within a month.
+- Added anonymous poll reports: no reporter identifier, hour-coarsened
+  timestamps, and priority auto-hide thresholds.
 
 ## Known trade-offs
 

@@ -10,7 +10,7 @@ export async function handleOverviewRequest(request: Request, env: AdminEnv): Pr
     return Response.json({ message: 'method not allowed' }, { status: 405 });
   }
 
-  const [pending, open, closed, archived, votes, comments, users, settings, adminUsers, auditEntries] = await Promise.all([
+  const [pending, open, closed, archived, votes, comments, users, settings, adminUsers, auditEntries, openReports] = await Promise.all([
     count(env, 'SELECT COUNT(*) AS total FROM polls WHERE status = ?', PollStatus.Pending),
     count(env, 'SELECT COUNT(*) AS total FROM polls WHERE status = ?', PollStatus.Open),
     count(env, 'SELECT COUNT(*) AS total FROM polls WHERE status = ?', PollStatus.Closed),
@@ -20,7 +20,8 @@ export async function handleOverviewRequest(request: Request, env: AdminEnv): Pr
     count(env, 'SELECT COUNT(*) AS total FROM users'),
     count(env, 'SELECT COUNT(*) AS total FROM settings'),
     count(env, 'SELECT COUNT(*) AS total FROM admin_users'),
-    count(env, 'SELECT COUNT(*) AS total FROM admin_audit_log')
+    count(env, 'SELECT COUNT(*) AS total FROM admin_audit_log'),
+    count(env, 'SELECT COUNT(*) AS total FROM poll_reports WHERE resolved_at IS NULL')
   ]);
 
   const recentPending = await env.DB.prepare(
@@ -43,6 +44,7 @@ export async function handleOverviewRequest(request: Request, env: AdminEnv): Pr
       settings,
       adminUsers,
       auditEntries,
+      openReports,
       recentPending: (recentPending.results ?? []).map((row) => ({
         id: row.id,
         title: row.title,

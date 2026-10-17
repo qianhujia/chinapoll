@@ -1,0 +1,94 @@
+// Reports page: review and resolve poll reports.
+
+export const scriptReports = `  function renderReports() {
+    var view = document.getElementById('view');
+    var data = state.reports;
+    var toolbar = '<div class="toolbar">' +
+      '<select id="report-status" class="grow">' +
+      ['open', 'resolved', 'all'].map(function (value) {
+        return '<option value="' + value + '"' + (value === state.reportStatus ? ' selected' : '') + '>' + value + '</option>';
+      }).join('') +
+      '</select>' +
+      '<button data-action="search-reports" class="primary">Apply</button>' +
+      '</div>';
+
+    if (!data) {
+      view.innerHTML = '<section class="card"><h2>Reports</h2>' + toolbar + '<div class="empty">Loading…</div></section>';
+      return;
+    }
+
+    var rows = data.reports.length
+      ? data.reports.map(function (item) {
+          var title = esc(item.pollTitle || '(no title)');
+          if (state.publicSiteOrigin) {
+            title = '<a href="' + esc(state.publicSiteOrigin) + '/poll/' + esc(item.pollId) + '" target="_blank" rel="noopener">' + title + '</a>';
+          }
+          var priorityBadge = item.priority ? ' <span class="badge" style="background:#7f1d1d;border-color:#7f1d1d;color:#fee2e2">priority</span>' : '';
+          var reasons = item.reasons.filter(function (entry) { return entry.count > 0; })
+            .map(function (entry) { return esc(entry.reason) + ' (' + esc(entry.count) + ')'; })
+            .join(', ') || '<span class="muted">none</span>';
+          var notes = item.notes.length
+            ? '<div class="small muted">' + item.notes.map(function (note) { return esc(note); }).join('<br>') + '</div>'
+            : '';
+          return '<tr' + (item.priority ? ' style="box-shadow:inset 3px 0 0 var(--err)"' : '') + '>' +
+            '<td>' + esc(item.pollId) + '</td>' +
+            '<td>' + title + priorityBadge + '</td>' +
+            '<td class="small">' + esc(item.openCount) + ' / ' + esc(item.totalCount) + '</td>' +
+            '<td class="desc">' + reasons + notes + '</td>' +
+            '<td><div class="actions">' +
+              '<button class="ok" data-action="resolve-report" data-id="' + item.pollId + '" data-resolution="action_taken">Action taken</button>' +
+              '<button data-action="resolve-report" data-id="' + item.pollId + '" data-resolution="dismissed">Dismiss</button>' +
+            '</div></td></tr>';
+        }).join('')
+      : '<tr><td colspan="5"><div class="empty">No reports match this filter.</div></td></tr>';
+
+    view.innerHTML = '<section class="card"><h2>Reports</h2>' + toolbar +
+      '<table><thead><tr><th>Poll</th><th>Title</th><th>Open / Total</th><th>Reasons</th><th>Action</th></tr></thead>' +
+      '<tbody>' + rows + '</tbody></table>' +
+      '<div class="pager">' +
+      '<span>Page ' + esc(data.page) + ' of ' + esc(data.totalPages) + ' · ' + esc(data.total) + ' total</span>' +
+      '<button data-action="report-page" data-dir="-1"' + (data.page <= 1 ? ' disabled' : '') + '>Previous</button>' +
+      '<button data-action="report-page" data-dir="1"' + (data.page >= data.totalPages ? ' disabled' : '') + '>Next</button>' +
+      '</div></section>';
+  }
+
+  function loadReports() {
+    var path = '/api/admin/reports?status=' + encodeURIComponent(state.reportStatus) +
+      '&page=' + state.reportPage;
+    return api(path).then(function (data) {
+      state.reports = data;
+      if (state.view === 'reports') renderReports();
+    });
+  }
+
+  function handleReportsAction(action, target) {
+    if (action === 'search-reports') {
+      state.reportStatus = document.getElementById('report-status').value;
+      state.reportPage = 1; state.reports = null;
+      renderReports();
+      guard(loadReports());
+      return true;
+    }
+    if (action === 'report-page') {
+      state.reportPage = Math.max(1, state.reportPage + Number(target.getAttribute('data-dir')));
+      state.reports = null;
+      renderReports();
+      guard(loadReports());
+      return true;
+    }
+    if (action === 'resolve-report') {
+      var pollId = target.getAttribute('data-id');
+      var resolution = target.getAttribute('data-resolution');
+      if (!window.confirm('Mark every open report for poll ' + pollId + ' as ' + resolution + '?')) return true;
+      target.disabled = true;
+      guard(api('/api/admin/reports/' + pollId + '/resolve', {
+        method: 'POST',
+        body: JSON.stringify({ resolution: resolution })
+      }).then(function (result) {
+        toast(result.message);
+        return Promise.all([loadReports(), loadOverview()]);
+      }));
+      return true;
+    }
+    return false;
+  }`;

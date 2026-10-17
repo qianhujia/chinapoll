@@ -74,7 +74,8 @@ async function sessionStatus(request: Request, env: AdminEnv): Promise<Response>
     authenticated: context !== null,
     user: context ? context.actor : null,
     setupRequired: adminCount === 0,
-    turnstile: { enabled: turnstile.enabled, siteKey: turnstile.siteKey }
+    turnstile: { enabled: turnstile.enabled, siteKey: turnstile.siteKey },
+    publicSiteOrigin: env.PUBLIC_SITE_ORIGIN ?? ''
   });
 }
 

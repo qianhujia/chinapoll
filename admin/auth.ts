@@ -22,6 +22,8 @@ export interface AdminEnv {
   TURNSTILE_SITE_KEY?: string;
   /** Optional extra origin allowed for cookie-authenticated mutations. */
   ADMIN_ORIGIN?: string;
+  /** Optional origin of the public site, used to link to a poll from the dashboard. */
+  PUBLIC_SITE_ORIGIN?: string;
 }
 
 export interface AdminActor {

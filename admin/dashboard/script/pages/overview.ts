@@ -28,12 +28,21 @@ export const scriptOverview = `  function statCard(value, label) {
       statCard(o.archived, 'Archived polls') +
       statCard(o.votes, 'Total votes') +
       statCard(o.comments, 'Total comments') +
+      reportsCard(o.openReports) +
       statCard(o.users, 'Public users') +
       statCard(o.adminUsers, 'Admin users') +
       (isSuperAdmin() ? statCard(o.auditEntries, 'Audit entries') : '') +
       statCard(o.settings, 'Settings rows') +
       '</section>' +
       '<section class="card" style="margin-top:18px"><h2>Latest submissions</h2>' + recent + '</section>';
+  }
+
+  // Open-report count card. It links to the Reports tab and is highlighted when
+  // there is anything waiting for moderation.
+  function reportsCard(count) {
+    var style = 'text-decoration:none;color:inherit' + (count > 0 ? ';border-color:var(--err)' : '');
+    return '<a class="card stat" href="/reports" data-action="tab" data-view="reports" style="' + style + '">' +
+      '<div class="value">' + esc(count) + '</div><div class="label">Open reports</div></a>';
   }
 
   function loadOverview() {

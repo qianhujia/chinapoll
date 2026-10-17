@@ -50,6 +50,8 @@ new_classes = ["RateLimiter"]
 # TURNSTILE_SITE_KEY = "0x4AAAAAAA..."
 # Optional: allow cookie-authenticated mutations from an additional origin.
 # ADMIN_ORIGIN = "https://admin.chinapoll.org"
+# Optional: origin of the public site, used to link a report row to its poll.
+# PUBLIC_SITE_ORIGIN = "https://chinapoll.org"
 
 # Shared rate limiter used for admin login and setup throttling. This is a
 # separate Durable Object namespace from the public Worker's.
