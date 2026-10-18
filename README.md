@@ -9,8 +9,8 @@ Worker, which serves both the SPA and `/api/*`, together with a provisioned D1
 database. Choose the deploy command `npm run deploy` on the setup page so the D1
 migrations are applied before `wrangler deploy`, and set the `SERVER_HMAC_KEY`
 secret to 64 random hex characters (`openssl rand -hex 32`). The admin dashboard
-Worker and the `[env.production]` deployment flow are described separately; see
-[docs/RUNBOOK.md](docs/RUNBOOK.md).
+Worker and the `[env.production]` deployment flow are covered in the Admin Worker
+section below and in [docs/RUNBOOK.md](docs/RUNBOOK.md).
 
 ## Local startup
 
@@ -251,6 +251,19 @@ totals survive while daily resolution is dropped. Both are removed with the poll
 by the foreign key cascade.
 
 ## Admin Worker
+
+[![Deploy the admin dashboard to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/qianhujia/chinapoll)
+
+This second button turns the same repository into the **admin** Worker application.
+On its setup page, name the Worker (for example `chinapoll-admin-worker`), bind the
+**same D1 database as the public Worker** (choose the existing database rather than
+creating another one, so both Workers share one schema), and set the deploy command to
+`npm run admin:worker:deploy:remote`, which applies the D1 migrations and then runs
+`npx wrangler deploy --config admin/wrangler.toml`. No secrets are needed; the optional
+vars are `TURNSTILE_SITE_KEY`, `ADMIN_ORIGIN`, and `PUBLIC_SITE_ORIGIN`. The admin
+Worker imports `shared/*` and points its D1 `migrations_dir` at `../migrations`, so it
+is not an isolated subdirectory and the button therefore points at the repository root
+rather than at `/tree/main/admin`.
 
 The admin tools are packaged as a standalone Cloudflare Worker that shares the
 main application's D1 database. It serves a browser dashboard plus a JSON API for

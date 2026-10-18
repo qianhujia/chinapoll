@@ -207,6 +207,11 @@ npm run admin:worker:dry-run
 npm run admin:worker:deploy
 ```
 
+Or deploy from the repository root with the admin Deploy to Cloudflare button in
+`README.md`: name the second Worker application (for example
+`chinapoll-admin-worker`), bind the same D1 database as the public Worker, and use
+`npm run admin:worker:deploy:remote` as its deploy command.
+
 Because this Worker can publish polls, delete comments, and manage other admins,
 put it behind Cloudflare Access or another access control layer in production.
 

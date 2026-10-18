@@ -26,6 +26,11 @@ are run from the repository root.
 6. Optionally set `TURNSTILE_SITE_KEY` for the admin Worker:
    `npx wrangler secret put TURNSTILE_SITE_KEY --config admin/wrangler.toml --env production`.
 
+Both Workers also have a Deploy to Cloudflare button (see README.md) for deployments
+driven from the dashboard instead of the CLI. The admin one must bind the same
+`chinapoll` database as the public Worker and use `npm run admin:worker:deploy:remote`
+as its deploy command.
+
 ## Uptime monitoring
 
 Point an external monitor at `GET /api/health`. A healthy response is

@@ -8,6 +8,7 @@
     "db:reset": "node -e \"require('fs').rmSync('.wrangler',{recursive:true,force:true})\" && npm run db:migrate",
     "admin:worker:dev": "npx wrangler dev --config admin/wrangler.toml --port 8788 --local --persist-to .wrangler --live-reload=false",
     "admin:worker:deploy": "npx wrangler deploy --config admin/wrangler.toml",
+    "admin:worker:deploy:remote": "npx wrangler d1 migrations apply DB --remote --config admin/wrangler.toml && npx wrangler deploy --config admin/wrangler.toml",
     "admin:worker:dry-run": "npx wrangler deploy --config admin/wrangler.toml --dry-run",
     "dev": "npm run db:migrate && npm run build && (npm run dev:web:serve & npx wrangler dev worker/index.ts --local --persist-to .wrangler --port 8787 --live-reload=false & wait)",
     "dev:web": "npm run build && npm run dev:web:serve",
