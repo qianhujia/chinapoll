@@ -77,13 +77,13 @@ Public account endpoints (session state, register, login, logout, and recovery) 
 
 The local database schema is managed with versioned SQL migrations in the `migrations/` folder. `npm run db:migrate` applies every pending migration (the Wrangler tracking table is named `migrations`, set with `migrations_table` in `wrangler.toml`). Public settings fall back to built-in defaults until they are written, and the dashboard's Settings tab can insert any missing defaults.
 
-**Applied migrations are never edited.** Migrations are immutable once recorded: schema changes go in a new file (numbered from `0002`), and every file is schema only. `migrations/0001_initial.sql` is the entire schema in one file, consolidated on 2026-10-18, when the incremental files were folded into it because nothing had been deployed: it creates every table, index, and constraint in its final shape, so a fresh database is built in one step with no obsolete columns and no intermediate table rebuilds. Because the schema was consolidated, **only fresh databases are supported**: create a database from scratch (run `npm run db:reset` locally, or apply `0001_initial.sql` and any later files to an empty production database) rather than upgrading a database that recorded the pre-consolidation migrations.
+**All migration SQL lives in one file.** `migrations/0001_initial.sql` is the entire schema, consolidated on 2026-10-18, when the incremental files were folded into it because nothing had been deployed. Keep every schema change in that single file and do not add numbered migration files. It creates every table, index, and constraint in its final shape, so a fresh database is built in one step with no obsolete columns and no intermediate table rebuilds. Because the schema is maintained as one file, **only fresh databases are supported**: create a database from scratch (run `npm run db:reset` locally, or apply `0001_initial.sql` to an empty production database) rather than upgrading a database that recorded the pre-consolidation migrations.
 
 ```bash
 npm run db:migrate
 ```
 
-This keeps schema changes reproducible across local development. Future schema updates should be added as new migration files in the same folder.
+This keeps schema changes reproducible across local development. Future schema updates are edited into the same `migrations/0001_initial.sql` file.
 
 ## Proposal approval
 
@@ -327,8 +327,8 @@ records admin actions without client IP addresses. Deploy with
   a malformed model answer, and a valid trimmed answer). Every migration is applied
   to the isolated test database: `migrations/0001_initial.sql` is the consolidated
   schema, and the shared `applySchema` helper in `tests/integration/helpers.ts`
-  applies each file listed in `MIGRATIONS`, so a new numbered migration is exercised
-  by every integration test as soon as it is added there.
+  applies the single consolidated schema listed in `MIGRATIONS`, so a schema change
+  in that file is exercised by every integration test.
 
 The AI binding has no local simulator, so `vitest.workers.config.ts` sets
 `remoteBindings: false` and the AI tests stub `env.AI` with an object whose `run`

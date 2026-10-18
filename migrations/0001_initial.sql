@@ -1,11 +1,11 @@
 -- ChinaPoll consolidated schema.
 --
--- This single migration creates the complete current schema. The incremental
--- migrations were folded together here because nothing had been deployed yet, so a
--- fresh database can be created in one step with no obsolete columns, indexes, or
--- intermediate table rebuilds. The consolidation dates are recorded in
--- docs/RUNBOOK.md. From this point on every applied migration is immutable: add
--- each schema change as a new numbered file.
+-- This single migration creates the complete current schema. All migration SQL
+-- lives in this one file: the incremental migrations were folded together here
+-- because nothing had been deployed yet, so a fresh database can be created in one
+-- step with no obsolete columns, indexes, or intermediate table rebuilds. Keep
+-- every schema change in this file and do not add new numbered migration files.
+-- The consolidation dates are recorded in docs/RUNBOOK.md.
 --
 -- Schema only: no seed or demo rows are inserted (repository rule).
 --

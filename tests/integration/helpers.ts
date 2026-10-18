@@ -4,7 +4,7 @@ import schema from '../../migrations/0001_initial.sql?raw';
 export const ORIGIN = 'https://example.com';
 
 // Every migration in order. The schema is one consolidated file, so the list holds
-// a single entry and a new numbered file would be appended here.
+// a single entry; keep every schema change in that file instead of adding new files.
 export const MIGRATIONS: ReadonlyArray<{ name: string; sql: string }> = [
   { name: '0001_initial', sql: schema }
 ];

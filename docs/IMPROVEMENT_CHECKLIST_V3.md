@@ -51,8 +51,8 @@ the record of that review.
 ### 2.1 Fold the migrations into one file while nothing is deployed, then freeze
 
 - Files: `migrations/0001_initial.sql`, `README.md`, `docs/RUNBOOK.md`
-- Fix: the whole schema lives in `0001_initial.sql`, frozen on 2026-10-11. Later
-  changes go in new numbered files.
+- Fix: the whole schema lives in `0001_initial.sql`, consolidated on 2026-10-11.
+  Later changes stay in that one file.
 
 ### 2.2 Derive purpose-specific keys from the server HMAC key
 

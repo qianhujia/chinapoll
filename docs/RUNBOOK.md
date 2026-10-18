@@ -8,11 +8,11 @@ are run from the repository root.
 1. Apply D1 migrations: `npx wrangler d1 migrations apply chinapoll --env production --remote`.
    `migrations/0001_initial.sql` holds the entire schema in a single consolidated
    file, most recently consolidated on **2026-10-18** (an earlier consolidation was
-   done on 2026-10-11) because nothing had been deployed yet. From then on
-   migrations are immutable: never edit one that has already been applied, and add
-   every schema change as a new numbered file. Only a **fresh** database is
-   supported; create the production database empty and apply `0001_initial.sql`
-   (plus any later files) in order. The file creates the final shape of every
+   done on 2026-10-11) because nothing had been deployed yet. All migration SQL
+   stays in that one file: never add numbered migration files, and keep every schema
+   change in `0001_initial.sql`. Only a **fresh** database is supported; create the
+   production database empty and apply `0001_initial.sql`
+   in order. The file creates the final shape of every
    table, index, and constraint - the poll types and per-poll options,
    `vote_selections` with `votes` reduced to a ballot row, the report and view
    tables, the ballot/view/option-count columns of the single-format snapshot
