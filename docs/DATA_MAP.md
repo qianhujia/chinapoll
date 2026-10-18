@@ -88,8 +88,13 @@ combination, so the grouping is never published.
 | poll_id | poll reference | Public | until deleted |
 | comment | free text | Public | until deleted |
 | created_at | hour-coarsened timestamp | Public (derived) | until deleted |
+| owner_hash | one-way HMAC of the account that posted the comment (`NULL` for a row written before migration 0006, or when the server secret is unavailable) | Admin (never published) | until deleted |
 
-Note: `ip_prefix` and `ts_bucket` were removed, and comments carry no owner.
+Note: `ip_prefix` and `ts_bucket` were removed, and a comment carries no account
+column: `owner_hash` is derived from the server secret over the comment's random
+public id, so a database leak without the secret reveals no author links. The
+account dashboard uses it to list and delete the comments that account posted, and
+the public comment API never returns it.
 
 ## poll_reports
 

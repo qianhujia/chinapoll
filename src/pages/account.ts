@@ -1,17 +1,70 @@
+// The signed-in dashboard: a left-hand menu with the account sections and the panel
+// of the selected one.
+//
+// The three sections live under their own routes (`/account`, `/account/polls`,
+// `/account/comments`) so a section can be linked to and reloaded directly, and the
+// markup builders are pure strings so they can be tested without a DOM.
+
 import {
   closeUserPoll,
   deleteAccount,
+  deleteUserComment,
   deleteUserPoll,
   getCurrentUser,
   getRecoveryCodeStatus,
+  getUserComments,
   getUserPolls,
   logoutAllDevices,
   logoutUser,
   regenerateRecoveryCode,
+  type UserComment,
   type UserPoll
 } from '../lib/session';
-import { forgetMyPoll, getMyPollIds, rememberMyPoll } from '../lib/poll';
+import { forgetMyComment, forgetMyPoll, getMyCommentIds, getMyPollIds, rememberMyPoll } from '../lib/poll';
 import { escapeHtml, getErrorMessage, renderFooter, renderHeader, renderRecoveryCode, renderToast, showToast, t } from '../ui';
+
+// The sections of the dashboard, in menu order.
+export type AccountSection = 'account' | 'polls' | 'comments';
+
+export const ACCOUNT_SECTIONS: ReadonlyArray<{ section: AccountSection; route: string; labelKey: string }> = [
+  { section: 'account', route: '/account', labelKey: 'account' },
+  { section: 'polls', route: '/account/polls', labelKey: 'accountPollsTitle' },
+  { section: 'comments', route: '/account/comments', labelKey: 'accountCommentsTitle' }
+];
+
+export function accountSectionFromRoute(route: string): AccountSection {
+  if (route === '/account/polls') return 'polls';
+  if (route === '/account/comments') return 'comments';
+  return 'account';
+}
+
+// The left-hand menu. The active section is marked with `aria-current` and the same
+// bold/primary styling the header navigation uses.
+export function accountMenuMarkup(active: AccountSection): string {
+  const items = ACCOUNT_SECTIONS.map(({ section, route, labelKey }) => {
+    const isActive = section === active;
+    const style = isActive
+      ? 'bg-[#eef3fb] font-bold text-primary'
+      : 'text-muted hover:bg-[#f9fbff] hover:text-primary';
+    return `
+      <li>
+        <a
+          class="block rounded-[14px] px-3.5 py-2.5 no-underline ${style}"
+          href="${route}"
+          data-route="${route}"
+          data-account-nav="${section}"
+          ${isActive ? 'aria-current="page"' : ''}
+        >${t(labelKey)}</a>
+      </li>
+    `;
+  }).join('');
+
+  return `
+    <nav class="grid gap-1 rounded-[22px] border border-border bg-panel p-3 shadow-card" aria-label="${t('accountMenuLabel')}">
+      <ul class="m-0 grid list-none gap-1 p-0">${items}</ul>
+    </nav>
+  `;
+}
 
 function statusLabel(status: UserPoll['status']): string {
   if (status === 'open') return t('statusOpen');
@@ -43,10 +96,126 @@ function pollCardMarkup(poll: UserPoll): string {
   `;
 }
 
+function commentCardMarkup(comment: UserComment): string {
+  return `
+    <li class="flex flex-wrap items-start justify-between gap-3 border-b border-border py-3.5">
+      <div class="grid min-w-0 gap-1">
+        <p class="m-0 whitespace-pre-wrap break-words">${escapeHtml(comment.comment)}</p>
+        <span class="text-xs text-muted">
+          <a class="text-primary hover:underline" href="/poll/${comment.pollId}" data-route="/poll/${comment.pollId}">#${comment.pollId} ${escapeHtml(comment.pollTitle ?? '')}</a>
+          · ${escapeHtml(comment.createdAt)}
+        </span>
+      </div>
+      <button class="shrink-0 cursor-pointer rounded-full border border-border bg-panel px-3 py-1.5 text-sm text-ink hover:border-[#d95b5b] hover:text-[#d95b5b]" type="button" data-delete-comment="${escapeHtml(comment.id)}">${t('accountDeleteComment')}</button>
+    </li>
+  `;
+}
+
+// The "My account" panel: who is signed in, the recovery code, signing other devices
+// out, and deleting the account.
+export function accountPanelMarkup(user: { username: string; createdAt: string }, hasRecoveryCode: boolean): string {
+  return `
+    <section class="grid gap-3 rounded-[22px] border border-border bg-panel p-6 shadow-card">
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <h1 class="m-0 text-2xl font-bold">${t('accountTitle')}</h1>
+        <button class="cursor-pointer rounded-full border border-border bg-panel px-3 py-1.5 text-sm text-ink hover:border-primary hover:text-primary" type="button" data-logout>${t('logout')}</button>
+      </div>
+      <p class="m-0 text-muted">${t('accountSignedInAs')} <strong>${escapeHtml(user.username)}</strong></p>
+      <p class="m-0 text-xs text-muted">${t('accountCreatedAt')}: ${escapeHtml(user.createdAt)}</p>
+      <p class="m-0 rounded-[14px] border border-[#f0c36d] bg-[#fff7e6] px-3.5 py-3 text-sm text-ink" role="note">${t('registerWarning')}</p>
+    </section>
+
+    <section class="grid gap-3 rounded-[22px] border border-border bg-panel p-6 shadow-card">
+      <h2 class="m-0 text-xl font-bold">${t('recoveryCodeTitle')}</h2>
+      <p class="m-0 text-muted">${t('recoveryCodeAccountBody')}</p>
+      <p class="m-0 text-sm text-muted">${hasRecoveryCode ? t('recoveryCodeConfigured') : t('recoveryCodeNotConfigured')}</p>
+      <p class="m-0 rounded-[14px] border border-[#f0c36d] bg-[#fff7e6] px-3.5 py-3 text-sm text-ink" role="note">${t('recoveryCodeRegenerateNote')}</p>
+      <div>
+        <button class="cursor-pointer rounded-full border border-border bg-panel px-3.5 py-2 text-sm text-ink hover:border-primary hover:text-primary" type="button" data-regenerate-recovery>${t('recoveryCodeRegenerate')}</button>
+      </div>
+      <div data-recovery-output></div>
+      <div class="grid gap-2 border-t border-border pt-3">
+        <p class="m-0 text-sm text-muted">${t('accountLogoutAllNote')}</p>
+        <div>
+          <button class="cursor-pointer rounded-full border border-border bg-panel px-3.5 py-2 text-sm text-ink hover:border-primary hover:text-primary" type="button" data-logout-all>${t('accountLogoutAll')}</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="grid gap-3 rounded-[22px] border border-[#e2a9a9] bg-panel p-6 shadow-card">
+      <h2 class="m-0 text-xl font-bold">${t('accountDeleteTitle')}</h2>
+      <p class="m-0 text-muted">${t('accountDeleteBody')}</p>
+      <div>
+        <button class="cursor-pointer rounded-full border border-[#d95b5b] bg-panel px-3.5 py-2 text-sm text-[#d95b5b] hover:bg-[#faeaea]" type="button" data-delete-account>${t('accountDeleteAction')}</button>
+      </div>
+    </section>
+  `;
+}
+
+// The "My polls" panel: the polls this browser submitted, plus the form that adds a
+// poll id it no longer remembers.
+export function accountPollsPanelMarkup(polls: UserPoll[], loadError: string): string {
+  const body = loadError
+    ? `<p class="m-0 text-muted">${escapeHtml(t('accountLoadFailed'))} ${escapeHtml(loadError)}</p>`
+    : polls.length
+      ? `<ul class="m-0 grid list-none gap-0 p-0">${polls.map(pollCardMarkup).join('')}</ul>`
+      : `<p class="m-0 text-muted">${t('accountNoPolls')}</p>`;
+
+  return `
+    <section class="rounded-[22px] border border-border bg-panel p-6 shadow-card">
+      <h1 class="mb-3.5 text-2xl font-bold">${t('accountPollsTitle')}</h1>
+      <p class="m-0 mb-4 text-sm text-muted">${t('accountPollsBrowserNote')}</p>
+      ${body}
+      <form class="mt-4 flex flex-wrap items-center gap-2" data-remember-poll-form>
+        <input class="w-40 rounded-full border border-border bg-panel px-3 py-1.5 text-sm text-ink outline-none focus:border-primary" type="text" inputmode="numeric" autocomplete="off" data-remember-poll-input placeholder="${t('accountAddPollPlaceholder')}" aria-label="${t('accountAddPollLabel')}" />
+        <button class="cursor-pointer rounded-full border border-primary bg-primary px-3 py-1.5 text-sm text-white" type="submit">${t('accountAddPollAction')}</button>
+      </form>
+    </section>
+  `;
+}
+
+// The "My comments" panel: the comments this browser posted, newest first.
+export function accountCommentsPanelMarkup(comments: UserComment[], loadError: string): string {
+  const body = loadError
+    ? `<p class="m-0 text-muted">${escapeHtml(t('accountLoadFailed'))} ${escapeHtml(loadError)}</p>`
+    : comments.length
+      ? `<ul class="m-0 grid list-none gap-0 p-0">${comments.map(commentCardMarkup).join('')}</ul>`
+      : `<p class="m-0 text-muted">${t('accountNoComments')}</p>`;
+  const note = comments.length > 0
+    ? `<p class="m-0 mb-4 text-sm text-muted">${t('accountCommentsBrowserNote')}</p>`
+    : '';
+
+  return `
+    <section class="rounded-[22px] border border-border bg-panel p-6 shadow-card">
+      <h1 class="mb-3.5 text-2xl font-bold">${t('accountCommentsTitle')}</h1>
+      ${note}
+      ${body}
+    </section>
+  `;
+}
+
+// The two-column shell: the menu on the left, the selected panel on the right. The
+// columns stack on a narrow screen so the menu stays usable on a phone.
+export function accountDashboardMarkup(active: AccountSection, panel: string): string {
+  return `
+    <div class="mx-auto max-w-[var(--page-width)] px-5 pt-6 pb-16">
+      ${renderHeader('/account')}
+      <main class="grid items-start gap-5 md:grid-cols-[220px_minmax(0,1fr)]">
+        ${accountMenuMarkup(active)}
+        <div class="grid min-w-0 gap-5">${panel}</div>
+      </main>
+      ${renderToast()}
+      ${renderFooter()}
+    </div>
+  `;
+}
+
 export async function mountAccountPage(
   app: HTMLElement,
   bindNavigation: () => void,
-  navigate: (route: string) => void
+  navigate: (route: string) => void,
+  // The section of the route that was opened.
+  active: AccountSection = 'account'
 ): Promise<void> {
   const user = getCurrentUser();
   if (!user) {
@@ -67,76 +236,44 @@ export async function mountAccountPage(
     return;
   }
 
+  const reload = () => mountAccountPage(app, bindNavigation, navigate, active);
+
+  // Only the open section loads its own data.
   let polls: UserPoll[] = [];
+  let pollError = '';
+  if (active === 'polls') {
+    try {
+      polls = await getUserPolls(getMyPollIds());
+    } catch (error) {
+      pollError = getErrorMessage(error);
+    }
+  }
+
+  let comments: UserComment[] = [];
+  let commentError = '';
+  if (active === 'comments') {
+    try {
+      comments = await getUserComments(getMyCommentIds());
+    } catch (error) {
+      commentError = getErrorMessage(error);
+    }
+  }
+
   let hasRecoveryCode = false;
-  let loadError = '';
-  try {
-    polls = await getUserPolls(getMyPollIds());
-  } catch (error) {
-    loadError = getErrorMessage(error);
-  }
-  try {
-    hasRecoveryCode = await getRecoveryCodeStatus();
-  } catch {
-    hasRecoveryCode = false;
+  if (active === 'account') {
+    try {
+      hasRecoveryCode = await getRecoveryCodeStatus();
+    } catch {
+      hasRecoveryCode = false;
+    }
   }
 
-  app.innerHTML = `
-    <div class="mx-auto max-w-[var(--page-width)] px-5 pt-6 pb-16">
-      ${renderHeader('/account')}
-      <main class="grid gap-5">
-        <section class="grid gap-3 rounded-[22px] border border-border bg-panel p-6 shadow-card">
-          <div class="flex flex-wrap items-center justify-between gap-3">
-            <h1 class="m-0 text-2xl font-bold">${t('accountTitle')}</h1>
-            <button class="cursor-pointer rounded-full border border-border bg-panel px-3 py-1.5 text-sm text-ink hover:border-primary hover:text-primary" type="button" data-logout>${t('logout')}</button>
-          </div>
-          <p class="m-0 text-muted">${t('accountSignedInAs')} <strong>${escapeHtml(user.username)}</strong></p>
-          <p class="m-0 text-xs text-muted">${t('accountCreatedAt')}: ${escapeHtml(user.createdAt)}</p>
-          <p class="m-0 rounded-[14px] border border-[#f0c36d] bg-[#fff7e6] px-3.5 py-3 text-sm text-ink" role="note">${t('registerWarning')}</p>
-        </section>
-
-        <section class="grid gap-3 rounded-[22px] border border-border bg-panel p-6 shadow-card">
-          <h2 class="m-0 text-xl font-bold">${t('recoveryCodeTitle')}</h2>
-          <p class="m-0 text-muted">${t('recoveryCodeAccountBody')}</p>
-          <p class="m-0 text-sm text-muted">${hasRecoveryCode ? t('recoveryCodeConfigured') : t('recoveryCodeNotConfigured')}</p>
-          <p class="m-0 rounded-[14px] border border-[#f0c36d] bg-[#fff7e6] px-3.5 py-3 text-sm text-ink" role="note">${t('recoveryCodeRegenerateNote')}</p>
-          <div>
-            <button class="cursor-pointer rounded-full border border-border bg-panel px-3.5 py-2 text-sm text-ink hover:border-primary hover:text-primary" type="button" data-regenerate-recovery>${t('recoveryCodeRegenerate')}</button>
-          </div>
-          <div data-recovery-output></div>
-          <div class="grid gap-2 border-t border-border pt-3">
-            <p class="m-0 text-sm text-muted">${t('accountLogoutAllNote')}</p>
-            <div>
-              <button class="cursor-pointer rounded-full border border-border bg-panel px-3.5 py-2 text-sm text-ink hover:border-primary hover:text-primary" type="button" data-logout-all>${t('accountLogoutAll')}</button>
-            </div>
-          </div>
-        </section>
-
-        <section class="grid gap-3 rounded-[22px] border border-[#e2a9a9] bg-panel p-6 shadow-card">
-          <h2 class="m-0 text-xl font-bold">${t('accountDeleteTitle')}</h2>
-          <p class="m-0 text-muted">${t('accountDeleteBody')}</p>
-          <div>
-            <button class="cursor-pointer rounded-full border border-[#d95b5b] bg-panel px-3.5 py-2 text-sm text-[#d95b5b] hover:bg-[#faeaea]" type="button" data-delete-account>${t('accountDeleteAction')}</button>
-          </div>
-        </section>
-
-        <section class="rounded-[22px] border border-border bg-panel p-6 shadow-card">
-          <h2 class="mb-3.5 text-xl font-bold">${t('accountPollsTitle')}</h2>
-          <p class="m-0 mb-4 text-sm text-muted">${t('accountPollsBrowserNote')}</p>
-          ${loadError ? `<p class="m-0 text-muted">${escapeHtml(t('accountLoadFailed'))} ${escapeHtml(loadError)}</p>`
-            : polls.length
-              ? `<ul class="m-0 grid list-none gap-0 p-0">${polls.map(pollCardMarkup).join('')}</ul>`
-              : `<p class="m-0 text-muted">${t('accountNoPolls')}</p>`}
-          <form class="mt-4 flex flex-wrap items-center gap-2" data-remember-poll-form>
-            <input class="w-40 rounded-full border border-border bg-panel px-3 py-1.5 text-sm text-ink outline-none focus:border-primary" type="text" inputmode="numeric" autocomplete="off" data-remember-poll-input placeholder="${t('accountAddPollPlaceholder')}" aria-label="${t('accountAddPollLabel')}" />
-            <button class="cursor-pointer rounded-full border border-primary bg-primary px-3 py-1.5 text-sm text-white" type="submit">${t('accountAddPollAction')}</button>
-          </form>
-        </section>
-      </main>
-      ${renderToast()}
-      ${renderFooter()}
-    </div>
-  `;
+  const panels: Record<AccountSection, string> = {
+    account: accountPanelMarkup(user, hasRecoveryCode),
+    polls: accountPollsPanelMarkup(polls, pollError),
+    comments: accountCommentsPanelMarkup(comments, commentError)
+  };
+  app.innerHTML = accountDashboardMarkup(active, panels[active]);
 
   document.querySelector('[data-regenerate-recovery]')?.addEventListener('click', async (event) => {
     const button = event.currentTarget as HTMLButtonElement;
@@ -194,13 +331,14 @@ export async function mountAccountPage(
     }
   });
 
+
   document.querySelectorAll<HTMLButtonElement>('[data-close-poll]').forEach((button) => {
     button.addEventListener('click', async () => {
       button.disabled = true;
       try {
         await closeUserPoll(Number(button.dataset.closePoll));
         showToast(t('accountClosed'));
-        await mountAccountPage(app, bindNavigation, navigate);
+        await reload();
       } catch (error) {
         showToast(`${t('accountActionFailed')} ${getErrorMessage(error)}`, 'error');
         button.disabled = false;
@@ -216,7 +354,23 @@ export async function mountAccountPage(
         await deleteUserPoll(pollId);
         forgetMyPoll(pollId);
         showToast(t('accountWithdrawn'));
-        await mountAccountPage(app, bindNavigation, navigate);
+        await reload();
+      } catch (error) {
+        showToast(`${t('accountActionFailed')} ${getErrorMessage(error)}`, 'error');
+        button.disabled = false;
+      }
+    });
+  });
+
+  document.querySelectorAll<HTMLButtonElement>('[data-delete-comment]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const id = button.dataset.deleteComment ?? '';
+      button.disabled = true;
+      try {
+        await deleteUserComment(id);
+        forgetMyComment(id);
+        showToast(t('accountCommentDeleted'));
+        await reload();
       } catch (error) {
         showToast(`${t('accountActionFailed')} ${getErrorMessage(error)}`, 'error');
         button.disabled = false;
@@ -241,7 +395,7 @@ export async function mountAccountPage(
       }
       rememberMyPoll(pollId);
       showToast(t('accountAddPollSuccess'));
-      await mountAccountPage(app, bindNavigation, navigate);
+      await reload();
     } catch (error) {
       showToast(`${t('accountActionFailed')} ${getErrorMessage(error)}`, 'error');
     }
@@ -249,3 +403,4 @@ export async function mountAccountPage(
 
   bindNavigation();
 }
+

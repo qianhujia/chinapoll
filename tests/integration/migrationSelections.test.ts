@@ -187,4 +187,36 @@ describe('migration 0004', () => {
     const violations = await env.DB.prepare('SELECT * FROM pragma_foreign_key_check').all();
     expect(violations.results).toEqual([]);
   });
+
+  // 0006 adds the comments owner hash. A comment keeps its row and its id and simply
+  // starts unclaimed, and the new column defaults to NULL.
+  it('adds the comment owner hash without touching the stored comments', async () => {
+    const before = await env.DB.prepare('SELECT id, poll_id, comment, public_id, created_at FROM comments ORDER BY id').all();
+    expect(before.results).toEqual([
+      { id: 5, poll_id: 1, comment: 'hello', public_id: 'pub', created_at: 1 }
+    ]);
+
+    await runMigrationSql(MIGRATIONS[5].sql);
+
+    const columns = await env.DB.prepare("SELECT name FROM pragma_table_info('comments')").all<{ name: string }>();
+    expect(columns.results?.map((row) => row.name)).toEqual(['id', 'poll_id', 'comment', 'public_id', 'owner_hash', 'created_at']);
+
+    const after = await env.DB.prepare('SELECT id, poll_id, comment, public_id, created_at, owner_hash FROM comments').all();
+    expect(after.results).toEqual([
+      { id: 5, poll_id: 1, comment: 'hello', public_id: 'pub', created_at: 1, owner_hash: null }
+    ]);
+
+    // The unique public id index survives, and a new comment may claim ownership.
+    const indexes = await env.DB.prepare("SELECT name FROM pragma_index_list('comments')").all<{ name: string }>();
+    expect((indexes.results ?? []).map((row) => row.name).sort()).toEqual(['idx_comments_poll_created', 'idx_comments_public_id']);
+    await env.DB.prepare(
+      "INSERT INTO comments (poll_id, comment, public_id, owner_hash, created_at) VALUES (1, 'owned', '0123456789abcdef', 'hash', 2)"
+    ).run();
+    const owned = await env.DB.prepare("SELECT owner_hash FROM comments WHERE public_id = '0123456789abcdef'")
+      .first<{ owner_hash: string }>();
+    expect(owned?.owner_hash).toBe('hash');
+
+    const violations = await env.DB.prepare('SELECT * FROM pragma_foreign_key_check').all();
+    expect(violations.results).toEqual([]);
+  });
 });

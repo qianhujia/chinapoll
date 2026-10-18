@@ -14,8 +14,14 @@ the schema or the network handling changes.
 
 - Votes: the SHA-256 hash of a per-poll browser token, and the chosen option as a
   reference to a stored option row. There is no account link and no network value.
-- Comments and polls: free text, an optional owner (`user_id`), and a creation
-  timestamp coarsened to the hour.
+- Comments: free text, a random public id, and a one-way owner hash derived from the
+  server secret (`worker/services/owner.ts`). The hash never leaves the database for
+  readers, so a comment is anonymous to the public; the account dashboard is the only
+  place that lists the comments an account posted, and only for the ids that browser
+  remembers.
+- Polls: free text, the same kind of one-way `owner_hash`, and a creation timestamp
+  coarsened to the hour, so the dashboard can list and close the polls an account
+  submitted without the database naming the author.
 - Accounts: username, a PBKDF2-HMAC-SHA256 password hash, a single recovery
   code hash, and lock/bookkeeping fields. Login time is rounded to the day.
 - The per-network account cap: a keyed, daily-rotated hash of the network bucket

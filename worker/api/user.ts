@@ -1,16 +1,17 @@
 // Self-service endpoints for the signed-in account.
 //
-// Poll ownership is stored as a one-way owner hash (see worker/services/owner.ts),
-// so "my polls" is answered only for the poll ids the client remembers and only
-// for rows whose owner hash matches. Comments carry no owner, so there is no
-// comment list or comment deletion endpoint here.
+// Ownership is stored as a one-way owner hash (see worker/services/owner.ts), so
+// "my polls" is answered only for the poll ids the client remembers and "my
+// comments" only for the comment public ids it remembers, and only for rows whose
+// owner hash matches. Comments gain no public author link: the hash is never
+// published, and a comment created before the hash existed simply cannot be claimed.
 
 import type { HandlerEnv } from '../index';
 import { buildClearSessionCookie, isSecureRequest, requireUser } from '../services/session';
 import { enforceSameOrigin } from '../services/csrf';
 import { verifyPassword } from '../../shared/password';
 import { generateRecoveryCode } from '../services/recovery';
-import { ownerHash } from '../services/owner';
+import { commentOwnerHash, ownerHash } from '../services/owner';
 import { serverHmacKey } from '../services/ip';
 import { currentHour, writeSnapshotForPoll } from '../services/maintenance';
 
@@ -56,6 +57,11 @@ export async function handleUserRequest(request: Request, url: URL, env: UserEnv
     return listUserPolls(url, env, auth.user.id);
   }
 
+  if (url.pathname === '/api/user/comments') {
+    if (request.method !== 'GET') return noStoreJson({ message: 'method not allowed' }, 405);
+    return listUserComments(url, env, auth.user.id);
+  }
+
   if (url.pathname === '/api/user/recovery-code') {
     if (request.method === 'GET') return recoveryCodeStatus(env, auth.user.id);
     if (request.method === 'POST') return regenerateRecoveryCode(request, env, auth.user.id);
@@ -77,6 +83,12 @@ export async function handleUserRequest(request: Request, url: URL, env: UserEnv
     }
     if (request.method !== 'DELETE') return noStoreJson({ message: 'method not allowed' }, 405);
     return deleteUserPoll(env, auth.user.id, pollId);
+  }
+
+  const commentMatch = url.pathname.match(/^\/api\/user\/comments\/([A-Za-z0-9_-]+)$/);
+  if (commentMatch) {
+    if (request.method !== 'DELETE') return noStoreJson({ message: 'method not allowed' }, 405);
+    return deleteUserComment(env, auth.user.id, commentMatch[1]);
   }
 
   return noStoreJson({ message: 'not found' }, 404);
@@ -187,6 +199,88 @@ async function recoveryCodeStatus(env: UserEnv, userId: number): Promise<Respons
     'SELECT recovery_code_hash IS NOT NULL AS configured FROM users WHERE id = ?'
   ).bind(userId).first<{ configured: number }>();
   return noStoreJson({ configured: Number(row?.configured ?? 0) === 1 });
+}
+
+// Parses the comma-separated `ids` query parameter of the comment list. The ids are
+// the random public ids the client remembered when it posted each comment.
+function parseCommentIds(url: URL): string[] | null {
+  const raw = (url.searchParams.get('ids') ?? '').trim();
+  if (!raw) return [];
+  const ids: string[] = [];
+  for (const part of raw.split(',').slice(0, MAX_IDS)) {
+    const id = part.trim();
+    if (!/^[0-9a-f]{16}$/i.test(id)) return null;
+    ids.push(id.toLowerCase());
+  }
+  return ids;
+}
+
+// Returns the stored comment row of one account, or null when the row does not
+// exist or its owner hash does not match.
+async function findOwnedComment<T extends { owner_hash: string | null; public_id: string }>(
+  env: UserEnv,
+  userId: number,
+  row: T | null
+): Promise<T | null> {
+  if (!row) return null;
+  const expected = await commentOwnerHash(userId, row.public_id, serverHmacKey(env));
+  if (!expected || expected !== row.owner_hash) return null;
+  return row;
+}
+
+// Lists the comments of the requested public ids that the signed-in account
+// actually posted. The client supplies the ids it remembers from posting, so the
+// server never has to scan every comment, and the owner hash proves ownership.
+async function listUserComments(url: URL, env: UserEnv, userId: number): Promise<Response> {
+  const ids = parseCommentIds(url);
+  if (!ids) return noStoreJson({ message: 'invalid ids parameter' }, 400);
+  if (ids.length === 0) return noStoreJson({ comments: [] });
+
+  const placeholders = ids.map(() => '?').join(', ');
+  const result = await env.DB.prepare(
+    `SELECT c.public_id, c.poll_id, c.comment, c.created_at, c.owner_hash, p.title
+     FROM comments c
+     JOIN polls p ON p.id = c.poll_id
+     WHERE c.public_id IN (${placeholders})
+     ORDER BY c.created_at DESC, c.public_id DESC`
+  ).bind(...ids).all<{
+    public_id: string;
+    poll_id: number;
+    comment: string;
+    created_at: number;
+    owner_hash: string | null;
+    title: string | null;
+  }>();
+
+  const comments = [];
+  for (const row of result.results ?? []) {
+    if (!await findOwnedComment(env, userId, row)) continue;
+    comments.push({
+      id: row.public_id,
+      pollId: Number(row.poll_id),
+      pollTitle: row.title,
+      comment: row.comment,
+      createdAt: toIso(Number(row.created_at))
+    });
+  }
+  // The order is fixed (newest hour first, then by public id) so a refresh does not
+  // shuffle the list. Comments posted in the same hour share a coarsened timestamp,
+  // so the client, which knows its own posting order, is what shows the newest first.
+  return noStoreJson({ comments });
+}
+
+// Deletes one of the account's own comments. The owner hash is compared again, so
+// a comment id from another account is a 404 rather than a deletion.
+async function deleteUserComment(env: UserEnv, userId: number, publicId: string): Promise<Response> {
+  if (!/^[0-9a-f]{16}$/i.test(publicId)) return noStoreJson({ message: 'invalid comment id' }, 400);
+  const row = await findOwnedComment(env, userId, await env.DB.prepare(
+    'SELECT public_id, owner_hash FROM comments WHERE public_id = ?'
+  ).bind(publicId).first<{ public_id: string; owner_hash: string | null }>());
+  if (!row) return noStoreJson({ message: 'comment not found' }, 404);
+
+  await env.DB.prepare('DELETE FROM comments WHERE public_id = ? AND owner_hash = ?')
+    .bind(row.public_id, row.owner_hash).run();
+  return noStoreJson({ ok: true, id: row.public_id, deleted: true });
 }
 
 // Replaces the recovery code and returns the new plaintext code once. The

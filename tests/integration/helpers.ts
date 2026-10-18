@@ -4,6 +4,7 @@ import reportsAndViewsSchema from '../../migrations/0002_reports_and_views.sql?r
 import pollTypesSchema from '../../migrations/0003_poll_types_and_options.sql?raw';
 import unifiedSelectionsSchema from '../../migrations/0004_unified_selections.sql?raw';
 import restoreVerdictTypeSchema from '../../migrations/0005_restore_verdict_type.sql?raw';
+import commentOwnerSchema from '../../migrations/0006_comment_owner.sql?raw';
 
 export const ORIGIN = 'https://example.com';
 
@@ -14,7 +15,8 @@ export const MIGRATIONS: ReadonlyArray<{ name: string; sql: string }> = [
   { name: '0002_reports_and_views', sql: reportsAndViewsSchema },
   { name: '0003_poll_types_and_options', sql: pollTypesSchema },
   { name: '0004_unified_selections', sql: unifiedSelectionsSchema },
-  { name: '0005_restore_verdict_type', sql: restoreVerdictTypeSchema }
+  { name: '0005_restore_verdict_type', sql: restoreVerdictTypeSchema },
+  { name: '0006_comment_owner', sql: commentOwnerSchema }
 ];
 
 // D1's exec() rejects a batch whose first chunk is only a comment, so comment-only

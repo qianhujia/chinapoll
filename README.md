@@ -29,6 +29,25 @@ Keep secrets out of `.env` and `wrangler.toml`: use the ignored `.dev.vars` file
 
 The homepage lists open polls stored in the local D1 `polls` table. An empty database shows no polls; the repository does not bundle poll seed or demo records.
 
+## User dashboard
+
+The account area is a two-column dashboard: the left menu links the three sections
+and the right column shows the selected one. Each section has its own route, so a
+section can be linked to and reloaded directly:
+
+| Route | Section | Contents |
+| --- | --- | --- |
+| `/account` | My account | who is signed in, the recovery code, signing other devices out, deleting the account |
+| `/account/polls` | My polls | the polls this browser submitted, with close/withdraw, plus a form to add a poll id |
+| `/account/comments` | My comments | the comments this browser posted, with the poll each one belongs to and a delete action |
+
+"My polls" and "My comments" are **per-browser lists**: the client remembers the ids
+it submitted or posted (in `localStorage`) and the server answers only for the rows
+whose one-way owner hash matches, so clearing browser storage empties both lists. A
+poll's owner hash is derived from its id; a comment's is derived from its random
+public id (see `worker/services/owner.ts`), which is why a comment needs no
+account column and readers still see an anonymous comment.
+
 ## User accounts
 
 Voting stays anonymous, but submitting a poll and posting a comment require an account. Users sign up with a username and password only; there is no email or recovery channel, so credentials must be kept safe (like a crypto recovery phrase). Passwords are hashed with PBKDF2-HMAC-SHA256 (600,000 iterations, set by the `PBKDF2_ITERATIONS` constant in `shared/password.ts`) and stored in the `users` table as `pbkdf2$iterations$salt$hash`. Sessions live in `user_sessions` with a thirty-day sliding expiry and are stored in an HttpOnly, SameSite=Strict cookie; only the SHA-256 hash of the token is kept.
@@ -38,11 +57,11 @@ Voting stays anonymous, but submitting a poll and posting a comment require an a
 - Sign-up and sign-in are rate limited per anonymized network bucket, and one bucket may only register `max_accounts_per_ip` accounts. The bucket is stored as a 32-bit integer (`ip_prefix`): a dotted IPv4 address is reduced to its `/24` network, and other addresses (for example IPv6) are folded with a hash, so no full IP address is stored.
 - An optional badge on the top-right corner of the login and sign-up links (enabled with `login_badge_enable`) tells visitors that logging in is not required; the badge text is localized (`Optional` / `可选`).
 - Each account receives one high-entropy, single-use recovery code at sign-up. It is shown once (with a copy action) and only its SHA-256 hash is stored on the `users` row, so no plaintext code is ever persisted. The code resets a forgotten password from `/reset` (linked from the login page): it is rotated as it is consumed, the failed-attempt lock is cleared, and every session is signed out. A fresh code can also be generated from `/account`, which immediately invalidates the current one.
-- Signed-in users manage their own content from `/account`: they can close or withdraw their polls and delete their own comments.
+- Signed-in users manage their own content from the dashboard: they can close or withdraw their polls, and delete a comment they posted.
 - Signing in on a new device keeps every other device signed in; "Sign out of all devices" on `/account` ends them all (including the current browser), and password recovery signs out everywhere.
 - Submitting a poll and posting a comment both require a signed-in account. Newly submitted polls stay pending until an admin approves them, unless `auto_approve_polls` is enabled.
 
-Public account endpoints (session state, register, login, logout, and recovery) live under `/api/auth`, and the self-service content and recovery-code endpoints live under `/api/user`.
+Public account endpoints (session state, register, login, logout, and recovery) live under `/api/auth`, and the self-service content and recovery-code endpoints live under `/api/user`: `GET /api/user/polls?ids=` and `GET /api/user/comments?ids=` list the remembered rows the account owns, `POST /api/user/polls/:id/close` and `DELETE /api/user/polls/:id` act on a poll, `DELETE /api/user/comments/:id` deletes an owned comment, and `GET`/`POST /api/user/recovery-code` reads or regenerates the recovery code.
 
 ## Local D1 + migrations
 
@@ -268,19 +287,23 @@ records admin actions without client IP addresses. Deploy with
   longer than one API page, poll reporting (validation, the hourly timestamp, the
   report rate limit, and both auto-hide thresholds), view counting (the daily
   counter, the display threshold, the 7-day window, and the always-204 rate
-  limit), the admin report list and resolve handlers, both poll types (ballot
+  limit), the admin report list and resolve handlers, the three poll types (ballot
   validation, per-option counts, the ballot threshold, the stored selection rows,
   and a verdict poll behaving as a single choice poll), the
   duration model (`duration_seconds`, the derived mode, and the end date computed
-  at open), the admin option editor, and AI assistance (the disabled setting, the
-  auth gate, the input limits, a malformed model answer, and a valid trimmed
-  answer). Every migration is applied to the isolated test database in order
-  (`migrations/0001_initial.sql`, `0002_reports_and_views.sql`,
-  `0003_poll_types_and_options.sql`, then `0004_unified_selections.sql`);
-  `tests/integration/migrationSelections.test.ts` additionally applies `0001` to
-  `0003`, seeds the pre-`0004` shape (including ballots, comments, reports, views
-  and snapshots), and then applies `0004` to check the data copy, that every child
-  row survived, that `votes.option` is gone and that `poll_type = 1` is refused.
+  at open), the dashboard (the three sections, the two-column layout, and the
+  per-browser "my comments" list with its owner-hash check), the admin option
+  editor, and AI assistance (the disabled setting, the auth gate, the input limits,
+  a malformed model answer, and a valid trimmed answer). Every migration is applied
+  to the isolated test database in order (`migrations/0001_initial.sql`,
+  `0002_reports_and_views.sql`, `0003_poll_types_and_options.sql`,
+  `0004_unified_selections.sql`, `0005_restore_verdict_type.sql`, then
+  `0006_comment_owner.sql`); `tests/integration/migrationSelections.test.ts`
+  additionally applies `0001` to `0003`, seeds the pre-`0004` shape (including
+  ballots, comments, reports, views and snapshots), and then walks `0004` to `0006`
+  to check each data copy, that every child row survived, that `votes.option` is
+  gone, that a restored verdict poll is identifiable again and that the stored
+  comments keep their rows.
 
 The AI binding has no local simulator, so `vitest.workers.config.ts` sets
 `remoteBindings: false` and the AI tests stub `env.AI` with an object whose `run`

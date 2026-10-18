@@ -120,6 +120,41 @@ export async function getUserPolls(ids: number[]): Promise<UserPoll[]> {
   return result.polls ?? [];
 }
 
+export interface UserComment {
+  /** The comment's random public id. */
+  id: string;
+  pollId: number;
+  pollTitle: string | null;
+  comment: string;
+  createdAt: string;
+}
+
+// The client remembers the comment ids it posted; the server answers "my comments"
+// only for ids whose owner hash matches.
+interface CommentsResponse {
+  comments: UserComment[];
+}
+
+// Lists the remembered comment ids that the account actually posted, newest first.
+//
+// `created_at` is coarsened to the hour, so comments posted in the same hour share a
+// timestamp and the server cannot tell them apart. The remembered ids are in posting
+// order, so they are reversed here: the dashboard lists the newest comment first.
+export async function getUserComments(ids: string[]): Promise<UserComment[]> {
+  if (ids.length === 0) return [];
+  const params = new URLSearchParams({ ids: ids.join(',') });
+  const result = await fetchJson<CommentsResponse>(`/api/user/comments?${params}`);
+  const byId = new Map((result.comments ?? []).map((comment) => [comment.id, comment]));
+  return [...ids].reverse().flatMap((id) => {
+    const comment = byId.get(id);
+    return comment ? [comment] : [];
+  });
+}
+
+export async function deleteUserComment(id: string): Promise<void> {
+  await fetchJson<{ ok: boolean }>(`/api/user/comments/${encodeURIComponent(id)}`, { method: 'DELETE' });
+}
+
 export async function closeUserPoll(pollId: number): Promise<void> {
   await fetchJson<{ ok: boolean }>(`/api/user/polls/${pollId}/close`, { method: 'POST' });
 }

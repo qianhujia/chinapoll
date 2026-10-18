@@ -11,6 +11,7 @@ import {
   markVotedLocally,
   recordViewOnce,
   REPORT_REASONS,
+  rememberMyComment,
   submitComment,
   submitReport,
   submitVote,
@@ -388,7 +389,10 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
     commentButton.disabled = true;
     if (commentStatus) commentStatus.textContent = '';
     try {
-      await submitComment(poll.id, comment);
+      const posted = await submitComment(poll.id, comment);
+      // The dashboard lists the comments this browser posted; the server confirms
+      // ownership through the one-way owner hash.
+      rememberMyComment(posted.id);
       if (commentInput) commentInput.value = '';
       if (commentStatus) commentStatus.textContent = t('commentSubmitted');
       window.history.replaceState({}, '', `/poll/${poll.id}?commentsPage=1`);

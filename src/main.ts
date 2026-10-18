@@ -1,7 +1,7 @@
 import './styles.css';
 import { DEFAULT_LOCALE, loadTranslations, setDefaultLocale } from './i18n';
 import { mountAboutPage, mountProposePage } from './pages/content';
-import { mountAccountPage } from './pages/account';
+import { ACCOUNT_SECTIONS, accountSectionFromRoute, mountAccountPage } from './pages/account';
 import { mountLoginPage, mountRegisterPage, mountResetPage } from './pages/auth';
 import { mountHome } from './pages/home';
 import { mountVotePage } from './pages/poll';
@@ -79,8 +79,13 @@ async function render() {
     return;
   }
 
-  if (route === '/account') {
-    await mountAccountPage(app!, bindNavigation, navigateTo);
+  if (route === '/account' || route.startsWith('/account/')) {
+    // Each dashboard section has its own route; an unknown one falls back to the
+    // account section and the URL is corrected.
+    const section = accountSectionFromRoute(route);
+    const canonical = ACCOUNT_SECTIONS.find((entry) => entry.section === section)!.route;
+    if (canonical !== route) window.history.replaceState({}, '', canonical);
+    await mountAccountPage(app!, bindNavigation, navigateTo, section);
     return;
   }
 

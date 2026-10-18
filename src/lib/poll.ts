@@ -241,8 +241,8 @@ export async function getComments(pollId: number, page: number, pageSize: number
   return fetchJson(`/api/comments/${pollId}?${params}`);
 }
 
-export async function submitComment(pollId: number, comment: string): Promise<void> {
-  await fetchJson<{ ok: boolean }>('/api/comments', {
+export async function submitComment(pollId: number, comment: string): Promise<{ id: string }> {
+  return fetchJson<{ ok: boolean; id: string }>('/api/comments', {
     method: 'POST',
     body: JSON.stringify({ pollId, comment })
   });
@@ -343,6 +343,40 @@ export function forgetMyPoll(pollId: number): void {
   const ids = getMyPollIds().filter((id) => id !== pollId);
   try {
     localStorage.setItem(MY_POLLS_KEY, JSON.stringify(ids));
+  } catch {
+    // Ignore storage failures.
+  }
+}
+
+// Comment public ids the browser posted, so the dashboard can list "my comments"
+// even though a comment keeps only a one-way owner hash.
+const MY_COMMENTS_KEY = 'chinapoll.my-comments';
+const MAX_MY_COMMENTS = 100;
+
+export function rememberMyComment(publicId: string): void {
+  if (!publicId) return;
+  const ids = getMyCommentIds();
+  if (!ids.includes(publicId)) ids.push(publicId);
+  try {
+    localStorage.setItem(MY_COMMENTS_KEY, JSON.stringify(ids.slice(-MAX_MY_COMMENTS)));
+  } catch {
+    // Ignore storage failures (for example a full or blocked localStorage).
+  }
+}
+
+export function getMyCommentIds(): string[] {
+  try {
+    const parsed: unknown = JSON.parse(localStorage.getItem(MY_COMMENTS_KEY) ?? '[]');
+    return Array.isArray(parsed) ? parsed.filter((value): value is string => typeof value === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+export function forgetMyComment(publicId: string): void {
+  const ids = getMyCommentIds().filter((id) => id !== publicId);
+  try {
+    localStorage.setItem(MY_COMMENTS_KEY, JSON.stringify(ids));
   } catch {
     // Ignore storage failures.
   }

@@ -19,7 +19,9 @@ are run from the repository root.
    `votes.option` and records every selection in `vote_selections` (each old
    verdict ballot becomes one selection on the matching row), and
    `0005_restore_verdict_type.sql` gives the verdict type its own code back and
-   widens the `poll_type` CHECK to `(1, 2, 3)`.
+   widens the `poll_type` CHECK to `(1, 2, 3)`, and
+   `0006_comment_owner.sql` adds the nullable `comments.owner_hash` the dashboard
+   needs to list and delete the comments an account posted.
 2. Set the required secret before the first deploy:
    `npx wrangler secret put SERVER_HMAC_KEY --env production` (a fresh 64-character hex value).
 3. Build the SPA: `npm run build` (outputs to `dist/web`).

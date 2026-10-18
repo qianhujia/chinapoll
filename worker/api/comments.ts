@@ -4,6 +4,10 @@
 // public API never exposes a username. Public identifiers are random so the
 // global insertion order is not revealed. Rate limiting is per account and lives
 // in the RateLimiter Durable Object.
+//
+// A comment also keeps a one-way owner hash (see worker/services/owner.ts) so the
+// account dashboard can list and delete the comments that account posted. The hash
+// is never published: readers still see an anonymous comment.
 
 import type { HandlerEnv } from '../index';
 import { toHex } from '../../shared/crypto';
@@ -11,6 +15,8 @@ import { checkRateLimit } from '../services/rateLimit';
 import { enforceSameOrigin } from '../services/csrf';
 import { requireUser } from '../services/session';
 import { checkAccountAge } from '../services/users';
+import { commentOwnerHash } from '../services/owner';
+import { serverHmacKey } from '../services/ip';
 import { PollMode, PollStatus } from '../enums';
 
 const MAX_PAGE_SIZE = 100;
@@ -136,9 +142,12 @@ async function handleCommentSubmission(request: Request, env: HandlerEnv): Promi
   // or edge-log timestamp.
   const coarseNow = nowSeconds - (nowSeconds % 3600);
   const id = publicId();
+  // The account dashboard lists and deletes the comments it posted, so the row
+  // keeps a one-way owner hash. Readers still see an anonymous comment.
+  const owner = await commentOwnerHash(auth.user.id, id, serverHmacKey(env));
   await env.DB.prepare(
-    'INSERT INTO comments (poll_id, comment, created_at, public_id) VALUES (?, ?, ?, ?)'
-  ).bind(pollId, comment, coarseNow, id).run();
+    'INSERT INTO comments (poll_id, comment, created_at, public_id, owner_hash) VALUES (?, ?, ?, ?, ?)'
+  ).bind(pollId, comment, coarseNow, id, owner).run();
 
   return Response.json({ ok: true, id }, { status: 201 });
 }
