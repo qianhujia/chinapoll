@@ -5,6 +5,8 @@ import { parseRateLimit } from '../worker/services/rateLimit';
 import { ipBucket, hashedNetworkBucket, isValidServerKey } from '../worker/services/ip';
 import { hashSnapshot, matchesStoredHash, makeSnapshot, verifySnapshotHash, SNAPSHOT_SCHEMA_VERSION } from '../worker/services/snapshot';
 import { normalizeRecoveryCode } from '../worker/services/recovery';
+import { commentOwnerHash, ownerHash } from '../worker/services/owner';
+import { deriveKey, fromHex, hmacSha256Hex } from '../shared/crypto';
 import { checkAccountAge, validateUserPassword } from '../worker/services/users';
 import { enforceSameOrigin } from '../worker/services/csrf';
 import { validateProposal } from '../worker/api/proposal';
@@ -35,6 +37,36 @@ import {
 } from '../worker/enums';
 
 const KEY = '1f2e3d4c5b6a798807162534435261708f9e0d1c2b3a495867758493a2b1c0d1';
+
+// Recomputes the HMAC of one message with the same primitives the owner service
+// uses, so the golden expectations below state the message instead of a magic value.
+async function ownerHashAt(message: string, keyHex: string): Promise<string> {
+  return hmacSha256Hex(fromHex(await deriveKey(keyHex, 'owner')), message);
+}
+
+describe('owner hashes', () => {
+  it('derives a poll owner hash from the account and the poll id', async () => {
+    // If this message changes, every stored `polls.owner_hash` stops matching and
+    // "my polls", close, and withdraw break for polls that already exist.
+    expect(await ownerHash(1, 7, KEY)).toBe(await ownerHashAt('owner:1:7', KEY));
+    expect(await ownerHash(1, 7, KEY)).toMatch(/^[0-9a-f]{64}$/);
+    // The hash depends on both the account and the poll.
+    expect(await ownerHash(1, 7, KEY)).not.toBe(await ownerHash(2, 7, KEY));
+    expect(await ownerHash(1, 7, KEY)).not.toBe(await ownerHash(1, 8, KEY));
+  });
+
+  it('namespaces the comment hash so it cannot collide with a poll id', async () => {
+    expect(await commentOwnerHash(1, 'abcdef', KEY)).toBe(await ownerHashAt('owner:1:comment:abcdef', KEY));
+    // A comment whose public id looks like a poll id is a different message.
+    expect(await commentOwnerHash(1, '7', KEY)).not.toBe(await ownerHash(1, 7, KEY));
+  });
+
+  it('returns null when the server key is missing or unusable', async () => {
+    expect(await ownerHash(1, 7, undefined)).toBeNull();
+    expect(await ownerHash(1, 7, 'too-short')).toBeNull();
+    expect(await commentOwnerHash(1, 'abcdef', undefined)).toBeNull();
+  });
+});
 
 describe('enforceSameOrigin', () => {
   const mutate = (url: string, headers: Record<string, string> = {}) =>

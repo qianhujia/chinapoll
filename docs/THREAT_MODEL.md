@@ -21,7 +21,9 @@ the schema or the network handling changes.
   remembers.
 - Polls: free text, the same kind of one-way `owner_hash`, and a creation timestamp
   coarsened to the hour, so the dashboard can list and close the polls an account
-  submitted without the database naming the author.
+  submitted without the database naming the author. The hash message for a poll is
+  fixed (`worker/services/owner.ts`), and the hash proves submission only: a poll an
+  account voted on is never listed as one of its polls.
 - Accounts: username, a PBKDF2-HMAC-SHA256 password hash, a single recovery
   code hash, and lock/bookkeeping fields. Login time is rounded to the day.
 - The per-network account cap: a keyed, daily-rotated hash of the network bucket

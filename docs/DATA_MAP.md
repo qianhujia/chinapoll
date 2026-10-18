@@ -20,6 +20,11 @@ Cloudflare (edge and logs).
 | created_at, updated_at | timestamps | Public (derived), Admin | as above |
 
 Notes: `ip_prefix` was removed; no network value is stored for a poll.
+The `owner_hash` message is `owner:<accountId>:<pollId>` and is fixed: it is how an
+already-stored row is recognised as belonging to an account, so changing it would
+make existing polls unrecognisable to the account that submitted them. The dashboard
+lists the polls an account submitted by asking the server to confirm the poll ids the
+browser remembers, and it never lists a poll the account only voted on.
 `duration_seconds` replaced the submitted start and end times, and `start_at` is
 no longer written for new polls. `end_at` is computed when the poll opens as
 `open_time + duration_seconds`, so a poll that waits for review still gets its
@@ -92,7 +97,9 @@ combination, so the grouping is never published.
 
 Note: `ip_prefix` and `ts_bucket` were removed, and a comment carries no account
 column: `owner_hash` is derived from the server secret over the comment's random
-public id, so a database leak without the secret reveals no author links. The
+public id under a namespaced message (`owner:<accountId>:comment:<publicId>`), so it
+can never collide with a poll owner hash and a database leak without the secret
+reveals no author links. The
 account dashboard uses it to list and delete the comments that account posted, and
 the public comment API never returns it.
 

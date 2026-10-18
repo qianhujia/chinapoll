@@ -1,10 +1,15 @@
 // Per-poll and per-comment owner hashes.
 //
 // A row stores a one-way HMAC of the server secret, derived for the "owner"
-// purpose, over "owner:<userId>:<subject>". Self-service close and withdraw
+// purpose, over a message that names the subject. Self-service close and withdraw
 // recompute the HMAC and compare, and "my polls" is answered only for poll ids
 // whose HMAC matches. A database leak without the server secret therefore reveals
 // no author links.
+//
+// The poll message is `owner:<userId>:<pollId>` and must never change: every stored
+// `polls.owner_hash` was derived that way, so a different message would make the
+// existing rows unrecognisable to their own author. A comment namespaces its subject
+// (`owner:<userId>:comment:<publicId>`) so it can never collide with a poll id.
 
 import { deriveKey, fromHex, hmacSha256Hex } from '../../shared/crypto';
 import { isValidServerKey } from './ip';
@@ -14,7 +19,7 @@ export async function ownerHash(
   pollId: number,
   keyHex: string | undefined | null
 ): Promise<string | null> {
-  return subjectHash(userId, `poll:${pollId}`, keyHex);
+  return subjectHash(userId, `${pollId}`, keyHex);
 }
 
 // The owner hash of a comment. Its random public id is generated before the insert,
