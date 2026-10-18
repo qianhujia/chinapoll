@@ -368,10 +368,12 @@ describe('poll type enums', () => {
   });
 
   it('maps the duration labels to days, seconds, and a poll mode', () => {
-    expect(POLL_DURATIONS).toEqual(['none', '1d', '3d', '7d', '14d', '1m', '1y']);
+    expect(POLL_DURATIONS).toEqual(['none', '1d', '3d', '7d', '14d', '1m', '6m', '1y']);
     expect(durationSeconds('none')).toBeNull();
     expect(durationSeconds('1d')).toBe(86_400);
     expect(durationSeconds('1m')).toBe(30 * 86_400);
+    // Half a year is 180 days, so the stored length stays a whole number of days.
+    expect(durationSeconds('6m')).toBe(180 * 86_400);
     expect(durationSeconds('1y')).toBe(365 * 86_400);
     expect(durationMode('none')).toBe(PollMode.Evergreen);
     expect(durationMode('7d')).toBe(PollMode.Deadline);

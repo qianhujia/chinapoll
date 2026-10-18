@@ -11,7 +11,8 @@ import {
   descriptionFieldMarkup,
   durationFieldMarkup,
   optionsFieldsetMarkup,
-  pollTypeCard
+  pollTypeCard,
+  proposalRulesMarkup
 } from '../src/pages/proposal';
 
 // Translations are not loaded in this environment, so `t()` falls back to the
@@ -82,6 +83,20 @@ describe('descriptionFieldMarkup', () => {
     expect(markup).toContain('name="description"');
     expect(markup).toContain('maxlength="2000"');
     expect(markup).toContain('for="proposal-description"');
+  });
+});
+
+describe('proposalRulesMarkup', () => {
+  it('lists the four rules and no yes/no/neutral outcome rule', () => {
+    const markup = proposalRulesMarkup();
+
+    expect(markup.match(/<li>/g)).toHaveLength(4);
+    expect(markup).toContain('proposalRuleOne');
+    expect(markup).toContain('proposalRuleTwo');
+    expect(markup).toContain('proposalRuleThree');
+    expect(markup).toContain('proposalRuleFour');
+    // The removed rule and its key are gone.
+    expect(markup).not.toContain('proposalRuleFive');
   });
 });
 

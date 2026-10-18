@@ -24,6 +24,7 @@ const DICTIONARY: Record<string, string> = {
   duration7d: '7 days',
   duration14d: '14 days',
   duration1m: '1 month',
+  duration6m: '6 months',
   duration1y: '1 year',
   optionsLabel: 'Options',
   addOption: 'Add option',

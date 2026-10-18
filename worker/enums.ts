@@ -167,10 +167,13 @@ export const POLL_DURATION_DAYS: Readonly<Record<PollDuration, number | null>> =
   '7d': 7,
   '14d': 14,
   '1m': 30,
+  '6m': 180,
   '1y': 365
 };
 
-export type PollDuration = 'none' | '1d' | '3d' | '7d' | '14d' | '1m' | '1y';
+// The durations the proposal form offers. A month counts as 30 days and half a
+// year as 180, so the stored lengths stay exact multiples of a day.
+export type PollDuration = 'none' | '1d' | '3d' | '7d' | '14d' | '1m' | '6m' | '1y';
 
 export type PollDurationOption = { value: PollDuration; label: string };
 
@@ -182,6 +185,7 @@ export const POLL_DURATIONS: ReadonlyArray<PollDuration> = [
   '7d',
   '14d',
   '1m',
+  '6m',
   '1y'
 ];
 

@@ -4,7 +4,8 @@ import {
   descriptionFieldMarkup,
   durationFieldMarkup,
   optionsFieldsetMarkup,
-  pollTypeCard
+  pollTypeCard,
+  proposalRulesMarkup
 } from './proposal';
 import { bindProposalForm } from './proposalForm';
 import { getCurrentUser } from '../lib/session';
@@ -64,13 +65,7 @@ export function mountProposePage(app: HTMLElement, bindNavigation: () => void): 
         <section class="grid gap-3 rounded-[22px] border border-border bg-panel p-6 shadow-card">
           <h1 class="m-0 text-2xl font-bold">${t('proposalTitle')}</h1>
           <p class="m-0 text-muted">${t('proposalBody')}</p>
-          <ol class="list-decimal space-y-1 pl-6">
-            <li>${t('proposalRuleOne')}</li>
-            <li>${t('proposalRuleTwo')}</li>
-            <li>${t('proposalRuleThree')}</li>
-            <li>${t('proposalRuleFour')}</li>
-            <li>${t('proposalRuleFive')}</li>
-          </ol>
+          ${proposalRulesMarkup()}
           <form class="grid gap-3" data-proposal-form>
             <fieldset class="m-0 grid gap-2 border-0 p-0">
               <legend class="mb-2 font-bold">${t('pollTypeLabel')}</legend>

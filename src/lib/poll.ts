@@ -5,7 +5,7 @@ export type PollType = 'verdict' | 'single_choice' | 'multi_choice';
 
 // The durations offered by the proposal form. The mapping is defined once in
 // worker/enums.ts and re-exported here so the form and the Worker agree.
-export type PollDuration = 'none' | '1d' | '3d' | '7d' | '14d' | '1m' | '1y';
+export type PollDuration = 'none' | '1d' | '3d' | '7d' | '14d' | '1m' | '6m' | '1y';
 
 export const POLL_DURATION_DAYS: Readonly<Record<PollDuration, number | null>> = {
   none: null,
@@ -14,6 +14,7 @@ export const POLL_DURATION_DAYS: Readonly<Record<PollDuration, number | null>> =
   '7d': 7,
   '14d': 14,
   '1m': 30,
+  '6m': 180,
   '1y': 365
 };
 
@@ -24,6 +25,7 @@ export const POLL_DURATIONS: ReadonlyArray<PollDuration> = [
   '7d',
   '14d',
   '1m',
+  '6m',
   '1y'
 ];
 
@@ -35,6 +37,7 @@ export const DURATION_LABEL_KEYS: Readonly<Record<PollDuration, string>> = {
   '7d': 'duration7d',
   '14d': 'duration14d',
   '1m': 'duration1m',
+  '6m': 'duration6m',
   '1y': 'duration1y'
 };
 

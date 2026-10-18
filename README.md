@@ -124,11 +124,12 @@ through `src/lib/poll.ts`:
 | `7d` | 7 days | `deadline` |
 | `14d` | 14 days | `deadline` |
 | `1m` | 30 days | `deadline` |
+| `6m` | 180 days | `deadline` |
 | `1y` | 365 days | `deadline` |
 
-The table names the stored lengths; the form shows the last two as **1 month** and
-**1 year**, so the wording matches how long the poll runs rather than the exact day
-count.
+The table names the stored lengths; the form shows the last three as **1 month**,
+**6 months** (半年), and **1 year**, so the wording matches how long the poll runs
+rather than the exact day count.
 
 `mode` is derived from the label (`none` stores `PollMode.Evergreen`, anything
 else `PollMode.Deadline`) and `duration_seconds` stores the length (or `NULL`).

@@ -40,7 +40,11 @@ describe('submit form labels in Chinese', () => {
     const markup = durationFieldMarkup();
 
     expect(markup).toContain('<option value="1m">1 个月</option>');
+    // Half a year sits between a month and a year.
+    expect(markup).toContain('<option value="6m">半年</option>');
     expect(markup).toContain('<option value="1y">1 年</option>');
+    expect(markup.indexOf('value="1m"')).toBeLessThan(markup.indexOf('value="6m"'));
+    expect(markup.indexOf('value="6m"')).toBeLessThan(markup.indexOf('value="1y"'));
     // The day counts are gone from the wording; the stored lengths do not change.
     expect(markup).not.toContain('30 天');
     expect(markup).not.toContain('365 天');

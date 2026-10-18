@@ -113,6 +113,20 @@ export function durationFieldMarkup(): string {
   `;
 }
 
+// The rules a submission has to meet, shown on the submit page. There are four:
+// the old "it can produce a clear yes/no/neutral outcome" rule was removed once the
+// poll types carried that meaning themselves, so the wording that followed it moved
+// up a key.
+export function proposalRulesMarkup(): string {
+  return `
+          <ol class="list-decimal space-y-1 pl-6">
+            <li>${t('proposalRuleOne')}</li>
+            <li>${t('proposalRuleTwo')}</li>
+            <li>${t('proposalRuleThree')}</li>
+            <li>${t('proposalRuleFour')}</li>
+          </ol>`;
+}
+
 // The optional description: a plain field with its own label, no collapsible
 // wrapper. It starts at two rows and grows with the text up to 30 rows, after
 // which it scrolls instead of growing further (see `bindProposalForm`).
