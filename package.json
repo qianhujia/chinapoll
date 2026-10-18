@@ -15,12 +15,21 @@
     "dev:worker": "npm run db:migrate && npx wrangler dev worker/index.ts --local --persist-to .wrangler --port 8787 --live-reload=false",
     "build": "tsc --noEmit && vite build",
     "build:worker": "npx wrangler deploy --dry-run --outdir dist/worker",
+    "db:migrate:remote": "npx wrangler d1 migrations apply DB --remote",
+    "deploy": "npm run db:migrate:remote && npx wrangler deploy",
     "preview": "vite preview --host 0.0.0.0 --port 4173",
     "lint": "tsc --noEmit",
     "test": "vitest run && vitest run --config vitest.workers.config.ts",
     "test:unit": "vitest run",
     "test:workers": "vitest run --config vitest.workers.config.ts",
     "worker:dev": "npm run dev:worker"
+  },
+  "cloudflare": {
+    "bindings": {
+      "SERVER_HMAC_KEY": {
+        "description": "Server secret for keyed network hashing and poll/comment ownership hashing. Generate 64 hex characters with `openssl rand -hex 32`."
+      }
+    }
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.23.0",

@@ -2,6 +2,16 @@
 
 A local-first privacy-focused polling app designed around the Cloudflare + D1 architecture described in the product spec.
 
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/qianhujia/chinapoll)
+
+The button clones this repository into your GitHub account and deploys the public
+Worker, which serves both the SPA and `/api/*`, together with a provisioned D1
+database. Choose the deploy command `npm run deploy` on the setup page so the D1
+migrations are applied before `wrangler deploy`, and set the `SERVER_HMAC_KEY`
+secret to 64 random hex characters (`openssl rand -hex 32`). The admin dashboard
+Worker and the CI `[env.production]` flow are deployed separately; see
+[docs/RUNBOOK.md](docs/RUNBOOK.md).
+
 ## Local startup
 
 ```bash
