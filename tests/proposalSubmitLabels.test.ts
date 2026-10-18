@@ -11,7 +11,8 @@ import {
   DESCRIPTION_MIN_ROWS,
   descriptionFieldMarkup,
   durationFieldMarkup,
-  optionsFieldsetMarkup
+  optionsFieldsetMarkup,
+  templateOptionLabels
 } from '../src/pages/proposal';
 
 const zh: Record<string, string> = JSON.parse(readFileSync('public/i18n/zh.json', 'utf8'));
@@ -66,5 +67,15 @@ describe('submit form labels in Chinese', () => {
     expect(description).toContain('py-3 font-normal"');
     // The options legend is bold as well.
     expect(optionsFieldsetMarkup()).toContain('<legend class="mb-2 font-bold">选项</legend>');
+  });
+});
+
+describe('template option rows', () => {
+  it('pre-fills the three verdict words for the Verdict card only', () => {
+    expect(templateOptionLabels('verdict')).toEqual(['赞同', '中立', '反对']);
+    // A single or multiple choice card has nothing to pre-fill, so the editor
+    // starts from two empty rows and the verdict words are cleaned away.
+    expect(templateOptionLabels('single_choice')).toEqual([]);
+    expect(templateOptionLabels('multi_choice')).toEqual([]);
   });
 });

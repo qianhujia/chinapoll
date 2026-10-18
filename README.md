@@ -72,8 +72,10 @@ A poll is one of two ballot shapes, selected on the proposal form and stored in 
 The form also offers a **Verdict** card, which is a template rather than a type:
 choosing it submits an ordinary `single_choice` poll whose options are pre-filled
 with the three verdict words (Approve, Neutral, Oppose). Every row stays editable,
-so the submitter may rename them, remove one to keep two, or add up to seven. The
-request body is the same as any other single choice poll:
+so the submitter may rename them, remove one to keep two, or add up to seven.
+Switching to Single choice or Multiple choice **clears** those rows, so an
+ordinary choice poll never starts with the verdict words. The request body is the
+same as any other single choice poll:
 `{ "pollType": "single_choice", "options": [...] }`.
 
 ### One engine, two types

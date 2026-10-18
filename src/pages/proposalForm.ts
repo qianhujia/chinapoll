@@ -20,9 +20,9 @@ import {
   DESCRIPTION_MIN_ROWS,
   MAX_OPTIONS,
   MIN_OPTIONS,
-  VERDICT_TEMPLATE_LABEL_KEYS,
   confirmationMarkup,
   optionRowMarkup,
+  templateOptionLabels,
   type TemplateType
 } from './proposal';
 import { bindAiButtons } from './proposalAi';
@@ -179,18 +179,20 @@ export function bindProposalForm(app: HTMLElement, bindNavigation: () => void, a
   };
 
   // Fills the editor with the rows the picked card starts from. Every row is
-  // editable: the Verdict template only pre-fills the three verdict words and the
-  // user may rename them, drop to two, or add up to seven.
+  // editable: the Verdict template pre-fills the three verdict words and the user
+  // may rename them, drop to two, or add up to seven. A choice poll has nothing to
+  // pre-fill, so it starts with two empty rows.
   const fillTemplateRows = () => {
-    if (templateType === 'verdict') {
+    const labels = templateOptionLabels(templateType);
+    if (labels.length > 0) {
       optionRows?.replaceChildren();
-      VERDICT_TEMPLATE_LABEL_KEYS.forEach((key, index) => {
-        optionRows?.insertAdjacentHTML('beforeend', optionRowMarkup(index + 1, t(key)));
+      labels.forEach((label, index) => {
+        optionRows?.insertAdjacentHTML('beforeend', optionRowMarkup(index + 1, label));
       });
       return;
     }
-    // A plain choice poll starts with two empty rows the first time it is picked;
-    // switching between the two choice cards keeps what the user already wrote.
+    // Leaves whatever the user already wrote alone; switching between the two
+    // choice cards keeps it.
     if (rows().length === 0) {
       for (let index = 0; index < MIN_OPTIONS; index += 1) {
         optionRows?.insertAdjacentHTML('beforeend', optionRowMarkup(index + 1));
@@ -235,7 +237,12 @@ export function bindProposalForm(app: HTMLElement, bindNavigation: () => void, a
 
   form.querySelectorAll<HTMLInputElement>('[data-poll-type]').forEach((radio) => {
     radio.addEventListener('change', () => {
-      templateType = radio.value as TemplateType;
+      const next = radio.value as TemplateType;
+      // Leaving the Verdict template clears its pre-filled rows, so a single or
+      // multiple choice poll starts from an empty list instead of keeping
+      // Approve / Neutral / Oppose.
+      if (templateType === 'verdict' && next !== 'verdict') optionRows?.replaceChildren();
+      templateType = next;
       syncOptionEditor();
     });
   });

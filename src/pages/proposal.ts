@@ -25,6 +25,14 @@ export type TemplateType = 'verdict' | 'single_choice' | 'multi_choice';
 // i18n keys of the options the Verdict template pre-fills, in row order.
 export const VERDICT_TEMPLATE_LABEL_KEYS: ReadonlyArray<string> = ['approve', 'neutral', 'oppose'];
 
+// The option texts a template starts with, in row order. Only the Verdict template
+// pre-fills words; a single choice or multiple choice poll starts from an empty
+// list, so switching away from Verdict never carries Approve / Neutral / Oppose
+// into an ordinary choice poll.
+export function templateOptionLabels(template: TemplateType): string[] {
+  return template === 'verdict' ? VERDICT_TEMPLATE_LABEL_KEYS.map((key) => t(key)) : [];
+}
+
 // One selectable card per poll type, with a one-line explanation.
 export function pollTypeCard(value: TemplateType, labelKey: string, hintKey: string, checked: boolean): string {
   return `
