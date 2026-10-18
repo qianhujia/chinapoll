@@ -73,7 +73,7 @@ export function mountProposePage(app: HTMLElement, bindNavigation: () => void): 
           </ol>
           <form class="grid gap-3" data-proposal-form>
             <fieldset class="m-0 grid gap-2 border-0 p-0">
-              <legend class="mb-2 font-semibold">${t('pollTypeLabel')}</legend>
+              <legend class="mb-2 font-bold">${t('pollTypeLabel')}</legend>
               <div class="grid gap-2.5 sm:grid-cols-3">
                 ${pollTypeCard('verdict', 'pollTypeVerdict', 'pollTypeVerdictHint', true)}
                 ${pollTypeCard('single_choice', 'pollTypeSingleChoice', 'pollTypeSingleChoiceHint', false)}
@@ -81,8 +81,8 @@ export function mountProposePage(app: HTMLElement, bindNavigation: () => void): 
               </div>
             </fieldset>
 
-            <label class="grid gap-2" for="proposal-title">${t('proposalTitleLabel')}
-              <input class="w-full rounded-[14px] border border-border bg-[#f9fbff] px-3.5 py-3" id="proposal-title" name="title" type="text" maxlength="200" required>
+            <label class="grid gap-2 font-bold" for="proposal-title">${t('proposalTitleLabel')}
+              <input class="w-full rounded-[14px] border border-border bg-[#f9fbff] px-3.5 py-3 font-normal" id="proposal-title" name="title" type="text" maxlength="200" required>
             </label>
 
             ${aiEnabled ? aiTitleMarkup() : ''}

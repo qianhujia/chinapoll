@@ -32,7 +32,6 @@ const DICTIONARY: Record<string, string> = {
   aiEnhanceTitle: 'Enhance with AI',
   aiDisabledHint: 'Enter at least 10 characters in the title first.',
   aiPrivacyNote: 'Your draft is sent to Cloudflare Workers AI.',
-  proposalDescriptionToggle: 'Description (Optional)',
   proposalDescriptionLabel: 'Description (optional)'
 };
 
@@ -54,11 +53,10 @@ describe('submit form labels', () => {
     expect(markup).not.toContain('duration7d');
   });
 
-  it('translates the description panel', () => {
+  it('translates the description field label', () => {
     const markup = descriptionFieldMarkup();
 
-    expect(markup).toContain('Description (Optional)');
-    expect(markup).not.toContain('proposalDescriptionToggle');
+    expect(markup).toContain('Description (optional)');
     expect(markup).not.toContain('proposalDescriptionLabel');
   });
 

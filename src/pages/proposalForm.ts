@@ -16,6 +16,8 @@ import { getPublicSettings } from '../config';
 import { getErrorMessage, showToast, t } from '../ui';
 import type { AiLocale } from '../lib/ai';
 import {
+  DESCRIPTION_MAX_ROWS,
+  DESCRIPTION_MIN_ROWS,
   MAX_OPTIONS,
   MIN_OPTIONS,
   VERDICT_TEMPLATE_LABEL_KEYS,
@@ -99,7 +101,6 @@ export function bindProposalForm(app: HTMLElement, bindNavigation: () => void, a
   const titleInput = form.querySelector<HTMLInputElement>('#proposal-title');
   const durationSelect = form.querySelector('#proposal-duration') as HTMLSelectElement | null;
   const descriptionInput = form.querySelector<HTMLTextAreaElement>('#proposal-description');
-  const descriptionDetails = form.querySelector<HTMLDetailsElement>('[data-description-details]');
   const optionsFieldset = form.querySelector<HTMLFieldSetElement>('[data-options-fieldset]');
   const optionRows = form.querySelector<HTMLDivElement>('[data-option-rows]');
   const addOptionButton = form.querySelector<HTMLButtonElement>('[data-add-option]');
@@ -113,6 +114,8 @@ export function bindProposalForm(app: HTMLElement, bindNavigation: () => void, a
   // The card the user picked. "verdict" is a template, not an API type: it
   // submits as a single choice poll with three pre-filled options.
   let templateType: TemplateType = 'verdict';
+  // The height the description grows to before it scrolls, measured on first use.
+  let descriptionMaxHeight = 0;
   // Set while the confirmation dialog is open so the second submit sends the
   // request instead of opening the dialog again.
   let confirming = false;
@@ -131,6 +134,42 @@ export function bindProposalForm(app: HTMLElement, bindNavigation: () => void, a
       if (remove) remove.disabled = count <= MIN_OPTIONS;
     });
   };
+  // The description starts at two rows and grows with the text. Past 30 rows it
+  // scrolls instead of growing further, so a long description cannot push the
+  // submit button off the page. The row height is measured from the field itself
+  // rather than hard-coded, so it follows the real font size and padding.
+  const measureLineHeight = () => {
+    if (!descriptionInput) return 0;
+    const style = getComputedStyle(descriptionInput);
+    const padding = Number.parseFloat(style.paddingTop || '0') + Number.parseFloat(style.paddingBottom || '0');
+    const height = descriptionInput.style.height;
+    descriptionInput.style.height = 'auto';
+    // The field is empty here, so `scrollHeight` is the box it renders at its
+    // `rows` height; the content is one row per `rows` attribute.
+    const oneRow = (Number(descriptionInput.scrollHeight) - padding) / DESCRIPTION_MIN_ROWS;
+    descriptionInput.style.height = height;
+    return Math.max(oneRow, 1);
+  };
+
+  const syncDescriptionHeight = () => {
+    if (!descriptionInput) return;
+    const style = getComputedStyle(descriptionInput);
+    const padding = Number.parseFloat(style.paddingTop || '0') + Number.parseFloat(style.paddingBottom || '0');
+    const border = Number.parseFloat(style.borderTopWidth || '0') + Number.parseFloat(style.borderBottomWidth || '0');
+    if (descriptionMaxHeight === 0) {
+      // `height` is a border-box height, so the borders and the padding are part
+      // of the 30-row cap.
+      descriptionMaxHeight = measureLineHeight() * DESCRIPTION_MAX_ROWS + padding + border;
+    }
+    descriptionInput.style.height = 'auto';
+    const content = Number(descriptionInput.scrollHeight);
+    descriptionInput.style.height = `${Math.min(content, descriptionMaxHeight)}px`;
+    descriptionInput.style.overflowY = content > descriptionMaxHeight ? 'auto' : 'hidden';
+  };
+
+  descriptionInput?.addEventListener('input', syncDescriptionHeight);
+  syncDescriptionHeight();
+
   const syncAiGates = () => {
     if (!aiEnabled) return;
     const longEnough = (titleInput?.value.trim().length ?? 0) >= 10;
@@ -227,9 +266,8 @@ export function bindProposalForm(app: HTMLElement, bindNavigation: () => void, a
       return;
     }
     if (description.length > 0 && (description.length < 20 || description.length > 2000)) {
-      // The description starts collapsed, so the panel is opened to show the
-      // field that needs fixing.
-      if (descriptionDetails) descriptionDetails.open = true;
+      // The field is always visible, so it only needs focus to show what to fix.
+      descriptionInput?.focus();
       showToast(t('proposalDescriptionInvalid'), 'error');
       return;
     }
@@ -275,7 +313,8 @@ export function bindProposalForm(app: HTMLElement, bindNavigation: () => void, a
       if (verdictRadio) verdictRadio.checked = true;
       if (titleInput) titleInput.value = '';
       if (descriptionInput) descriptionInput.value = '';
-      if (descriptionDetails) descriptionDetails.open = false;
+      // A cleared field shrinks back to its starting rows.
+      syncDescriptionHeight();
       if (durationSelect) durationSelect.value = 'none';
       rows().forEach((row) => row.remove());
       syncOptionEditor();

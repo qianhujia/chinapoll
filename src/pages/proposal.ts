@@ -31,7 +31,7 @@ export function pollTypeCard(value: TemplateType, labelKey: string, hintKey: str
     <label class="flex cursor-pointer flex-col gap-1 rounded-[14px] border border-border bg-[#f9fbff] px-3.5 py-3">
       <span class="flex items-center gap-2.5">
         <input class="accent-primary" type="radio" name="pollType" value="${value}" data-poll-type${checked ? ' checked' : ''}>
-        <span class="font-semibold">${t(labelKey)}</span>
+        <span class="font-bold">${t(labelKey)}</span>
       </span>
       <span class="text-xs text-muted">${t(hintKey)}</span>
     </label>
@@ -56,7 +56,7 @@ export function optionRowMarkup(position: number, label = '', suggested = false)
 export function optionsFieldsetMarkup(): string {
   return `
   <fieldset class="m-0 grid gap-2 border-0 p-0" data-options-fieldset hidden>
-    <legend class="mb-2 font-semibold">${t('optionsLabel')}</legend>
+    <legend class="mb-2 font-bold">${t('optionsLabel')}</legend>
     <div class="grid gap-2" data-option-rows></div>
     <div class="flex flex-wrap items-center gap-2.5">
       <button class="cursor-pointer rounded-full border border-border bg-panel px-3.5 py-2 text-sm text-ink disabled:cursor-not-allowed disabled:opacity-60" type="button" data-add-option>${t('addOption')}</button>
@@ -97,28 +97,22 @@ export function durationFieldMarkup(): string {
     .map((duration) => `<option value="${duration}"${duration === 'none' ? ' selected' : ''}>${t(DURATION_LABEL_KEYS[duration])}</option>`)
     .join('');
   return `
-    <label class="grid gap-2" for="proposal-duration">${t('durationLabel')}
-      <select class="w-full rounded-[14px] border border-border bg-[#f9fbff] px-3.5 py-3" id="proposal-duration" name="duration">
+    <label class="grid gap-2 font-bold" for="proposal-duration">${t('durationLabel')}
+      <select class="w-full rounded-[14px] border border-border bg-[#f9fbff] px-3.5 py-3 font-normal" id="proposal-duration" name="duration">
         ${options}
       </select>
     </label>
   `;
 }
 
-// The optional description, collapsed by default so the form stays short. The
-// summary names the field, and the label inside it stays available to assistive
-// technology once the textarea is revealed.
+// The optional description: a plain field with its own label, no collapsible
+// wrapper. It starts at two rows and grows with the text up to 30 rows, after
+// which it scrolls instead of growing further (see `bindProposalForm`).
 export function descriptionFieldMarkup(): string {
   return `
-    <details class="grid gap-3 rounded-[14px] border border-border bg-[#f9fbff] px-3.5 py-3" data-description-details>
-      <summary class="cursor-pointer font-semibold">${t('proposalDescriptionToggle')}</summary>
-      <div class="grid gap-3 pt-3">
-        <label class="grid gap-2" for="proposal-description">
-          <span class="sr-only">${t('proposalDescriptionLabel')}</span>
-          <textarea class="min-h-[140px] w-full resize-y rounded-[14px] border border-border bg-white px-3.5 py-3" id="proposal-description" name="description" maxlength="2000"></textarea>
-        </label>
-      </div>
-    </details>
+    <label class="grid gap-2 font-bold" for="proposal-description">${t('proposalDescriptionLabel')}
+      <textarea class="w-full resize-none overflow-hidden rounded-[14px] border border-border bg-white px-3.5 py-3 font-normal" id="proposal-description" name="description" rows="${DESCRIPTION_MIN_ROWS}" maxlength="2000"></textarea>
+    </label>
   `;
 }
 
@@ -156,4 +150,8 @@ export function confirmationMarkup(summary: ConfirmationMarkupInput): string {
 export const MAX_OPTIONS = MAX_POLL_OPTIONS;
 export const MIN_OPTIONS = MIN_POLL_OPTIONS;
 export const MAX_LABEL_LENGTH = MAX_OPTION_LABEL_LENGTH;
+// Rows of the description field: it starts at two and grows to at most 30, after
+// which the field scrolls.
+export const DESCRIPTION_MIN_ROWS = 2;
+export const DESCRIPTION_MAX_ROWS = 30;
 export type { PollDuration, PollType };

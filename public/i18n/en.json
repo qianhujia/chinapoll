@@ -48,7 +48,6 @@
   "proposalRuleFour": "It is not a duplicate of an existing poll.",
   "proposalRuleFive": "It is relevant to public policy or civic discussion.",
   "proposalTitleLabel": "Title",
-  "proposalDescriptionToggle": "Description (Optional)",
   "proposalDescriptionLabel": "Description (optional)",
   "proposalDescriptionInvalid": "Description must be 20 to 2000 characters.",
   "proposalModeLabel": "Voting duration",
