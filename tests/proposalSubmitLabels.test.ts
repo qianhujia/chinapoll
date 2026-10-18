@@ -35,6 +35,18 @@ describe('submit form labels in Chinese', () => {
     expect(markup).not.toContain('durationLabel');
   });
 
+  it('shows the month and year durations as 1 个月 and 1 年', () => {
+    const markup = durationFieldMarkup();
+
+    expect(markup).toContain('<option value="1m">1 个月</option>');
+    expect(markup).toContain('<option value="1y">1 年</option>');
+    // The day counts are gone from the wording; the stored lengths do not change.
+    expect(markup).not.toContain('30 天');
+    expect(markup).not.toContain('365 天');
+    expect(markup).not.toContain('duration1m');
+    expect(markup).not.toContain('duration1y');
+  });
+
   it('labels the description field and starts it at two rows', () => {
     const markup = descriptionFieldMarkup();
 
