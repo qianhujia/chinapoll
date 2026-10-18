@@ -45,18 +45,16 @@ describe('hourly maintenance', () => {
       .bind(pollId).first<{ status: number }>();
     expect(poll?.status).toBe(2);
 
-    // The snapshot carries the ballots and the per-option counts; the three
-    // verdict columns are not written any more.
+    // The snapshot carries the ballots and the per-option counts.
     const terminal = await env.DB.prepare(
-      'SELECT ballots, option_counts, approve, final FROM stats_snapshots WHERE poll_id = ? AND final = 1'
-    ).bind(pollId).first<{ ballots: number; option_counts: string; approve: number; final: number }>();
+      'SELECT ballots, option_counts, final FROM stats_snapshots WHERE poll_id = ? AND final = 1'
+    ).bind(pollId).first<{ ballots: number; option_counts: string; final: number }>();
     expect(terminal?.final).toBe(1);
     expect(terminal?.ballots).toBe(1);
     expect(JSON.parse(terminal?.option_counts ?? '[]')).toEqual([
       { position: 1, count: 1 },
       { position: 2, count: 0 }
     ]);
-    expect(terminal?.approve).toBe(0);
 
     const verify = await (await SELF.fetch(`${ORIGIN}/api/snapshots/${pollId}/verify`)).json() as { valid: boolean };
     expect(verify.valid).toBe(true);

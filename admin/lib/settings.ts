@@ -1,6 +1,7 @@
 import {
   DEFAULT_PUBLIC_SETTINGS,
   HERO_BACKGROUND_COLOR_PATTERN,
+  PUBLISH_REPOSITORY_PATTERN,
   RATE_LIMIT_PATTERN
 } from '../../worker/api/settings.js';
 
@@ -9,7 +10,7 @@ export type SettingKey = keyof typeof DEFAULT_PUBLIC_SETTINGS;
 export const SETTING_KEYS = Object.keys(DEFAULT_PUBLIC_SETTINGS) as SettingKey[];
 
 // Settings that must never be returned in full through the admin API.
-export const SECRET_SETTING_KEYS: ReadonlyArray<SettingKey> = ['turnstile_secret_key'];
+export const SECRET_SETTING_KEYS: ReadonlyArray<SettingKey> = ['turnstile_secret_key', 'github_token'];
 
 export type SettingValidationResult =
   | { ok: true; value: string }
@@ -100,7 +101,28 @@ export function validateSettingValue(key: string, value: string): SettingValidat
     case 'login_badge_enable':
     case 'auto_approve_polls':
     case 'ai_enable':
+    case 'publish_enable':
       if (value !== 'true' && value !== 'false') return { ok: false, error: `${key} must be "true" or "false".` };
+      break;
+    case 'publish_repository':
+      if (value && !PUBLISH_REPOSITORY_PATTERN.test(value)) {
+        return { ok: false, error: 'publish_repository must be "owner/name" or empty.' };
+      }
+      break;
+    case 'publish_branch':
+      if (!value.trim() || value.length > 100 || /\s/.test(value)) {
+        return { ok: false, error: 'publish_branch must be a branch name of 1 to 100 characters without whitespace.' };
+      }
+      break;
+    case 'publish_path':
+      if (value.length > 200 || /\s/.test(value)) {
+        return { ok: false, error: 'publish_path must be a repository path of at most 200 characters without whitespace.' };
+      }
+      break;
+    case 'github_token':
+      if (value && (value.length < 64 || /\s/.test(value))) {
+        return { ok: false, error: 'github_token must be a token of at least 64 characters.' };
+      }
       break;
     case 'ai_model':
       if (!value.trim() || value.length > 100) return { ok: false, error: 'ai_model must contain 1 to 100 characters.' };

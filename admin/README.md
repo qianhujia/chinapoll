@@ -143,6 +143,8 @@ login endpoint) or an `Authorization: Bearer <session-token>` header.
 | `GET` | `/api/admin/settings` | List settings with masked secret values |
 | `PUT` | `/api/admin/settings/:key` | Validate and update one setting |
 | `POST` | `/api/admin/settings/initialize` | Insert missing default settings |
+| `POST` | `/api/admin/settings/publish/test` | Read the configured repository through the GitHub API and report write permission |
+| `POST` | `/api/admin/settings/publish/run` | Run one publisher pass on demand |
 
 Cookie-authenticated mutations must include an `Origin` header that matches the
 Worker origin (or `ADMIN_ORIGIN`); other requests receive `403`. Self-lockout is
@@ -165,7 +167,8 @@ screen. Paths outside this set return `404`.
 The audit log is visible to super admins only. Every state change is recorded
 with the acting username, action, target, and JSON details: login
 success/failure/lock, logout, poll status changes (including approving or
-rejecting submissions), comment deletion, setting updates, public user status
+rejecting submissions), comment deletion, setting updates (including publish
+connection tests and on-demand publish runs), public user status
 changes, unlocks and deletions, admin user management, and report resolution
 (`report.resolved`). The public Worker also writes `poll.auto_hidden` (with no
 actor) when a poll trips an automatic report-hide threshold. Secret setting values
@@ -214,6 +217,42 @@ Or deploy from the repository root with the admin Deploy to Cloudflare button in
 
 Because this Worker can publish polls, delete comments, and manage other admins,
 put it behind Cloudflare Access or another access control layer in production.
+
+## Public audit repository
+
+The Settings tab has a **Public audit repository** card that controls the Worker
+publisher, which copies the signed snapshot chain to a GitHub data repository
+once an hour. It has four fields plus a secret:
+
+| Setting | Meaning |
+| --- | --- |
+| `publish_enable` | Boolean, default `false`. Turns the hourly publisher on. |
+| `publish_repository` | The data repository in `owner/name` form; validated with `^[\w.-]+/[\w.-]+$`. |
+| `publish_branch` | Branch to update, default `main`. |
+| `publish_path` | Directory inside the repository, default `snapshots`. |
+| `github_token` | Secret, masked in the API and dashboard. |
+
+**Token scope.** `github_token` must be a **fine-grained personal access token**
+limited to the one data repository with **Contents: Read and write** only and no
+other permission. Do not use a classic token with a broad scope.
+
+**Storage.** The token is a normal `settings` row, handled like
+`turnstile_secret_key`: it is stored in the `settings` table, masked by
+`GET /api/admin/settings`, never returned by `/api/settings/public`, and never
+written to the audit log. The Settings tab shows a password field; leaving it
+blank keeps the current value.
+
+**Rotating it.** Paste a new value into the `github_token` field and save. The
+new value replaces the old one and the next run uses it; delete the old token on
+GitHub afterwards. Nothing else needs to change.
+
+Every change to one of these settings writes a `setting.update` audit entry that
+records the key but never the token. **Test connection** calls the GitHub API to
+read the repository and reports whether the token has write permission, and
+**Publish now** runs one pass immediately. Both write an audit entry
+(`setting.publish_test` and `setting.publish_run`). See
+[../docs/RUNBOOK.md](../docs/RUNBOOK.md) for what to do when `publishError` is
+true.
 
 ## Settings cache
 

@@ -1,5 +1,6 @@
 import { PollStatus } from '../../worker/enums';
 import { last7DayCutoff, todayBucket } from '../../worker/api/views';
+import { publishHealth, recentPublishRuns } from '../../worker/services/publisher';
 import type { AdminEnv } from '../auth';
 
 interface CountRow {
@@ -35,6 +36,11 @@ export async function handleOverviewRequest(request: Request, env: AdminEnv): Pr
      LIMIT 5`
   ).bind(PollStatus.Pending).all<{ id: number; title: string | null; mode: number; created_at: number }>();
 
+  const [publishRuns, publish] = await Promise.all([
+    recentPublishRuns(env, 5),
+    publishHealth(env)
+  ]);
+
   return Response.json({
     overview: {
       pending,
@@ -55,7 +61,10 @@ export async function handleOverviewRequest(request: Request, env: AdminEnv): Pr
         title: row.title,
         mode: row.mode,
         createdAt: new Date(row.created_at * 1000).toISOString()
-      }))
+      })),
+      lastPublishAt: publish.lastPublishAt,
+      publishError: publish.publishError,
+      publishRuns
     }
   }, {
     headers: { 'cache-control': 'no-store' }

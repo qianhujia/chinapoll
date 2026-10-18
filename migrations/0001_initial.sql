@@ -21,10 +21,10 @@
 --     option column at all.
 --   * `vote_selections` also stores `poll_id`, denormalized from its ballot, so the
 --     counts of one poll can be grouped without joining back to `votes`.
---   * `stats_snapshots` keeps the verdict columns `approve`/`oppose`/`neutral` even
---     though rows written from schema version 3 onwards leave them at 0: earlier
---     records were signed over those values and must stay verifiable. New rows fill
---     `ballots` and, for a choice poll, `option_counts`.
+--   * `stats_snapshots` stores one row per poll per hour: `ballots` and, for a
+--     choice poll, `option_counts`. The canonical payload signed by the hash chain
+--     is schema version 3, which covers exactly those values, the cumulative view
+--     total, and the chain link.
 --   * Poll reports carry no reporter identifier at all: no address, no network
 --     bucket, no user id, and only an hour-coarsened `created_at`.
 --   * Views are counted per poll per UTC day in `poll_views`, and no per-view row
@@ -233,9 +233,6 @@ CREATE TABLE IF NOT EXISTS stats_snapshots (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   poll_id INTEGER NOT NULL,
   ts_hour INTEGER NOT NULL,
-  approve INTEGER NOT NULL DEFAULT 0,
-  oppose INTEGER NOT NULL DEFAULT 0,
-  neutral INTEGER NOT NULL DEFAULT 0,
   prev_hash TEXT NOT NULL,
   hash TEXT NOT NULL,
   final INTEGER NOT NULL DEFAULT 0,
@@ -246,3 +243,23 @@ CREATE TABLE IF NOT EXISTS stats_snapshots (
 );
 
 CREATE INDEX IF NOT EXISTS idx_stats_snapshots_hour ON stats_snapshots(ts_hour);
+
+-- Publish cursor for the Worker publisher: the newest snapshot hour that has been
+-- copied to the public audit repository for a poll, and whether that hour was the
+-- terminal (final) record. `final` is 0 while the poll is still open, so the next
+-- run re-reads the closing hour when the poll ends.
+CREATE TABLE IF NOT EXISTS publish_state (
+  poll_id INTEGER PRIMARY KEY,
+  published_through INTEGER NOT NULL,
+  final INTEGER NOT NULL DEFAULT 0
+);
+
+-- One row per publisher run, so the dashboard and /api/health can show the recent
+-- history. Only the last 50 rows are kept. The error column is NULL on success.
+CREATE TABLE IF NOT EXISTS publish_runs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  started_at INTEGER NOT NULL,
+  finished_at INTEGER NOT NULL,
+  polls_updated INTEGER NOT NULL DEFAULT 0,
+  error TEXT
+);

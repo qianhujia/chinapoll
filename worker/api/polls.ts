@@ -91,7 +91,7 @@ export async function handlePollsRequest(request: Request, url: URL, env: Handle
   // The site-wide vote total is read from the latest snapshot per poll rather
   // than counting every vote on every request.
   const voteTotalResult = await env.DB.prepare(
-    `SELECT COALESCE(SUM(s.approve + s.oppose + s.neutral), 0) AS total
+    `SELECT COALESCE(SUM(s.ballots), 0) AS total
      FROM stats_snapshots s
      JOIN (SELECT poll_id, MAX(ts_hour) AS ts_hour FROM stats_snapshots GROUP BY poll_id) latest
        ON latest.poll_id = s.poll_id AND latest.ts_hour = s.ts_hour`

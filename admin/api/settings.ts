@@ -1,4 +1,5 @@
 import { DEFAULT_PUBLIC_SETTINGS } from '../../worker/api/settings';
+import { runPublisher, testGitHubConnection } from '../../worker/services/publisher';
 import type { AdminActor, AdminEnv } from '../auth';
 import { logAudit } from '../lib/audit';
 import {
@@ -29,6 +30,22 @@ export async function handleSettingsRequest(request: Request, url: URL, env: Adm
       return Response.json({ message: 'method not allowed' }, { status: 405 });
     }
     return listSettings(env);
+  }
+
+  // The publish actions are explicit paths and must be matched before the
+  // generic per-setting key route below.
+  if (url.pathname === '/api/admin/settings/publish/test') {
+    if (request.method !== 'POST') {
+      return Response.json({ message: 'method not allowed' }, { status: 405 });
+    }
+    return testPublish(env, actor);
+  }
+
+  if (url.pathname === '/api/admin/settings/publish/run') {
+    if (request.method !== 'POST') {
+      return Response.json({ message: 'method not allowed' }, { status: 405 });
+    }
+    return publishNow(env, actor);
   }
 
   const keyMatch = url.pathname.match(/^\/api\/admin\/settings\/([^/]+)$/);
@@ -109,6 +126,52 @@ async function updateSetting(key: string, request: Request, env: AdminEnv, actor
     value: maskSettingValue(key, validation.value),
     message: `Set ${key}.`
   });
+}
+
+// Reads the configured repository through the GitHub API and reports whether the
+// stored token can write to it. The token value is never returned or logged.
+async function testPublish(env: AdminEnv, actor: AdminActor): Promise<Response> {
+  const result = await testGitHubConnection(env);
+  await logAudit(env, {
+    actor,
+    action: 'setting.publish_test',
+    targetType: 'setting',
+    targetId: 'publish_repository',
+    // Only the outcome is recorded, never the token.
+    details: { ok: result.ok, write: result.write, status: result.status }
+  });
+  return Response.json({
+    ok: result.ok,
+    write: result.write,
+    status: result.status,
+    message: result.message
+  }, { headers: { 'cache-control': 'no-store' } });
+}
+
+// Runs one publisher pass on demand. Errors are recorded by the publisher in
+// `publish_runs` and returned here rather than thrown.
+async function publishNow(env: AdminEnv, actor: AdminActor): Promise<Response> {
+  const result = await runPublisher(env);
+  await logAudit(env, {
+    actor,
+    action: 'setting.publish_run',
+    targetType: 'setting',
+    targetId: 'publish_repository',
+    details: { skipped: result.skipped, pollsUpdated: result.pollsUpdated, ok: result.ok }
+  });
+  const message = result.skipped
+    ? `Publish skipped: ${result.reason ?? 'not configured'}.`
+    : result.ok
+      ? `Published ${result.pollsUpdated} poll file(s).`
+      : `Publish failed: ${result.error ?? 'unknown error'}`;
+  return Response.json({
+    ok: result.ok,
+    skipped: result.skipped,
+    pollsUpdated: result.pollsUpdated,
+    commitSha: result.commitSha,
+    error: result.error ?? null,
+    message
+  }, { status: result.ok ? 200 : 502, headers: { 'cache-control': 'no-store' } });
 }
 
 async function initializeSettings(env: AdminEnv, actor: AdminActor): Promise<Response> {

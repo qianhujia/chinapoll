@@ -201,19 +201,22 @@ prompt and the response are never logged and never written to D1: the validated
 suggestions go straight back to the caller. The frontend states this in one line
 under the buttons, and `docs/THREAT_MODEL.md` documents the data flow.
 
-## Snapshot chain and its schema version
+## Snapshot chain format
 
-The hourly snapshot chain is the tamper-evident record of published results. Each record's hash covers the poll id, the hour, the number of ballots, the per-option counts, the cumulative view total, and the previous record's hash.
+The hourly snapshot chain is the tamper-evident record of published results. There is a single canonical payload, `schemaVersion: 3`. Each record's hash covers the poll id, the hour, the number of ballots, the per-option counts, the cumulative view total, and the previous record's hash, so rewriting any published count is detectable.
 
-The canonical payload carries a `schemaVersion`:
+`optionCounts` carries the per-position counts of the poll as JSON in `stats_snapshots.option_counts`, `ballots` is the number of ballots at that hour, and `views` is the cumulative view total. `makeSnapshot`, `verifySnapshotHash`, the `/api/snapshots/:id` response, the `/api/snapshots/:id/verify` walk, and the publisher all use this one format. The legacy `approve`/`oppose`/`neutral` verdict columns and the version 1 and version 2 payloads were removed along with them.
 
-- **Version 1** — poll id, hour, the three verdict counts, the cumulative views, and the chain link. Chains published before the poll types release have this shape.
-- **Version 2** — adds `ballots` and `optionCounts` next to the three verdict counts.
-- **Version 3** — drops the three verdict counts, which are no longer a concept now that a verdict poll is an ordinary single choice poll. `makeSnapshot` always writes version 3.
+## Audit publishing
 
-`verifySnapshotHash` and the `/api/snapshots/:id/verify` walk reproduce a stored hash under any supported version, so a chain copied out before either change still verifies and is never reported as tampered with. `/api/snapshots/:id` and the publish script both report the schema version alongside the snapshots.
+The hourly maintenance run copies the signed chain to a public GitHub data repository, so the published counts are copied outside the operator's database. Publishing is configured in the admin Settings tab, under **Public audit repository**:
 
-`optionCounts` carries the per-position counts of the poll as JSON in `stats_snapshots.option_counts`, and `ballots` is the number of ballots at that hour. The three verdict columns stay in the table because the version 1 and 2 payloads cannot be recomputed without them: a record written now leaves them at 0, and `/api/snapshots/:id` still reports them so an external verifier can reproduce an older payload.
+- `publish_enable` (default `false`) turns the publisher on.
+- `publish_repository` is the data repository in `owner/name` form.
+- `publish_branch` (default `main`) and `publish_path` (default `snapshots`) select where the files are written.
+- `github_token` is a fine-grained personal access token, stored in the `settings` table like `turnstile_secret_key`, masked in the admin API and dashboard, and never returned publicly, logged, or sent anywhere except GitHub.
+
+The publisher runs after the snapshots are written. It lists every open poll and every poll closed in the last 35 days, reads the snapshot rows newer than the last published hour for each, re-reads the closing hour while the stored last row is not final, and merges the rows into the existing poll file by hour. One commit per run is created through the Git Data API (one blob per changed file plus `index.json`, one tree, one commit, then a branch-ref update), with the message `Publish snapshots <ISO hour>` and the `chinapoll-bot` identity. The `publish_state` table stores the per-poll cursor, and the last 50 runs are kept in `publish_runs`. The Settings tab offers **Test connection**, which reads the repository and reports write permission, and **Publish now**. `/api/health` reports `lastPublishAt` and `publishError`, and the admin Overview lists the last five runs. `docs/RUNBOOK.md` covers the token and what to do when `publishError` is true.
 
 ## Poll reports and view counts
 
@@ -306,6 +309,10 @@ records admin actions without client IP addresses. Deploy with
   D1 and the RateLimiter Durable Object. They cover the vote path, threshold
   hiding, rate-limit exhaustion and reset, the account comment delay, CSRF
   rejection, the cron snapshot chain including the close-hour terminal snapshot,
+  the Worker publisher with a stubbed GitHub API (`fetch`) for the disabled and
+  missing-token skips, the first-run publish, an idempotent second run, a
+  re-fetched closing hour marked final, and a GitHub `401` recorded in
+  `publish_runs` without failing the cron,
   the Content Security Policy on a deep link, a full `verify` of a chain
   longer than one API page, poll reporting (validation, the hourly timestamp, the
   report rate limit, and both auto-hide thresholds), view counting (the daily
@@ -333,11 +340,14 @@ npm run test:unit
 npm run test:workers
 ```
 
-This repository carries no CI workflow: run `npm run lint`, `npm run build`,
-`npm test`, `npm run build:worker`, and `npm run admin:worker:dry-run` locally
-before deploying, and deploy both Workers with `--env production` as described in
-`docs/RUNBOOK.md`. A pipeline added later should also check that the built SPA
-references no external origin other than `challenges.cloudflare.com`.
+Continuous integration runs on every push and pull request (`.github/workflows/ci.yml`).
+It installs dependencies with `npm ci`, then runs `npm run lint`, `npm run build`,
+`npm test`, `npm run build:worker`, and `npm run admin:worker:dry-run`, and finally
+checks that the built SPA loads no external origin other than
+`challenges.cloudflare.com`. There is deliberately no deploy job: deploy both
+Workers with `--env production` as described in `docs/RUNBOOK.md`, or use the
+Deploy to Cloudflare buttons. The same commands can be run locally before
+deploying.
 
 ## Privacy documentation
 

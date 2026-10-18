@@ -1,0 +1,46 @@
+name: CI
+
+# Continuous integration runs the same checks that are documented for local use
+# before a deploy. There is deliberately no deploy job: deployment stays on the
+# Deploy to Cloudflare button and the local scripts in docs/RUNBOOK.md.
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Type check
+        run: npm run lint
+      - name: Build the SPA
+        run: npm run build
+      - name: Run unit and integration tests
+        run: npm test
+      - name: Build the public Worker
+        run: npm run build:worker
+      - name: Build the admin Worker
+        run: npm run admin:worker:dry-run
+      # Only resource-loading contexts count: a script or stylesheet source, a
+      # CSS url(), and an @import. Plain hyperlinks (such as the footer link to
+      # the source repository) and license comments are not loaded.
+      - name: Check the built SPA for third-party origins
+        run: |
+          hits=$(grep -rhoE "(src=[\"']?https?://[A-Za-z0-9._-]+|<link[^>]*href=[\"']?https?://[A-Za-z0-9._-]+|url\([\"']?https?://[A-Za-z0-9._-]+|@import[^;{]*https?://[A-Za-z0-9._-]+)" dist/web \
+            | grep -oE "https?://[A-Za-z0-9._-]+" \
+            | sort -u \
+            | grep -vE "^https?://challenges\.cloudflare\.com$" || true)
+          if [ -n "$hits" ]; then
+            echo "Unexpected third-party origin loaded by the SPA:"
+            echo "$hits"
+            exit 1
+          fi
+          echo "The built SPA loads no third-party origin other than challenges.cloudflare.com."

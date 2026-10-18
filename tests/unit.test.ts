@@ -3,7 +3,7 @@ import { SESSION_TTL_SECONDS, createSession as createAdminSession, type AdminEnv
 import { USER_SESSION_TTL_SECONDS, createSession as createUserSession } from '../worker/services/session';
 import { parseRateLimit } from '../worker/services/rateLimit';
 import { ipBucket, hashedNetworkBucket, isValidServerKey } from '../worker/services/ip';
-import { hashSnapshot, matchesStoredHash, makeSnapshot, verifySnapshotHash, SNAPSHOT_SCHEMA_VERSION } from '../worker/services/snapshot';
+import { makeSnapshot, verifySnapshotHash, SNAPSHOT_SCHEMA_VERSION } from '../worker/services/snapshot';
 import { normalizeRecoveryCode } from '../worker/services/recovery';
 import { commentOwnerHash, ownerHash } from '../worker/services/owner';
 import { deriveKey, fromHex, hmacSha256Hex } from '../shared/crypto';
@@ -592,9 +592,9 @@ function rejectionMessage(result: { ok: true; optionIds: number[] } | { ok: fals
 
 
 describe('snapshot schema version', () => {
-  it('writes version 3 and still verifies version 2 and version 1 records', async () => {
-    // A record written now has no verdict counts, so it hashes with the version 3
-    // payload that covers the ballots and the per-option counts only.
+  it('writes and verifies the single schema version 3 payload', async () => {
+    // There is one canonical format: schema version 3 covers the ballots and the
+    // per-option counts only.
     const modern = await makeSnapshot({
       pollId: 5,
       tsHour: 10,
@@ -605,7 +605,10 @@ describe('snapshot schema version', () => {
     });
     expect(SNAPSHOT_SCHEMA_VERSION).toBe(3);
     expect(modern.ballots).toBe(3);
+    // The legacy verdict counts no longer exist on a record.
     expect(modern).not.toHaveProperty('approve');
+    expect(modern).not.toHaveProperty('oppose');
+    expect(modern).not.toHaveProperty('neutral');
     expect(await verifySnapshotHash({
       pollId: modern.pollId,
       tsHour: modern.tsHour,
@@ -614,47 +617,6 @@ describe('snapshot schema version', () => {
       views: modern.views,
       prevHash: modern.prevHash
     })).toBe(modern.hash);
-
-    // A record signed with the version 2 payload carried the three verdict counts
-    // next to the ballots and the option counts. Recomputing that payload must
-    // reproduce the stored hash, so an existing chain still verifies.
-    const version2Record = {
-      pollId: 5,
-      tsHour: 10,
-      approve: 2,
-      oppose: 1,
-      neutral: 0,
-      ballots: 3,
-      optionCounts: [{ position: 1, count: 2 }, { position: 2, count: 1 }],
-      views: 3,
-      prevHash: 'GENESIS'
-    };
-    const version2Hash = await hashSnapshot(version2Record, 2);
-    expect(version2Hash).toMatch(/^[0-9a-f]{64}$/);
-    expect(version2Hash).not.toBe(modern.hash);
-    // The same values are reproduced for a record that carries its stored hash.
-    expect(await matchesStoredHash({ ...version2Record, hash: version2Hash })).toBe(true);
-
-    // A chain published before the poll types release has no ballots or option
-    // counts. Such a record must verify against the original (version 1) payload,
-    // so an old chain is never reported as tampered with.
-    const legacyRecord = {
-      pollId: 5,
-      tsHour: 10,
-      approve: 2,
-      oppose: 1,
-      neutral: 0,
-      views: 3,
-      prevHash: 'GENESIS'
-    };
-    const legacyHash = await verifySnapshotHash(legacyRecord);
-    expect(legacyHash).toMatch(/^[0-9a-f]{64}$/);
-    // The version 1 hash differs from the newer payloads of the same counts.
-    expect(legacyHash).not.toBe(modern.hash);
-    expect(legacyHash).not.toBe(version2Hash);
-    // Recomputing it is stable.
-    expect(await verifySnapshotHash(legacyRecord)).toBe(legacyHash);
-    expect(await matchesStoredHash({ ...legacyRecord, ballots: 0, optionCounts: null, hash: legacyHash })).toBe(true);
   });
 });
 

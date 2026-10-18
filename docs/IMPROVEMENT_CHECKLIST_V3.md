@@ -3,9 +3,12 @@
 Status of the launch-blocker review. Consolidated after the terminal-snapshot
 work, the migration consolidation, and the first integration-test suite.
 
-The CI workflow this review refers to was later removed from the repository (the
-same steps are run locally, see README.md), and the incremental migrations were
-folded back into the single consolidated `migrations/0001_initial.sql`.
+The CI workflow this review refers to was later removed from the repository, then
+restored as `.github/workflows/ci.yml` (see README.md). The incremental migrations
+were folded back into the single consolidated `migrations/0001_initial.sql`. The
+GitHub Actions snapshot publisher was replaced by the Worker publisher in
+`worker/services/publisher.ts`, and the historical file names below are kept as
+the record of that review.
 
 ---
 

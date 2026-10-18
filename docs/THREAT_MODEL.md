@@ -15,10 +15,12 @@ the schema or the network handling changes.
 - Votes: the SHA-256 hash of a per-poll browser token, and the chosen option as a
   reference to a stored option row. There is no account link and no network value.
 - Comments: free text, a random public id, and a one-way owner hash derived from the
-  server secret (`worker/services/owner.ts`). The hash never leaves the database for
-  readers, so a comment is anonymous to the public; the account dashboard is the only
-  place that lists the comments an account posted, and only for the ids that browser
-  remembers.
+  server secret (`worker/services/owner.ts`). A comment is anonymous to the public:
+  the hash never leaves the database for readers. The author can still claim it, and
+  only through that hash: the account dashboard asks the server to confirm the
+  comment ids the browser remembers against the owner hash, and the admin dashboard
+  can list a user's comments only through the same hash check, never through a stored
+  user ID (no such column exists).
 - Polls: free text, the same kind of one-way `owner_hash`, and a creation timestamp
   coarsened to the hour, so the dashboard can list and close the polls an account
   submitted without the database naming the author. The hash message for a poll is
@@ -47,9 +49,15 @@ the schema or the network handling changes.
   rotating the recovery code or deleting the account both require the current
   password.
 - **Content tampering**: hourly signed snapshots form an append-only hash chain
-  published for external verification. Each record's hash covers the poll id, the
-  hour, the number of ballots, the per-option counts, the cumulative view total,
-  and the previous record's hash, so rewriting any of those values is detectable.
+  published for external verification. There is one canonical format
+  (`schemaVersion: 3`): each record's hash covers the poll id, the hour, the number
+  of ballots, the per-option counts, the cumulative view total, and the previous
+  record's hash, so rewriting any of those values is detectable. The earlier
+  version 1 and version 2 payloads and the legacy verdict columns they signed were
+  removed, so every chain uses the same format. The hourly maintenance run copies
+  the chain to a public data repository with a fine-grained token that is stored as
+  a secret in the `settings` table and is never exposed, logged, or sent anywhere
+  except the GitHub API.
 
 ## Reports and views
 
@@ -211,8 +219,14 @@ When it is on:
   (2026-10-18) now that nothing has been deployed: the file creates the final shape
   of every table, index, and constraint directly, so a fresh database needs no
   intermediate table rebuilds, and the removed incremental files are no longer part
-  of the repository. The repository also no longer carries a CI workflow; the same
-  checks run locally.
+  of the repository.
+- Made the snapshot chain a single format: dropped the legacy `approve`/`oppose`/
+  `neutral` columns and the version 1 and 2 payloads, leaving `schemaVersion: 3`
+  only. Added the Worker publisher, which replaces the GitHub Actions workflow and
+  copies the chain to a public data repository from the hourly maintenance run with
+  a fine-grained token stored as a secret (`github_token`). Restored the CI workflow
+  (`.github/workflows/ci.yml`), which had briefly been removed while the checks ran
+  locally.
 
 ## Known trade-offs
 

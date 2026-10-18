@@ -3,17 +3,14 @@
 import type { HandlerEnv } from '../index';
 import {
   SNAPSHOT_SCHEMA_VERSION,
-  matchesStoredHash,
   parseOptionCounts,
+  verifySnapshotHash,
   type SnapshotRecord
 } from '../services/snapshot';
 
 interface SnapshotRow {
   poll_id: number;
   ts_hour: number;
-  approve: number;
-  oppose: number;
-  neutral: number;
   ballots: number;
   option_counts: string | null;
   views: number;
@@ -28,11 +25,6 @@ function toRecord(row: SnapshotRow): SnapshotRecord {
   return {
     pollId: Number(row.poll_id),
     tsHour: Number(row.ts_hour),
-    // The three verdict columns only carry the counts of records signed before
-    // schema version 3; they are 0 on a current record.
-    approve: Number(row.approve),
-    oppose: Number(row.oppose),
-    neutral: Number(row.neutral),
     ballots: Number(row.ballots ?? 0),
     optionCounts: parseOptionCounts(row.option_counts),
     views: Number(row.views),
@@ -45,7 +37,7 @@ function toRecord(row: SnapshotRow): SnapshotRecord {
 // cursor, ordered ascending.
 async function fetchPage(env: HandlerEnv, pollId: number, after: number, limit: number): Promise<SnapshotRow[]> {
   const result = await env.DB.prepare(
-    `SELECT poll_id, ts_hour, approve, oppose, neutral, ballots, option_counts,
+    `SELECT poll_id, ts_hour, ballots, option_counts,
             views, prev_hash, hash, final
      FROM stats_snapshots WHERE poll_id = ? AND ts_hour > ?
      ORDER BY ts_hour ASC LIMIT ?`
@@ -88,10 +80,7 @@ export async function handleSnapshotRequest(request: Request, url: URL, env: Han
       for (const row of rows) {
         const record = toRecord(row);
         if (record.prevHash !== prevHash) { valid = false; break; }
-        // A record may be a version 2 row or one published before the new
-        // fields existed, so either payload is accepted when it reproduces the
-        // stored hash.
-        if (!await matchesStoredHash(record)) { valid = false; break; }
+        if (await verifySnapshotHash(record) !== record.hash) { valid = false; break; }
         prevHash = record.hash;
         total += 1;
       }
@@ -119,11 +108,6 @@ export async function handleSnapshotRequest(request: Request, url: URL, env: Han
       return {
         tsHour: new Date(snapshot.tsHour * 1000).toISOString(),
         tsHourEpoch: snapshot.tsHour,
-        // Reported so a verifier can recompute the payload of a record signed
-        // before schema version 3; they are 0 on a current record.
-        approve: snapshot.approve,
-        oppose: snapshot.oppose,
-        neutral: snapshot.neutral,
         // `ballots` is the number of ballots at that hour and `optionCounts`
         // carries the per-option counts of the poll.
         ballots: snapshot.ballots,
@@ -132,9 +116,9 @@ export async function handleSnapshotRequest(request: Request, url: URL, env: Han
         prevHash: snapshot.prevHash,
         hash: snapshot.hash,
         // `final` marks the terminal snapshot written when the poll closed. It
-        // is reported for verifiers and the publish script; the hash above
-        // covers the ballots, the option counts, the cumulative views, and the
-        // chain link.
+        // is reported for verifiers and the publisher; the hash above covers
+        // the ballots, the option counts, the cumulative views, and the chain
+        // link.
         final: Number(row.final) === 1
       };
     }),

@@ -14,6 +14,9 @@ export const RATE_LIMIT_PATTERN = /^(\d+)\/([wdhms])$/;
 export const HERO_BACKGROUND_COLOR_PATTERN =
   /^(#[0-9a-f]{3,8}|rgba?\([^()]*\)|hsla?\([^()]*\)|[a-z]+|(?:linear|radial)-gradient\(.+\))$/i;
 
+// A GitHub repository selector in `owner/name` form.
+export const PUBLISH_REPOSITORY_PATTERN = /^[\w.-]+\/[\w.-]+$/;
+
 export const DEFAULT_PUBLIC_SETTINGS = {
   default_locale: 'en',
   site_name: 'ChinaPoll',
@@ -63,7 +66,16 @@ export const DEFAULT_PUBLIC_SETTINGS = {
   // is exposed publicly; the model and the rate limit stay in the database.
   ai_enable: false,
   ai_model: '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
-  ai_rate_limit: '10/h'
+  ai_rate_limit: '10/h',
+  // Public audit publishing. When enabled, the hourly maintenance run copies the
+  // signed snapshot chain to a data repository through the GitHub API. These
+  // settings are private: none of them is served by the public settings
+  // endpoint, and `github_token` is a secret handled like turnstile_secret_key.
+  publish_enable: false,
+  publish_repository: '',
+  publish_branch: 'main',
+  publish_path: 'snapshots',
+  github_token: ''
 };
 
 export type PublicSettings = typeof DEFAULT_PUBLIC_SETTINGS;
@@ -192,10 +204,35 @@ export async function loadPublicSettings(db: D1Database): Promise<PublicSettings
       case 'login_badge_enable':
       case 'auto_approve_polls':
       case 'ai_enable':
+      case 'publish_enable':
       case 'read_only_mode':
       case 'turnstile_enable':
         if (value !== 'true' && value !== 'false') invalid(row.key, 'must be "true" or "false"');
         (settings as Record<string, unknown>)[row.key] = value === 'true';
+        break;
+      case 'publish_repository':
+        if (value && !PUBLISH_REPOSITORY_PATTERN.test(value)) {
+          invalid(row.key, 'must be "owner/name" or empty');
+        }
+        settings.publish_repository = value;
+        break;
+      case 'publish_branch':
+        if (!value.trim() || value.length > 100 || /\s/.test(value)) {
+          invalid(row.key, 'must be a branch name of 1 to 100 characters without whitespace');
+        }
+        settings.publish_branch = value;
+        break;
+      case 'publish_path':
+        if (value.length > 200 || /\s/.test(value)) {
+          invalid(row.key, 'must be a repository path of at most 200 characters without whitespace');
+        }
+        settings.publish_path = value;
+        break;
+      case 'github_token':
+        if (value && (value.length < 64 || /\s/.test(value))) {
+          invalid(row.key, 'must be a token of at least 64 characters');
+        }
+        settings.github_token = value;
         break;
       case 'ai_model':
         if (!value.trim() || value.length > 100) invalid(row.key, 'must contain 1 to 100 characters');
@@ -218,12 +255,18 @@ export async function loadPublicSettings(db: D1Database): Promise<PublicSettings
 // Secrets such as the Turnstile secret key stay in the database for the Worker
 // only; they are never served publicly. The site key is public by design, and
 // so is the `ai_enable` flag the frontend needs to show or hide the AI buttons;
-// `ai_model` and `ai_rate_limit` stay private.
+// `ai_model`, `ai_rate_limit`, the publish settings, and the GitHub token stay
+// private.
 function stripPrivateSettings(settings: PublicSettings): Record<string, unknown> {
   const {
     turnstile_secret_key: _secretKey,
     ai_model: _aiModel,
     ai_rate_limit: _aiRateLimit,
+    publish_enable: _publishEnable,
+    publish_repository: _publishRepository,
+    publish_branch: _publishBranch,
+    publish_path: _publishPath,
+    github_token: _githubToken,
     ...publicSettings
   } = settings;
   return publicSettings;

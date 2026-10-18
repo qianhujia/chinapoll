@@ -165,8 +165,10 @@ Note: `ip_prefix` was removed; account cap counters live in `auth_attempts`.
 
 ## settings
 
-Key/value configuration. Secrets (`turnstile_secret_key`) are read by the
-Workers only and are stripped from the public endpoint.
+Key/value configuration. Secrets (`turnstile_secret_key`, `github_token`) are read
+by the Workers only and are stripped from the public endpoint. The publish
+settings (`publish_enable`, `publish_repository`, `publish_branch`,
+`publish_path`) are private too: they are never served by the public endpoint.
 
 ## stats_snapshots
 
@@ -176,19 +178,30 @@ by design; the hash chain makes rewriting detectable.
 | Column | Contents | Readers | Retention |
 | --- | --- | --- | --- |
 | poll_id, ts_hour | poll reference and hour bucket | Public | forever |
-| approve, oppose, neutral | verdict counts of a record signed before schema version 3 (0 on every newer record, which does not sign them) | Public | forever |
 | ballots | number of ballots cast at that hour | Public | forever |
 | option_counts | JSON array of `{ position, count }` for the poll | Public | forever |
 | views | cumulative view total at that hour | Public | forever |
 | prev_hash, hash | chain link and record hash | Public | forever |
 | final | 1 on the terminal snapshot written when the poll closed, 0 otherwise | Public | forever |
 
-Note: `ballots` and `option_counts` are part of the canonical JSON that the
-record hash covers, so a rewritten ballot total or option count breaks the
-chain. Both are aggregate values for one poll at one hour; neither can be traced
-back to a ballot. The three verdict counts were part of the payload up to schema
-version 3; they are kept so those older records stay verifiable and are 0 on
-every record written since.
+Note: `ballots`, `option_counts`, and `views` are part of the canonical JSON
+(schema version 3) that the record hash covers, so a rewritten ballot total or
+option count breaks the chain. They are aggregate values for one poll at one
+hour and cannot be traced back to a ballot. The legacy `approve`/`oppose`/`neutral`
+columns and the version 1 and 2 payloads no longer exist.
+
+## publish_state, publish_runs
+
+Publisher bookkeeping for the public audit repository. Read by the Workers only;
+never served to the public.
+
+| Table | Column | Contents | Readers | Retention |
+| --- | --- | --- | --- | --- |
+| publish_state | poll_id, published_through | cursor: the newest snapshot hour copied out for the poll | none | until the poll is deleted |
+| publish_state | final | 1 when that hour is the terminal record, 0 while the poll is open | none | as above |
+| publish_runs | started_at, finished_at | run window | Admin | last 50 runs |
+| publish_runs | polls_updated | number of poll files rewritten | Admin | last 50 runs |
+| publish_runs | error | failure message, or NULL on success (never the token) | Admin | last 50 runs |
 
 
 ## admin_users, admin_sessions, admin_audit_log

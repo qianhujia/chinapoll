@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { mergeSnapshots, resumeAfter, snapshotHour } from '../scripts/publish-snapshots.mjs';
+import { mergeSnapshots, resumeAfter, snapshotHour } from '../worker/services/publisher';
 
 // A stored chain whose newest row was written before the poll closed: the row is
 // not final, so a later close rewrote that same hour with the terminal counts,
-// hash, and `final: true`. The publish script must re-fetch that hour.
+// hash, and `final: true`. The publisher must re-fetch that hour.
 const storedChain = [
-  { tsHourEpoch: 98, approve: 1, oppose: 0, neutral: 0, prevHash: 'GENESIS', hash: 'h98', final: false },
-  { tsHourEpoch: 99, approve: 2, oppose: 0, neutral: 0, prevHash: 'h98', hash: 'h99', final: false },
-  { tsHourEpoch: 100, approve: 2, oppose: 1, neutral: 0, prevHash: 'h99', hash: 'pre-close', final: false }
+  { tsHourEpoch: 98, ballots: 1, prevHash: 'GENESIS', hash: 'h98', final: false },
+  { tsHourEpoch: 99, ballots: 2, prevHash: 'h98', hash: 'h99', final: false },
+  { tsHourEpoch: 100, ballots: 3, prevHash: 'h99', hash: 'pre-close', final: false }
 ];
 
 describe('snapshotHour', () => {
@@ -35,9 +35,9 @@ describe('resumeAfter', () => {
 
 describe('mergeSnapshots', () => {
   it('replaces the refreshed non-final closing hour with the terminal row', () => {
-    // The refreshed row the API returns for `after = 99` when the poll closed.
+    // The refreshed row the publisher reads when the poll has closed.
     const refreshed = [
-      { tsHourEpoch: 100, approve: 3, oppose: 1, neutral: 0, prevHash: 'h99', hash: 'post-close', final: true }
+      { tsHourEpoch: 100, ballots: 4, prevHash: 'h99', hash: 'post-close', final: true }
     ];
     const merged = mergeSnapshots(storedChain, refreshed);
 
@@ -46,7 +46,7 @@ describe('mergeSnapshots', () => {
     expect(merged.map((snapshot) => snapshotHour(snapshot))).toEqual([98, 99, 100]);
     expect(merged.at(-1)).toMatchObject({
       tsHourEpoch: 100,
-      approve: 3,
+      ballots: 4,
       hash: 'post-close',
       final: true
     });
@@ -59,33 +59,5 @@ describe('mergeSnapshots', () => {
     );
     expect(merged.map((snapshot) => snapshotHour(snapshot))).toEqual([1, 2]);
     expect(merged.at(-1)?.hash).toBe('b2');
-  });
-});
-describe('snapshot schema version', () => {
-  it('merges a version 2 chain with a newer run without dropping it', () => {
-    // A chain copied out before the verdict counts left the payload carries them
-    // next to the ballots and the option counts. A later run must keep those rows
-    // and add the new ones.
-    const legacy = [
-      { tsHourEpoch: 100, approve: 1, oppose: 0, neutral: 0, ballots: 1, optionCounts: null, prevHash: 'GENESIS', hash: 'v2', final: false }
-    ];
-    const added = [
-      {
-        tsHourEpoch: 101,
-        approve: 0,
-        oppose: 0,
-        neutral: 0,
-        ballots: 2,
-        optionCounts: [{ position: 1, count: 1 }],
-        prevHash: 'v2',
-        hash: 'v3',
-        final: false
-      }
-    ];
-    const merged = mergeSnapshots(legacy, added);
-    expect(merged).toHaveLength(2);
-    // The legacy row keeps its own fields.
-    expect(merged[0]).toMatchObject({ approve: 1, ballots: 1, hash: 'v2' });
-    expect(merged[1]).toMatchObject({ ballots: 2, hash: 'v3' });
   });
 });

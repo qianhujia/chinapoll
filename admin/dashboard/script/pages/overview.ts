@@ -36,7 +36,27 @@ export const scriptOverview = `  function statCard(value, label) {
       (isSuperAdmin() ? statCard(o.auditEntries, 'Audit entries') : '') +
       statCard(o.settings, 'Settings rows') +
       '</section>' +
-      '<section class="card" style="margin-top:18px"><h2>Latest submissions</h2>' + recent + '</section>';
+      '<section class="card" style="margin-top:18px"><h2>Latest submissions</h2>' + recent + '</section>' +
+      '<section class="card" style="margin-top:18px"><h2>Audit publishing</h2>' + publishSection(o) + '</section>';
+  }
+
+  // Publish status plus the last five runs. The heading is highlighted when the
+  // most recent run failed; the timestamp is the last completed run.
+  function publishSection(o) {
+    var status = o.publishError
+      ? '<p style="color:var(--err)">The most recent publish run failed.</p>'
+      : '<p class="small muted">Last publish: ' + esc(formatDate(o.lastPublishAt)) + '</p>';
+    var runs = o.publishRuns && o.publishRuns.length
+      ? '<table><thead><tr><th>Started</th><th>Finished</th><th>Polls</th><th>Result</th></tr></thead><tbody>' +
+        o.publishRuns.map(function (run) {
+          return '<tr><td class="small">' + esc(formatDate(run.startedAt)) + '</td>' +
+            '<td class="small">' + esc(formatDate(run.finishedAt)) + '</td>' +
+            '<td>' + esc(run.pollsUpdated) + '</td>' +
+            '<td class="small"' + (run.error ? ' style="color:var(--err)"' : '') + '>' +
+            esc(run.error ? 'failed: ' + run.error : 'ok') + '</td></tr>';
+        }).join('') + '</tbody></table>'
+      : '<div class="empty">No publish runs recorded.</div>';
+    return status + runs;
   }
 
   // Open-report count card. It links to the Reports tab and is highlighted when

@@ -174,8 +174,10 @@ export function validateProposal(body: Record<string, unknown>): ProposalValidat
   }
   const description = trimmedDescription.length > 0 ? trimmedDescription : null;
 
-  // `pollType` is required and is one of the two remaining types. A "verdict"
-  // poll is submitted as a single choice poll whose options are its three words.
+  // `pollType` is required and is one of the three stored types (verdict, single
+  // choice, multiple choice). A "verdict" poll is submitted as a single-answer
+  // poll whose options the proposal form pre-fills with Approve, Neutral, and
+  // Oppose.
   const pollType = getPollTypeCode(body.pollType);
   if (pollType === null) {
     return { ok: false, message: 'a poll needs a valid type' };

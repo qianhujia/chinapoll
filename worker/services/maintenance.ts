@@ -4,6 +4,8 @@
 //   * write a signed snapshot for every open poll and a terminal snapshot when a
 //     poll closes (the hash chain in worker/services/snapshot.ts makes published
 //     counts tamper-evident), so the chain always ends on the final result;
+//   * publish the signed chain to the public audit repository when publishing is
+//     enabled (worker/services/publisher.ts);
 //   * advance the poll lifecycle (open, close, archive);
 //   * purge vote rows thirty days after a poll closed and drop expired sessions
 //     and stale account-cap rows.
@@ -16,6 +18,7 @@
 
 import { PollMode, PollStatus, PollType } from '../enums';
 import { countBallots, getOptionsForPolls, type PollOption } from './options';
+import { runPublisher } from './publisher';
 import { makeSnapshot, serializeOptionCounts, type SnapshotOptionCount } from './snapshot';
 
 interface MaintenanceEnv {
@@ -52,9 +55,7 @@ const SNAPSHOT_POLLS_SQL = `SELECT id, status, poll_type FROM polls
 
 // Inserts a snapshot, or refreshes the row for the same poll and hour. The
 // upsert keeps the terminal marker and the counts correct when an open snapshot
-// written earlier in the same hour is followed by a close. The three verdict
-// columns are not written: they only hold the counts of records signed before
-// schema version 3.
+// written earlier in the same hour is followed by a close.
 const INSERT_SNAPSHOT_SQL = `INSERT INTO stats_snapshots
    (poll_id, ts_hour, ballots, option_counts, views, prev_hash, hash, final)
    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -181,6 +182,12 @@ export async function runMaintenanceTasks(env: MaintenanceEnv): Promise<void> {
     ).bind(viewCutoff),
     env.DB.prepare('DELETE FROM poll_views WHERE ts_day > 0 AND ts_day < ?').bind(viewCutoff)
   ]);
+
+  // Publish the signed chain after every snapshot this run has been written, so
+  // a poll that closed this hour is copied out with its final counts. The
+  // publisher catches its own errors and records them in `publish_runs`, so a
+  // publish failure never stops the other maintenance tasks.
+  await runPublisher(env, now);
 }
 
 // Writes one snapshot per poll that needs one in three queries total (poll ids,
