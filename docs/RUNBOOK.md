@@ -6,22 +6,18 @@ are run from the repository root.
 ## Deployments
 
 1. Apply D1 migrations: `npx wrangler d1 migrations apply chinapoll --env production --remote`.
-   `migrations/0001_initial.sql` holds the entire schema in a single file, frozen
-   on **2026-10-11** when the earlier incremental migrations were folded together
-   (nothing had been deployed yet). From then on migrations are immutable: never
-   edit one that has already been applied, and add every schema change as a new
-   numbered file. Only a **fresh** database is supported; create the production
-   database empty and apply `0001_initial.sql` (plus any later files) in order.
-   `0002_reports_and_views.sql` adds anonymous reports and view counting,
-   `0003_poll_types_and_options.sql` adds the poll types, the per-poll options,
-   the choice ballot tables, the duration column, and the ballots/option count
-   columns of the snapshot chain, `0004_unified_selections.sql` removes
-   `votes.option` and records every selection in `vote_selections` (each old
-   verdict ballot becomes one selection on the matching row), and
-   `0005_restore_verdict_type.sql` gives the verdict type its own code back and
-   widens the `poll_type` CHECK to `(1, 2, 3)`, and
-   `0006_comment_owner.sql` adds the nullable `comments.owner_hash` the dashboard
-   needs to list and delete the comments an account posted.
+   `migrations/0001_initial.sql` holds the entire schema in a single consolidated
+   file, most recently consolidated on **2026-10-18** (an earlier consolidation was
+   done on 2026-10-11) because nothing had been deployed yet. From then on
+   migrations are immutable: never edit one that has already been applied, and add
+   every schema change as a new numbered file. Only a **fresh** database is
+   supported; create the production database empty and apply `0001_initial.sql`
+   (plus any later files) in order. The file creates the final shape of every
+   table, index, and constraint - the poll types and per-poll options,
+   `vote_selections` with `votes` reduced to a ballot row, the report and view
+   tables, the ballot/view/option-count columns of the snapshot chain, and the
+   nullable `comments.owner_hash` - so no intermediate rebuild runs on a fresh
+   database.
 2. Set the required secret before the first deploy:
    `npx wrangler secret put SERVER_HMAC_KEY --env production` (a fresh 64-character hex value).
 3. Build the SPA: `npm run build` (outputs to `dist/web`).

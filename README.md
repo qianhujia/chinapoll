@@ -9,7 +9,7 @@ Worker, which serves both the SPA and `/api/*`, together with a provisioned D1
 database. Choose the deploy command `npm run deploy` on the setup page so the D1
 migrations are applied before `wrangler deploy`, and set the `SERVER_HMAC_KEY`
 secret to 64 random hex characters (`openssl rand -hex 32`). The admin dashboard
-Worker and the CI `[env.production]` flow are deployed separately; see
+Worker and the `[env.production]` deployment flow are described separately; see
 [docs/RUNBOOK.md](docs/RUNBOOK.md).
 
 ## Local startup
@@ -77,7 +77,7 @@ Public account endpoints (session state, register, login, logout, and recovery) 
 
 The local database schema is managed with versioned SQL migrations in the `migrations/` folder. `npm run db:migrate` applies every pending migration (the Wrangler tracking table is named `migrations`, set with `migrations_table` in `wrangler.toml`). Public settings fall back to built-in defaults until they are written, and the dashboard's Settings tab can insert any missing defaults.
 
-**Applied migrations are never edited.** Migrations are immutable once recorded: schema changes go in a new file (numbered from `0002`). `migrations/0001_initial.sql` is the entire schema, frozen on 2026-10-11 when the earlier incremental files were folded into it because nothing had been deployed. `0002_reports_and_views.sql` adds anonymous reports and view counting, `0003_poll_types_and_options.sql` adds the poll types, the per-poll options, the choice ballot tables, `polls.duration_seconds`, and the `ballots`/`option_counts` columns of the snapshot chain, `0004_unified_selections.sql` removes `votes.option` and records every selection in `vote_selections` (each old verdict ballot becomes one selection on the matching row: code 1 Approve, 2 Oppose, 3 Neutral), and `0005_restore_verdict_type.sql` gives the verdict type its own code back: the CHECK widens to `poll_type IN (1, 2, 3)`, and a single choice poll whose only options are the three verdict words at positions 1 to 3 is restored to `poll_type = 1`. Because the initial schema was consolidated, **only fresh databases are supported**: create a database from scratch (run `npm run db:reset` locally, or apply `0001_initial.sql` and any later files to an empty production database) rather than upgrading a database that recorded the earlier pre-consolidation migrations.
+**Applied migrations are never edited.** Migrations are immutable once recorded: schema changes go in a new file (numbered from `0002`), and every file is schema only. `migrations/0001_initial.sql` is the entire schema in one file, consolidated on 2026-10-18, when the incremental files were folded into it because nothing had been deployed: it creates every table, index, and constraint in its final shape, so a fresh database is built in one step with no obsolete columns and no intermediate table rebuilds. Because the schema was consolidated, **only fresh databases are supported**: create a database from scratch (run `npm run db:reset` locally, or apply `0001_initial.sql` and any later files to an empty production database) rather than upgrading a database that recorded the pre-consolidation migrations.
 
 ```bash
 npm run db:migrate
@@ -283,7 +283,7 @@ are rejected unless they originate from the Worker itself, and the audit log
 records admin actions without client IP addresses. Deploy with
 `npm run admin:worker:deploy`.
 
-## Testing and CI
+## Testing
 
 `npm test` runs two Vitest projects:
 
@@ -305,15 +305,10 @@ records admin actions without client IP addresses. Deploy with
   per-browser "my comments" list with its owner-hash check), the admin option
   editor, and AI assistance (the disabled setting, the auth gate, the input limits,
   a malformed model answer, and a valid trimmed answer). Every migration is applied
-  to the isolated test database in order (`migrations/0001_initial.sql`,
-  `0002_reports_and_views.sql`, `0003_poll_types_and_options.sql`,
-  `0004_unified_selections.sql`, `0005_restore_verdict_type.sql`, then
-  `0006_comment_owner.sql`); `tests/integration/migrationSelections.test.ts`
-  additionally applies `0001` to `0003`, seeds the pre-`0004` shape (including
-  ballots, comments, reports, views and snapshots), and then walks `0004` to `0006`
-  to check each data copy, that every child row survived, that `votes.option` is
-  gone, that a restored verdict poll is identifiable again and that the stored
-  comments keep their rows.
+  to the isolated test database: `migrations/0001_initial.sql` is the consolidated
+  schema, and the shared `applySchema` helper in `tests/integration/helpers.ts`
+  applies each file listed in `MIGRATIONS`, so a new numbered migration is exercised
+  by every integration test as soon as it is added there.
 
 The AI binding has no local simulator, so `vitest.workers.config.ts` sets
 `remoteBindings: false` and the AI tests stub `env.AI` with an object whose `run`
@@ -325,11 +320,11 @@ npm run test:unit
 npm run test:workers
 ```
 
-`.github/workflows/ci.yml` runs `npm run lint`, `npm run build`, `npm test`,
-`npm run build:worker`, and `npm run admin:worker:dry-run` on every push and pull
-request, fails if the built SPA references any external origin other than
-`challenges.cloudflare.com`, and deploys both Workers with `--env production` on a
-`v*` tag.
+This repository carries no CI workflow: run `npm run lint`, `npm run build`,
+`npm test`, `npm run build:worker`, and `npm run admin:worker:dry-run` locally
+before deploying, and deploy both Workers with `--env production` as described in
+`docs/RUNBOOK.md`. A pipeline added later should also check that the built SPA
+references no external origin other than `challenges.cloudflare.com`.
 
 ## Privacy documentation
 

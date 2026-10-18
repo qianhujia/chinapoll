@@ -199,15 +199,20 @@ When it is on:
   release still verify.
 - Gave the verdict type its own stored code again: `poll_type = 1` is a
   single-answer poll whose options the proposal form generates as Approve, Neutral,
-  and Oppose. `0005_restore_verdict_type.sql` widens the CHECK to
-  `poll_type IN (1, 2, 3)` and restores the type on the polls that `0004` had
-  converted, so a verdict poll is identifiable again. Ballot rules, counting, and
-  the snapshot payload are unchanged, and the earlier work stays in place:
+  and Oppose, and the CHECK accepts `poll_type IN (1, 2, 3)`, so a verdict poll is
+  identifiable again. Ballot rules, counting, and the snapshot payload are
+  unchanged, and the earlier work stays in place:
   `poll_options` holds plain text labels only (no `preset_key`), the legacy
   `option` label is gone from `/api/vote` and `/api/vote/status`, the
   `{ approve, oppose, neutral }` counts object is gone from every response, and the
   canonical snapshot payload is version 3 (verification still reproduces versions 1
   and 2).
+- Folded the schema back into the single consolidated `migrations/0001_initial.sql`
+  (2026-10-18) now that nothing has been deployed: the file creates the final shape
+  of every table, index, and constraint directly, so a fresh database needs no
+  intermediate table rebuilds, and the removed incremental files are no longer part
+  of the repository. The repository also no longer carries a CI workflow; the same
+  checks run locally.
 
 ## Known trade-offs
 

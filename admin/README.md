@@ -46,9 +46,9 @@ The same consolidated migration also creates the `users`, `user_sessions`, and
 manages rows in `users`.
 
 The Reports tab reads the `poll_reports` table and the view counters read the
-`poll_views` table, both created by `migrations/0002_reports_and_views.sql`, which
-also adds the `views` column to `stats_snapshots`. That migration contains schema
-changes only.
+`poll_views` table; the consolidated `migrations/0001_initial.sql` creates both,
+together with the `views` column of `stats_snapshots`. Every migration in this
+repository contains schema changes only.
 
 Apply it with the project migration command:
 

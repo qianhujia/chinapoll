@@ -1,23 +1,42 @@
 -- ChinaPoll consolidated schema.
 --
--- This single migration creates the complete current schema. The earlier
--- incremental migrations were folded together here because nothing had been
--- deployed, so a fresh database can be created in one step with no obsolete
--- columns, indexes, or intermediate table rebuilds. The consolidation date is
--- recorded in docs/RUNBOOK.md. From this point on every applied migration is
--- immutable: add each schema change as a new numbered file.
+-- This single migration creates the complete current schema. The incremental
+-- migrations were folded together here because nothing had been deployed yet, so a
+-- fresh database can be created in one step with no obsolete columns, indexes, or
+-- intermediate table rebuilds. The consolidation dates are recorded in
+-- docs/RUNBOOK.md. From this point on every applied migration is immutable: add
+-- each schema change as a new numbered file.
 --
--- Schema only: no seed or demo rows are inserted.
+-- Schema only: no seed or demo rows are inserted (repository rule).
 --
 -- Design notes:
---   * Votes are anonymous: only the SHA-256 hash of a per-poll browser token is
---     stored. Rate limiting lives in a Durable Object, so no IP-derived value is
---     ever written to the database.
---   * The per-network account cap is enforced from `auth_attempts`, which keeps
---     only a keyed, daily-rotated hash (see worker/services/ip.ts).
---   * Polls keep a one-way `owner_hash` (HMAC of the server secret with
---     "owner:<userId>:<pollId>"), and comments keep no owner at all. A database
---     leak without the server secret therefore reveals no author links.
+--   * Votes are anonymous: a ballot is one row per (poll, browser token) and only
+--     the SHA-256 hash of the token is stored. Rate limiting lives in a Durable
+--     Object, so no IP-derived value is ever written to the database.
+--   * `poll_type` selects the ballot shape: 1 verdict (a single-answer poll whose
+--     options the proposal form pre-fills with Approve, Neutral, and Oppose), 2
+--     single choice, 3 multiple choice. Every type stores plain text labels in
+--     `poll_options`, and the chosen options of every type live in
+--     `vote_selections`, one row per selected option. `votes` therefore holds no
+--     option column at all.
+--   * `vote_selections` also stores `poll_id`, denormalized from its ballot, so the
+--     counts of one poll can be grouped without joining back to `votes`.
+--   * `stats_snapshots` keeps the verdict columns `approve`/`oppose`/`neutral` even
+--     though rows written from schema version 3 onwards leave them at 0: earlier
+--     records were signed over those values and must stay verifiable. New rows fill
+--     `ballots` and, for a choice poll, `option_counts`.
+--   * Poll reports carry no reporter identifier at all: no address, no network
+--     bucket, no user id, and only an hour-coarsened `created_at`.
+--   * Views are counted per poll per UTC day in `poll_views`, and no per-view row
+--     exists anywhere, so a view can never be attributed to a viewer. The
+--     cumulative `views` total is signed into the hourly snapshot chain.
+--   * Polls keep a one-way `owner_hash` (HMAC of the server secret over
+--     "owner:<userId>:<pollId>") and comments keep a one-way hash over their random
+--     public id ("owner:<userId>:comment:<publicId>"); see
+--     worker/services/owner.ts. A database leak without the server secret therefore
+--     reveals no author links.
+--   * `duration_seconds` is the poll length, and NULL means the poll has no end
+--     date. `start_at` is no longer written for new polls.
 --   * `closed_at` records when a poll closed so retention does not depend on
 --     `updated_at`, which any edit resets.
 --   * Public comment identifiers are random (`comments.public_id`) so the global
@@ -36,38 +55,89 @@ CREATE TABLE IF NOT EXISTS polls (
   owner_hash TEXT,
   closed_at INTEGER,
   created_at INTEGER NOT NULL DEFAULT (unixepoch()),
-  updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+  updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  poll_type INTEGER NOT NULL DEFAULT 2 CHECK (poll_type IN (1, 2, 3)),
+  duration_seconds INTEGER
 );
 
 CREATE INDEX IF NOT EXISTS idx_polls_status_created
   ON polls(status, created_at DESC, id DESC);
 
--- Anonymous votes. Only the hash of a per-poll browser token identifies a voter.
+-- Options of a choice poll, ordered by `position`. A verdict poll keeps its three
+-- verdict labels here like any other poll and needs no separate table.
+CREATE TABLE IF NOT EXISTS poll_options (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  poll_id INTEGER NOT NULL REFERENCES polls(id) ON DELETE CASCADE,
+  position INTEGER NOT NULL CHECK (position BETWEEN 1 AND 7),
+  label TEXT NOT NULL CHECK (length(trim(label)) BETWEEN 1 AND 80),
+  UNIQUE (poll_id, position)
+);
+
+-- Anonymous ballots. Only the hash of a per-poll browser token identifies a voter.
 CREATE TABLE IF NOT EXISTS votes (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   poll_id INTEGER NOT NULL REFERENCES polls(id) ON DELETE CASCADE,
   voter_token_hash TEXT NOT NULL,
-  option INTEGER NOT NULL CHECK (option IN (1, 2, 3)),
   created_at INTEGER NOT NULL DEFAULT (unixepoch())
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_votes_poll_voter_token
   ON votes(poll_id, voter_token_hash);
-CREATE INDEX IF NOT EXISTS idx_votes_poll_option ON votes(poll_id, option);
+CREATE INDEX IF NOT EXISTS idx_votes_poll_id ON votes(poll_id);
 
--- Public comments. Comments carry no owner and `public_id` is the random
--- identifier returned by the public API.
+-- Selections of a ballot. One row per (ballot, option), for every poll type.
+CREATE TABLE IF NOT EXISTS vote_selections (
+  poll_id INTEGER NOT NULL REFERENCES polls(id) ON DELETE CASCADE,
+  vote_id INTEGER NOT NULL REFERENCES votes(id) ON DELETE CASCADE,
+  option_id INTEGER NOT NULL REFERENCES poll_options(id) ON DELETE CASCADE,
+  PRIMARY KEY (vote_id, option_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_vote_selections_poll_option
+  ON vote_selections(poll_id, option_id);
+
+-- Public comments. `public_id` is the random identifier returned by the public
+-- API. `owner_hash` is NULL when no author can be established: a row written before
+-- comments carried an owner, or a deployment without the server secret. Those rows
+-- stay public and simply cannot be claimed by an account.
 CREATE TABLE IF NOT EXISTS comments (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   poll_id INTEGER NOT NULL REFERENCES polls(id) ON DELETE CASCADE,
   comment TEXT NOT NULL,
   public_id TEXT NOT NULL,
+  owner_hash TEXT,
   created_at INTEGER NOT NULL DEFAULT (unixepoch())
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_comments_public_id ON comments(public_id);
 CREATE INDEX IF NOT EXISTS idx_comments_poll_created
   ON comments(poll_id, created_at DESC, public_id DESC);
+
+-- User-submitted reports about a poll. Reason codes: 1 spam, 2 inappropriate,
+-- 3 misleading, 4 copyright, 5 personal_info, 6 harassment, 7 illegal, 8 other.
+-- Resolution codes: 1 dismissed, 2 action taken.
+CREATE TABLE IF NOT EXISTS poll_reports (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  poll_id INTEGER NOT NULL REFERENCES polls(id) ON DELETE CASCADE,
+  reason INTEGER NOT NULL CHECK (reason IN (1, 2, 3, 4, 5, 6, 7, 8)),
+  note TEXT,
+  created_at INTEGER NOT NULL,
+  resolved_at INTEGER,
+  resolution INTEGER CHECK (resolution IS NULL OR resolution IN (1, 2))
+);
+
+CREATE INDEX IF NOT EXISTS idx_poll_reports_open ON poll_reports(resolved_at, poll_id);
+CREATE INDEX IF NOT EXISTS idx_poll_reports_poll ON poll_reports(poll_id, created_at DESC);
+
+-- Approximate per-poll view counters. One row per poll per UTC day holding only a
+-- count; `ts_day` is the start of the day in Unix seconds and a rollup row uses
+-- `ts_day = 0` so long-term totals survive while daily resolution is dropped.
+CREATE TABLE IF NOT EXISTS poll_views (
+  poll_id INTEGER NOT NULL REFERENCES polls(id) ON DELETE CASCADE,
+  ts_day INTEGER NOT NULL,
+  views INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (poll_id, ts_day)
+);
 
 -- Application settings (the single source of truth for feature flags).
 CREATE TABLE IF NOT EXISTS settings (
@@ -156,17 +226,22 @@ CREATE INDEX IF NOT EXISTS idx_admin_audit_action ON admin_audit_log(action);
 
 -- Signed hourly statistics snapshots forming an append-only hash chain. `final`
 -- is 1 only on the terminal snapshot written when a poll closes, so the chain
--- always ends on the poll's real final counts.
+-- always ends on the poll's real final counts. `views` is the cumulative view
+-- total, `ballots` the number of ballots, and `option_counts` the per-option
+-- counts of a choice poll as JSON.
 CREATE TABLE IF NOT EXISTS stats_snapshots (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   poll_id INTEGER NOT NULL,
   ts_hour INTEGER NOT NULL,
-  approve INTEGER NOT NULL,
-  oppose INTEGER NOT NULL,
-  neutral INTEGER NOT NULL,
+  approve INTEGER NOT NULL DEFAULT 0,
+  oppose INTEGER NOT NULL DEFAULT 0,
+  neutral INTEGER NOT NULL DEFAULT 0,
   prev_hash TEXT NOT NULL,
   hash TEXT NOT NULL,
   final INTEGER NOT NULL DEFAULT 0,
+  views INTEGER NOT NULL DEFAULT 0,
+  ballots INTEGER NOT NULL DEFAULT 0,
+  option_counts TEXT,
   UNIQUE(poll_id, ts_hour)
 );
 

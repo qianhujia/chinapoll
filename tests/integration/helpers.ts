@@ -1,22 +1,12 @@
 import { env, SELF } from 'cloudflare:test';
 import schema from '../../migrations/0001_initial.sql?raw';
-import reportsAndViewsSchema from '../../migrations/0002_reports_and_views.sql?raw';
-import pollTypesSchema from '../../migrations/0003_poll_types_and_options.sql?raw';
-import unifiedSelectionsSchema from '../../migrations/0004_unified_selections.sql?raw';
-import restoreVerdictTypeSchema from '../../migrations/0005_restore_verdict_type.sql?raw';
-import commentOwnerSchema from '../../migrations/0006_comment_owner.sql?raw';
 
 export const ORIGIN = 'https://example.com';
 
-// Every migration in order, so a test can also apply a prefix of them (for
-// example to seed the pre-0004 shape before checking the data copy).
+// Every migration in order. The schema is one consolidated file, so the list holds
+// a single entry and a new numbered file would be appended here.
 export const MIGRATIONS: ReadonlyArray<{ name: string; sql: string }> = [
-  { name: '0001_initial', sql: schema },
-  { name: '0002_reports_and_views', sql: reportsAndViewsSchema },
-  { name: '0003_poll_types_and_options', sql: pollTypesSchema },
-  { name: '0004_unified_selections', sql: unifiedSelectionsSchema },
-  { name: '0005_restore_verdict_type', sql: restoreVerdictTypeSchema },
-  { name: '0006_comment_owner', sql: commentOwnerSchema }
+  { name: '0001_initial', sql: schema }
 ];
 
 // D1's exec() rejects a batch whose first chunk is only a comment, so comment-only
