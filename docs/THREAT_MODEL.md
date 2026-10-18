@@ -70,13 +70,13 @@ rolled up into a single per-poll row, dropping daily resolution.
 
 ## Poll types, the options engine, and snapshots
 
-A poll is one of two ballot shapes: a **single choice** poll (one option per
-ballot) or a **multiple choice** poll (one to seven options per ballot). There is
-no separate verdict type: a "verdict" poll is a single choice poll whose options
-are the words Approve, Neutral, and Oppose, which the proposal form pre-fills and
-the submitter may edit like any other options.
+A poll is one of three ballot shapes: a **verdict** poll (one option per ballot,
+whose options the proposal form generates as Approve, Neutral, and Oppose), a
+**single choice** poll (one option per ballot), or a **multiple choice** poll (one
+to seven options per ballot). The verdict type keeps its own code and its own
+option rows, and it accepts exactly the same ballots as a single choice poll.
 
-**One engine** (`worker/services/options.ts`) serves both shapes: every poll
+**One engine** (`worker/services/options.ts`) serves all three: every poll
 exposes a list of options stored in `poll_options`, every ballot is a set of
 selected option IDs in `vote_selections`, and one counting function, one results
 shape, and one snapshot shape are used throughout. Options are identified by `id`
@@ -87,7 +87,7 @@ another's.
 `votes` is therefore a **ballot table only**: `id`, `poll_id`,
 `voter_token_hash`, and `created_at`. It carries no `option` column, so a ballot
 row holds no choice data at all, and the choice is recorded as one
-`vote_selections` row per selected option for both poll types.
+`vote_selections` row per selected option for every poll type.
 
 A ballot stays **one row per (poll, token)** in `votes`, so the existing unique
 index still enforces one ballot per browser and a multiple choice vote cannot be
@@ -189,13 +189,17 @@ When it is on:
   integer. Added `schemaVersion` to the canonical snapshot payload (version 2) and
   taught verification to accept version 1 chains, so chains published before this
   release still verify.
-- Removed the verdict poll type: it is a single choice poll whose options are the
-  words Approve, Neutral, and Oppose, pre-filled by the proposal form and editable
-  by the submitter. `poll_options` now holds plain text labels only (no
-  `preset_key`), the legacy `option` label is gone from `/api/vote` and
-  `/api/vote/status`, and the `{ approve, oppose, neutral }` counts object is gone
-  from every response. The canonical snapshot payload moved to schema version 3
-  without the three verdict counts; verification still reproduces versions 1 and 2.
+- Gave the verdict type its own stored code again: `poll_type = 1` is a
+  single-answer poll whose options the proposal form generates as Approve, Neutral,
+  and Oppose. `0005_restore_verdict_type.sql` widens the CHECK to
+  `poll_type IN (1, 2, 3)` and restores the type on the polls that `0004` had
+  converted, so a verdict poll is identifiable again. Ballot rules, counting, and
+  the snapshot payload are unchanged, and the earlier work stays in place:
+  `poll_options` holds plain text labels only (no `preset_key`), the legacy
+  `option` label is gone from `/api/vote` and `/api/vote/status`, the
+  `{ approve, oppose, neutral }` counts object is gone from every response, and the
+  canonical snapshot payload is version 3 (verification still reproduces versions 1
+  and 2).
 
 ## Known trade-offs
 

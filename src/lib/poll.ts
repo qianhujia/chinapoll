@@ -1,7 +1,7 @@
-// Ballot shape of a poll, matching worker/enums.ts. There is no separate verdict
-// type: a "verdict" poll is a single choice poll whose options are the words
-// Approve, Neutral, and Oppose.
-export type PollType = 'single_choice' | 'multi_choice';
+// Ballot shape of a poll, matching worker/enums.ts. The verdict type is its own
+// type: its options are the verdict words the proposal form pre-fills, and it
+// accepts the same single ballot as a single choice poll.
+export type PollType = 'verdict' | 'single_choice' | 'multi_choice';
 
 // The durations offered by the proposal form. The mapping is defined once in
 // worker/enums.ts and re-exported here so the form and the Worker agree.

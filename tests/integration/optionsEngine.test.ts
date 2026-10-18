@@ -37,10 +37,9 @@ describe('shared options engine against D1', () => {
       [1, 'First'], [2, 'Second'], [3, 'Third']
     ]);
 
-    // A verdict poll is an ordinary single choice poll whose rows are its three
-    // words, so the engine sees no difference at all.
+    // A verdict poll keeps its three rows as ordinary labels.
     const { pollId: templateId, options: templateOptions } = await seedVerdictTemplatePoll();
-    const template = await getPollOptions(env, { id: templateId, poll_type: 2 });
+    const template = await getPollOptions(env, { id: templateId, poll_type: 1 });
     expect(template.map((option) => [option.position, option.label])).toEqual([
       [1, 'Approve'], [2, 'Neutral'], [3, 'Oppose']
     ]);
@@ -56,7 +55,7 @@ describe('shared options engine against D1', () => {
     ]);
     expect((await choiceVoteRequest(singleId, '1'.repeat(64), [single.get(2)!])).status).toBe(200);
 
-    // A verdict template ballot: also one ballot row and one selection.
+    // A verdict ballot: also one ballot row and one selection.
     const { pollId: templateId, options: template } = await seedVerdictTemplatePoll({ title: 'Engine verdict ballot' });
     expect((await choiceVoteRequest(templateId, '2'.repeat(64), [template.get(3)!])).status).toBe(200);
 

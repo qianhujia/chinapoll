@@ -174,8 +174,8 @@ are never written. Client IP addresses are never stored.
 ## Polls
 
 The Polls tab lists every poll, pending submissions first when the status filter
-is set to `pending`. Each row shows the poll type (single choice or multiple
-choice) next to the mode, and a one-line option summary with the count per option.
+is set to `pending`. Each row shows the poll type (verdict, single choice, or
+multiple choice) next to the mode, and a one-line option summary with the count per option.
 A **Show options** toggle opens an editor that replaces the position/label pairs;
 saving calls `PUT /api/admin/polls/:id/options` and writes a `poll.options` audit
 entry. Editing is only allowed while the poll is still **pending and has no

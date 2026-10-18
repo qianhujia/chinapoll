@@ -222,7 +222,8 @@ describe('validateProposal', () => {
     { position: 1, label: 'Option one' },
     { position: 2, label: 'Option two' }
   ];
-  // The Verdict card submits these three labels as an ordinary single choice poll.
+  // The Verdict card submits the same shape as a single choice poll: the three
+  // verdict words as ordinary options next to `pollType: "verdict"`.
   const verdictTemplateOptions = [
     { position: 1, label: 'Approve' },
     { position: 2, label: 'Neutral' },
@@ -231,33 +232,31 @@ describe('validateProposal', () => {
 
   it('accepts a title with no description because the description is optional', () => {
     const result = validateProposal({
-      title: 'Public transit funding', pollType: 'single_choice', duration: 'none', options: verdictTemplateOptions
+      title: 'Public transit funding', pollType: 'verdict', duration: 'none', options: verdictTemplateOptions
     });
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.input.description).toBeNull();
-      expect(result.input.pollType).toBe(PollType.SingleChoice);
+      expect(result.input.pollType).toBe(PollType.Verdict);
       expect(result.input.duration).toBe('none');
-      // The template's three labels are ordinary option rows.
+      // The verdict type's three labels are ordinary option rows.
       expect(result.input.options).toEqual(verdictTemplateOptions);
     }
   });
 
-  it('requires a poll type that is one of the two remaining types', () => {
-    // A verdict poll is submitted as a single choice poll, so there is no
-    // `verdict` type and no default: the type is required.
+  it('requires a poll type that is one of the three known types', () => {
     expect(validateProposal({ title: 'No type', duration: 'none', options }).ok).toBe(false);
-    expect(validateProposal({
-      title: 'Verdict type', pollType: 'verdict', duration: 'none', options: verdictTemplateOptions
-    }).ok).toBe(false);
     expect(validateProposal({ title: 'Bad type', pollType: 'ranked', duration: 'none', options }).ok).toBe(false);
 
-    const single = validateProposal({ title: 'Single', pollType: 'single_choice', duration: 'none', options });
-    expect(single.ok).toBe(true);
-    if (single.ok) expect(single.input.pollType).toBe(PollType.SingleChoice);
-    const multi = validateProposal({ title: 'Multi', pollType: 'multi_choice', duration: 'none', options });
-    expect(multi.ok).toBe(true);
-    if (multi.ok) expect(multi.input.pollType).toBe(PollType.MultiChoice);
+    for (const [label, expected] of [
+      ['verdict', PollType.Verdict],
+      ['single_choice', PollType.SingleChoice],
+      ['multi_choice', PollType.MultiChoice]
+    ] as const) {
+      const result = validateProposal({ title: `Type ${label}`, pollType: label, duration: 'none', options });
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(result.input.pollType).toBe(expected);
+    }
   });
 
   it('keeps a substantive description', () => {
@@ -339,26 +338,33 @@ describe('validateProposal', () => {
   });
 
   it('rejects options that only keep two rows when they are identical', () => {
-    // The Verdict card's list may be edited freely, but the shared rules still
+    // The verdict poll's list may be edited freely, but the shared rules still
     // apply: two distinct labels are the minimum.
     const result = validateProposal({
-      title: 'Verdict poll', pollType: 'single_choice', duration: 'none',
+      title: 'Verdict poll', pollType: 'verdict', duration: 'none',
       options: [{ position: 1, label: 'Same' }, { position: 2, label: 'same' }]
     });
     expect(result.ok).toBe(false);
   });
+
+  it('also rejects a verdict poll with too few options', () => {
+    expect(validateProposal({
+      title: 'Verdict poll', pollType: 'verdict', duration: 'none',
+      options: [{ position: 1, label: 'Approve' }]
+    }).ok).toBe(false);
+  });
 });
 
 describe('poll type enums', () => {
-  it('round-trips both type labels and codes', () => {
-    expect(getPollTypeCode('single_choice')).toBe(2);
-    expect(getPollTypeCode('multi_choice')).toBe(3);
-    expect(getPollTypeLabel(PollType.SingleChoice)).toBe('single_choice');
-    expect(getPollTypeLabel(PollType.MultiChoice)).toBe('multi_choice');
-    // The removed verdict type is not a code any more.
-    expect(getPollTypeCode('verdict')).toBeNull();
+  it('round-trips every type label and code', () => {
+    const labels = ['verdict', 'single_choice', 'multi_choice'] as const;
+    labels.forEach((label, index) => {
+      const code = getPollTypeCode(label);
+      expect(code).toBe(index + 1);
+      expect(getPollTypeLabel(code!)).toBe(label);
+    });
     expect(getPollTypeCode('nonsense')).toBeNull();
-    expect(() => getPollTypeLabel(1)).toThrow();
+    expect(() => getPollTypeLabel(4)).toThrow();
   });
 
   it('maps the duration labels to days, seconds, and a poll mode', () => {
@@ -446,6 +452,7 @@ describe('view day buckets', () => {
 });
 describe('shared options engine', () => {
   const single = { id: 2, poll_type: 2 };
+  const verdict = { id: 1, poll_type: 1 };
 
   // The stored rows of a poll: a label for every row.
   const stored: PollOption[] = [
@@ -454,26 +461,30 @@ describe('shared options engine', () => {
     { id: 13, position: 3, label: 'Bike' }
   ];
 
-  // A verdict poll's rows are the three verdict words, stored like any other
-  // option, so the engine treats them identically.
+  // A verdict poll's rows are the three verdict words. Its type is its own, and it
+  // takes the same single ballot as a single choice poll.
   const verdictTemplate: PollOption[] = [
     { id: 21, position: 1, label: 'Approve' },
     { id: 22, position: 2, label: 'Neutral' },
     { id: 23, position: 3, label: 'Oppose' }
   ];
 
-  it('accepts one option id for a single choice poll, including a template row', () => {
+  it('takes exactly one option for both a single choice poll and a verdict poll', () => {
     expect(validateSelections(single, stored, { optionIds: [12] })).toEqual({ ok: true, optionIds: [12] });
-    expect(validateSelections(single, verdictTemplate, { optionIds: [23] })).toEqual({ ok: true, optionIds: [23] });
+    expect(validateSelections(verdict, verdictTemplate, { optionIds: [23] })).toEqual({ ok: true, optionIds: [23] });
 
-    expect(validateSelections(single, stored, { optionIds: [] }).ok).toBe(false);
-    expect(validateSelections(single, stored, { optionIds: [11, 12] }).ok).toBe(false);
-    expect(rejectionMessage(validateSelections(single, stored, { optionIds: [11, 11] }))).toBe('duplicate option');
-    // An option that does not belong to the poll is rejected.
-    expect(rejectionMessage(validateSelections(single, stored, { optionIds: [999] }))).toBe('unknown option');
+    for (const poll of [single, verdict]) {
+      const options = poll === single ? stored : verdictTemplate;
+      expect(validateSelections(poll, options, { optionIds: [] }).ok).toBe(false);
+      expect(validateSelections(poll, options, { optionIds: [options[0].id, options[1].id] }).ok).toBe(false);
+      expect(rejectionMessage(validateSelections(poll, options, { optionIds: [options[0].id, options[0].id] })))
+        .toBe('duplicate option');
+      expect(rejectionMessage(validateSelections(poll, options, { optionIds: [999] }))).toBe('unknown option');
+    }
+
     // The removed legacy verdict label is a bad request, not a selection.
-    expect(rejectionMessage(validateSelections(single, verdictTemplate, { option: 'approve' }))).toBe('bad request');
-    expect(rejectionMessage(validateSelections(single, verdictTemplate, {}))).toBe('bad request');
+    expect(rejectionMessage(validateSelections(verdict, verdictTemplate, { option: 'approve' }))).toBe('bad request');
+    expect(rejectionMessage(validateSelections(verdict, verdictTemplate, {}))).toBe('bad request');
   });
 });
 
@@ -523,10 +534,11 @@ describe('shared options engine results', () => {
     expect(hidden.options).toBeNull();
     expect(hidden.ballots).toBe(4);
 
-    // A verdict template poll uses the same shape with its three labeled rows.
+    // A verdict poll uses the same shape with its three labeled rows, and reports
+    // its own type.
     const templateTally: PollTally = { ballots: 7, counts: new Map([[21, 5], [23, 2]]) };
-    const templateResults = toPublicResults({ poll_type: 2 }, verdictTemplate, templateTally, 0);
-    expect(templateResults.pollType).toBe('single_choice');
+    const templateResults = toPublicResults({ poll_type: 1 }, verdictTemplate, templateTally, 0);
+    expect(templateResults.pollType).toBe('verdict');
     expect(templateResults.options?.map((option) => [option.label, option.count])).toEqual([
       ['Approve', 5],
       ['Neutral', 0],

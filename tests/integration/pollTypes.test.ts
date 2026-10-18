@@ -153,22 +153,26 @@ describe('choice poll responses', () => {
     expect(noVote.optionIds).toEqual([]);
   });
 
-  it('treats a verdict template poll as an ordinary single choice poll', async () => {
-    // The Verdict card submits a single choice poll whose options are the three
-    // verdict words, so nothing about the response is special.
-    const { pollId, options } = await seedVerdictTemplatePoll({ title: 'Verdict template response' });
+  it('treats a verdict poll as its own type with single choice ballots', async () => {
+    // The verdict type is stored on its own and pre-fills three labels, but it
+    // takes exactly one option per ballot like a single choice poll.
+    const { pollId, options } = await seedVerdictTemplatePoll({ title: 'Verdict response' });
     await choiceVoteRequest(pollId, TOKENS(8), [options.get(3)!]);
 
     const detail = await (await SELF.fetch(`${ORIGIN}/api/polls/${pollId}`)).json() as any;
-    expect(detail.poll.pollType).toBe('single_choice');
+    expect(detail.poll.pollType).toBe('verdict');
     expect(detail.poll.options).toEqual([
       { id: options.get(1), label: 'Approve', position: 1 },
       { id: options.get(2), label: 'Neutral', position: 2 },
       { id: options.get(3), label: 'Oppose', position: 3 }
     ]);
 
+    // Two options in one ballot are refused, exactly as on a single choice poll.
+    const twoOptions = await choiceVoteRequest(pollId, TOKENS(9), [options.get(1)!, options.get(3)!]);
+    expect(twoOptions.status).toBe(400);
+
     const stats = await statsFor(pollId);
-    expect(stats.pollType).toBe('single_choice');
+    expect(stats.pollType).toBe('verdict');
     // One ballot is below the default threshold of 10, so every option count is
     // withheld while the ballot total is still reported.
     expect(stats.ballots).toBe(1);

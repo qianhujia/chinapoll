@@ -48,7 +48,7 @@ Public account endpoints (session state, register, login, logout, and recovery) 
 
 The local database schema is managed with versioned SQL migrations in the `migrations/` folder. `npm run db:migrate` applies every pending migration (the Wrangler tracking table is named `migrations`, set with `migrations_table` in `wrangler.toml`). Public settings fall back to built-in defaults until they are written, and the dashboard's Settings tab can insert any missing defaults.
 
-**Applied migrations are never edited.** Migrations are immutable once recorded: schema changes go in a new file (numbered from `0002`). `migrations/0001_initial.sql` is the entire schema, frozen on 2026-10-11 when the earlier incremental files were folded into it because nothing had been deployed. `0002_reports_and_views.sql` adds anonymous reports and view counting, `0003_poll_types_and_options.sql` adds the poll types, the per-poll options, the choice ballot tables, `polls.duration_seconds`, and the `ballots`/`option_counts` columns of the snapshot chain, and `0004_unified_selections.sql` removes the verdict poll type and `votes.option` and records every selection in `vote_selections`: every `poll_type = 1` poll becomes a single choice poll with the rows `Approve`, `Neutral`, and `Oppose`, each old verdict ballot becomes one selection on the matching row (code 1 Approve, 2 Oppose, 3 Neutral), the CHECK narrows to `poll_type IN (2, 3)`, and the snapshot columns the version 1 and 2 payloads need are kept with a default of 0. Because the initial schema was consolidated, **only fresh databases are supported**: create a database from scratch (run `npm run db:reset` locally, or apply `0001_initial.sql` and any later files to an empty production database) rather than upgrading a database that recorded the earlier pre-consolidation migrations.
+**Applied migrations are never edited.** Migrations are immutable once recorded: schema changes go in a new file (numbered from `0002`). `migrations/0001_initial.sql` is the entire schema, frozen on 2026-10-11 when the earlier incremental files were folded into it because nothing had been deployed. `0002_reports_and_views.sql` adds anonymous reports and view counting, `0003_poll_types_and_options.sql` adds the poll types, the per-poll options, the choice ballot tables, `polls.duration_seconds`, and the `ballots`/`option_counts` columns of the snapshot chain, `0004_unified_selections.sql` removes `votes.option` and records every selection in `vote_selections` (each old verdict ballot becomes one selection on the matching row: code 1 Approve, 2 Oppose, 3 Neutral), and `0005_restore_verdict_type.sql` gives the verdict type its own code back: the CHECK widens to `poll_type IN (1, 2, 3)`, and a single choice poll whose only options are the three verdict words at positions 1 to 3 is restored to `poll_type = 1`. Because the initial schema was consolidated, **only fresh databases are supported**: create a database from scratch (run `npm run db:reset` locally, or apply `0001_initial.sql` and any later files to an empty production database) rather than upgrading a database that recorded the earlier pre-consolidation migrations.
 
 ```bash
 npm run db:migrate
@@ -62,44 +62,45 @@ Review and publish pending submissions from the dashboard's Polls tab: set a pol
 
 ## Poll types and options
 
-A poll is one of two ballot shapes, selected on the proposal form and stored in `polls.poll_type`:
+A poll is one of three ballot shapes, selected on the proposal form and stored in `polls.poll_type`:
 
 | Code | `poll_type` | Options | Selections per ballot |
 | --- | --- | --- | --- |
+| 1 | `verdict` | the three pre-filled rows Approve, Neutral, and Oppose | exactly 1 |
 | 2 | `single_choice` | 2 to 7 rows | exactly 1 |
 | 3 | `multi_choice` | 2 to 7 rows | 1 to all |
 
-The form also offers a **Verdict** card, which is a template rather than a type:
-choosing it submits an ordinary `single_choice` poll whose options are pre-filled
-with the three verdict words (Approve, Neutral, Oppose). Every row stays editable,
-so the submitter may rename them, remove one to keep two, or add up to seven.
-Switching to Single choice or Multiple choice **clears** those rows, so an
-ordinary choice poll never starts with the verdict words. The request body is the
-same as any other single choice poll:
-`{ "pollType": "single_choice", "options": [...] }`.
+The **verdict** type behaves like a single choice poll: it accepts exactly one
+option per ballot and records one `vote_selections` row, and the only thing that
+makes it a type of its own is how the proposal form builds its options. Choosing
+the Verdict card submits `{ "pollType": "verdict", "options": [...] }` where the
+form has generated the three verdict words; every row stays editable, so the
+submitter may rename them, remove one to keep two, or add up to seven. Switching
+to Single choice or Multiple choice **clears** those rows, so another type never
+starts with the verdict words.
 
-### One engine, two types
+The options are ordinary labels in `poll_options`: there is no preset, virtual, or
+translated column, and the type is kept so a verdict poll stays identifiable.
+
+### One engine, three types
 
 Every poll keeps its options in `poll_options` as plain text and records one
-`vote_selections` row per chosen option. There is no preset, virtual, or
-translated column: a verdict poll's rows are the three words the form pre-filled,
-with nothing special about them on the database side. `votes` is a ballot table
-only and holds **no choice data** (`id`, `poll_id`, `voter_token_hash`,
-`created_at`).
+`vote_selections` row per chosen option. `votes` is a ballot table only and holds
+**no choice data** (`id`, `poll_id`, `voter_token_hash`, `created_at`).
 
 In **code** there is one engine, `worker/services/options.ts`, and every poll goes through it:
 
 - **Every poll exposes a list of options.** `getPollOptions` reads `poll_options`
   ordered by position. Options are identified by `id` in every request and
   response, and the frontend renders each stored label.
-- **Every ballot is a set of selected option IDs.** `validateSelections` accepts `{ optionIds: number[] }`. A single choice poll requires exactly one option ID; a multiple choice poll requires 1 to 7 distinct option IDs. Every ID must belong to the poll, so a caller cannot vote with another poll's option. The verdict-era `option` label is gone.
+- **Every ballot is a set of selected option IDs.** `validateSelections` accepts `{ optionIds: number[] }`. A verdict poll and a single choice poll each require exactly one option ID; a multiple choice poll requires 1 to 7 distinct option IDs. Every ID must belong to the poll, so a caller cannot vote with another poll's option. The verdict-era `option` label is gone.
 - **One counting function.** `countBallots` returns `{ ballots, counts: Map<optionId, count> }` per poll from two aggregate queries total (paginate, then aggregate): the ballot total from `votes` and the per-option counts from `vote_selections` grouped by `(poll_id, option_id)`. The same two queries serve both poll types.
 - **One results shape.** `toPublicResults` returns `{ pollType, ballots, hidden, threshold, options: [{ id, position, label, count }] | null }`. There is no separate counts object: each option carries its own `count`. Below `min_votes_to_display` **every** option count is withheld together while the ballot total is still returned. The threshold hides results only: the poll page always renders the vote controls for an open poll, and voting is disabled only for a poll that is not open, a visitor who has already voted, or a failed vote-status lookup. A visitor who votes below the threshold sees their stored options pre-checked while the numbers stay hidden. The home page lists every poll the same way — mode badge, type badge, ballot total, views, and a vote link to the poll page — and never votes in place.
 - **One snapshot shape.** See the snapshot section below.
 
-Voting happens on the poll page, where every poll renders one radio (single
-choice) or checkbox (multiple choice) per option and a submit button. The results
-list is built from the same options array.
+Voting happens on the poll page, where every poll renders one radio per option for
+a verdict or single choice poll, and one checkbox per option for a multiple choice
+poll. The results list is built from the same options array.
 
 A ballot stays **one row per (poll, token)** in `votes`, so the existing unique index keeps enforcing one ballot per browser. The ballot row is written first and its `vote_selections` rows second; if the second step fails the ballot is rolled back, so a partial ballot is never left behind.
 
@@ -268,7 +269,7 @@ records admin actions without client IP addresses. Deploy with
   counter, the display threshold, the 7-day window, and the always-204 rate
   limit), the admin report list and resolve handlers, both poll types (ballot
   validation, per-option counts, the ballot threshold, the stored selection rows,
-  and a verdict template poll behaving as an ordinary single choice poll), the
+  and a verdict poll behaving as a single choice poll), the
   duration model (`duration_seconds`, the derived mode, and the end date computed
   at open), the admin option editor, and AI assistance (the disabled setting, the
   auth gate, the input limits, a malformed model answer, and a valid trimmed

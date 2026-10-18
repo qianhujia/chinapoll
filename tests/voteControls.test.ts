@@ -44,6 +44,21 @@ describe('renderChoiceInputs', () => {
     expect(markup).toContain('data-poll-type="multi_choice"');
   });
 
+  // A verdict poll is a single-answer poll, so it renders radios rather than
+  // checkboxes even though it is its own type.
+  it('renders radios for a verdict poll', () => {
+    const markup = renderChoiceInputs('verdict', [
+      { id: 21, label: 'Approve', position: 1 },
+      { id: 22, label: 'Neutral', position: 2 },
+      { id: 23, label: 'Oppose', position: 3 }
+    ], false);
+
+    expect(markup.match(/type="radio"/g)).toHaveLength(3);
+    expect(markup).not.toContain('type="checkbox"');
+    expect(markup).toContain('data-poll-type="verdict"');
+    expect(markup).toContain('>Approve<');
+  });
+
   it('pre-checks the stored selections and disables the form for a returning voter', () => {
     const markup = renderChoiceInputs('multi_choice', OPTIONS, true, [12]);
 

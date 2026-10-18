@@ -87,6 +87,27 @@ describe('renderPollRow', () => {
     expect(multi).toContain('pollTypeMultiChoice');
   });
 
+  it('renders the option count for a verdict poll and its own badge', () => {
+    const markup = renderPollRow(makeEntry({
+      pollType: 'verdict',
+      ballots: 12,
+      options: [
+        { id: 21, label: 'Approve', position: 1 },
+        { id: 22, label: 'Neutral', position: 2 },
+        { id: 23, label: 'Oppose', position: 3 }
+      ]
+    }));
+
+    // The badge names the verdict type and, like the other types, the row shows how
+    // many options the poll carries and its ballot total.
+    expect(markup).toContain('pollTypeVerdict');
+    expect(markup).not.toContain('pollTypeSingleChoice');
+    expect(markup).toContain('12 ballots');
+    // The row still offers a link rather than voting in place.
+    expect(markup).not.toContain('<button');
+    expect(markup.match(/href="\/poll\/7"/g)).toHaveLength(2);
+  });
+
   it('shows the threshold notice instead of the total and keeps the vote link', () => {
     const markup = renderPollRow(makeEntry({ hidden: true, ballots: 3 }));
 

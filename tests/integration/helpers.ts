@@ -3,6 +3,7 @@ import schema from '../../migrations/0001_initial.sql?raw';
 import reportsAndViewsSchema from '../../migrations/0002_reports_and_views.sql?raw';
 import pollTypesSchema from '../../migrations/0003_poll_types_and_options.sql?raw';
 import unifiedSelectionsSchema from '../../migrations/0004_unified_selections.sql?raw';
+import restoreVerdictTypeSchema from '../../migrations/0005_restore_verdict_type.sql?raw';
 
 export const ORIGIN = 'https://example.com';
 
@@ -12,7 +13,8 @@ export const MIGRATIONS: ReadonlyArray<{ name: string; sql: string }> = [
   { name: '0001_initial', sql: schema },
   { name: '0002_reports_and_views', sql: reportsAndViewsSchema },
   { name: '0003_poll_types_and_options', sql: pollTypesSchema },
-  { name: '0004_unified_selections', sql: unifiedSelectionsSchema }
+  { name: '0004_unified_selections', sql: unifiedSelectionsSchema },
+  { name: '0005_restore_verdict_type', sql: restoreVerdictTypeSchema }
 ];
 
 // D1's exec() rejects a batch whose first chunk is only a comment, so comment-only
@@ -56,7 +58,7 @@ export interface SeedPollOptions {
   endAt?: number | null;
   closedAt?: number | null;
   reviewedAt?: number | null;
-  /** 2 single choice (default), 3 multiple choice. */
+  /** 1 verdict, 2 single choice (default), 3 multiple choice. */
   pollType?: number;
   durationSeconds?: number | null;
 }
@@ -80,16 +82,16 @@ export async function seedPoll(options: SeedPollOptions): Promise<number> {
   return lastId();
 }
 
-// The three labels the Verdict template submits. A verdict poll is an ordinary
-// single choice poll with these options.
+// The three labels the Verdict type pre-fills. A verdict poll is a single-answer
+// poll whose options the form generates from these words.
 export const VERDICT_TEMPLATE_LABELS: ReadonlyArray<string> = ['Approve', 'Neutral', 'Oppose'];
 
-// Inserts a poll whose options are the three verdict template labels, so a test
-// can exercise the shape the template produces.
+// Inserts a verdict poll with the three default labels, so a test can exercise the
+// shape the form produces.
 export async function seedVerdictTemplatePoll(
-  options: Omit<SeedPollOptions, 'pollType'> = { title: 'Verdict template poll' }
+  options: Omit<SeedPollOptions, 'pollType'> = { title: 'Verdict poll' }
 ): Promise<{ pollId: number; options: Map<number, number> }> {
-  const pollId = await seedPoll({ ...options, pollType: 2 });
+  const pollId = await seedPoll({ ...options, pollType: 1 });
   const ids = await seedOptions(pollId, VERDICT_TEMPLATE_LABELS.map((label, index) => ({
     position: index + 1,
     label

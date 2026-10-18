@@ -136,4 +136,55 @@ describe('migration 0004', () => {
     const violations = await env.DB.prepare('SELECT * FROM pragma_foreign_key_check').all();
     expect(violations.results).toEqual([]);
   });
+
+  // 0005 restores the verdict type: the poll 0004 turned into a single choice poll
+  // with the three verdict words goes back to `poll_type = 1`, a poll with any other
+  // option set does not, and every child of `polls` survives the second rebuild.
+  it('restores the verdict type that 0004 converted', async () => {
+    // The database is already at the post-0004 state from the test above, so this
+    // runs the second half of the chain on top of it.
+    const before = await env.DB.prepare('SELECT id, poll_type FROM polls ORDER BY id ASC').all();
+    expect(before.results).toEqual([
+      { id: 1, poll_type: 2 },
+      { id: 2, poll_type: 2 }
+    ]);
+
+    await runMigrationSql(MIGRATIONS[4].sql);
+
+    // Only the poll with exactly the three verdict words at positions 1 to 3 is
+    // classified as a verdict poll; the one with Bus / Metro stays a choice poll.
+    const after = await env.DB.prepare('SELECT id, poll_type FROM polls ORDER BY id ASC').all();
+    expect(after.results).toEqual([
+      { id: 1, poll_type: 1 },
+      { id: 2, poll_type: 2 }
+    ]);
+
+    // The option rows, the ballots, and every other child kept their rows and ids.
+    const kept = await env.DB.prepare(
+      `SELECT o.poll_id, o.position, o.label FROM vote_selections vs
+       JOIN poll_options o ON o.id = vs.option_id
+       WHERE vs.vote_id = 100`
+    ).first<{ poll_id: number; position: number; label: string }>();
+    expect(kept).toMatchObject({ poll_id: 1, position: 1, label: 'Approve' });
+
+    const counts: Record<string, number> = {};
+    for (const table of ['poll_options', 'votes', 'vote_selections', 'comments', 'poll_reports', 'poll_views', 'stats_snapshots']) {
+      const row = await env.DB.prepare(`SELECT COUNT(*) AS total FROM ${table}`).first<{ total: number }>();
+      counts[table] = Number(row?.total ?? 0);
+    }
+    expect(counts).toEqual({
+      poll_options: 5,
+      votes: 4,
+      vote_selections: 4,
+      comments: 1,
+      poll_reports: 1,
+      poll_views: 1,
+      stats_snapshots: 3
+    });
+
+    // The CHECK accepts the verdict type again, and every selection is still valid.
+    await runMigrationSql("INSERT INTO polls (title, mode, status, poll_type) VALUES ('Verdict again', 2, 1, 1)");
+    const violations = await env.DB.prepare('SELECT * FROM pragma_foreign_key_check').all();
+    expect(violations.results).toEqual([]);
+  });
 });

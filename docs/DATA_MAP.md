@@ -35,14 +35,15 @@ full duration.
 | label | option text, 1 to 80 characters | Public | as above |
 
 Note: every poll has rows here, and every row is plain text the submitter wrote;
-there is no preset or virtual column. A single choice poll's ballot picks one row,
-a multiple choice poll's ballot picks one to seven. `position` is display order
-only. Admins may edit a pending poll's labels while it has no ballots, and every
-change writes an audit entry.
+there is no preset or virtual column. A verdict poll, a single choice poll, and a
+multiple choice poll all store their options the same way. `position` is display
+order only. Admins may edit a pending poll's labels while it has no ballots, and
+every change writes an audit entry.
 
-A "verdict" poll (Approve, Neutral, Oppose) is not a type of its own: the
-proposal form's Verdict card pre-fills those three labels into an ordinary single
-choice poll, and the submitter may rename them, drop to two, or add up to seven.
+The verdict type only differs in how the proposal form builds the rows: it
+generates Approve, Neutral, and Oppose, and the submitter may then rename them,
+drop to two, or add up to seven. Ballots are identical to a single choice poll
+(exactly one option), and the stored `poll_type` keeps the type identifiable.
 
 ## votes
 

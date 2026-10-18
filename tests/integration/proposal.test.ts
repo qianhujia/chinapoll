@@ -83,9 +83,10 @@ describe('proposal validation', () => {
   });
 
   it('requires a known poll type and 2 to 7 options', async () => {
-    // The removed verdict type is refused, as is a missing type.
-    expect((await propose({ title: 'Verdict poll type', pollType: 'verdict' })).status).toBe(400);
+    // Every stored type is accepted, including the verdict type.
+    expect((await propose({ title: 'Verdict poll type', pollType: 'verdict' })).status).toBe(201);
     expect((await propose({ title: 'No poll type', pollType: undefined as unknown as string })).status).toBe(400);
+    expect((await propose({ title: 'Unknown poll type', pollType: 'ranked' })).status).toBe(400);
 
     expect((await propose({
       title: 'Too few options',
@@ -214,19 +215,19 @@ describe('choice poll proposals', () => {
   });
 });
 
-describe('verdict template proposals', () => {
-  // The Verdict card in the form submits an ordinary single choice poll whose
-  // options are the three verdict words.
-  it('stores the three template labels as a single choice poll', async () => {
-    const response = await propose({ title: 'Verdict template proposal' });
+describe('verdict poll proposals', () => {
+  // The Verdict card selects the verdict type and the form generates its three
+  // default options, which the submitter may edit.
+  it('stores the three default labels as a verdict poll', async () => {
+    const response = await propose({ title: 'Verdict proposal', pollType: 'verdict' });
     expect(response.status).toBe(201);
     const body = await response.json() as any;
-    expect(body.pollType).toBe('single_choice');
+    expect(body.pollType).toBe('verdict');
 
     const row = await pollRow(body.pollId);
-    expect(row?.poll_type).toBe(2);
+    expect(row?.poll_type).toBe(1);
 
-    // The option rows are written together with the poll row and are plain text.
+    // The option rows are ordinary labels, written with the poll row.
     const options = await env.DB.prepare(
       'SELECT position, label FROM poll_options WHERE poll_id = ? ORDER BY position ASC'
     ).bind(body.pollId).all<{ position: number; label: string }>();
@@ -236,10 +237,9 @@ describe('verdict template proposals', () => {
       { position: 3, label: 'Oppose' }
     ]);
 
-    // The stored poll is readable through the public results endpoint as an
-    // ordinary single choice poll.
+    // The public results endpoint reports the verdict type.
     const stats = await (await SELF.fetch(`${ORIGIN}/api/stats/${body.pollId}`)).json() as any;
-    expect(stats.pollType).toBe('single_choice');
+    expect(stats.pollType).toBe('verdict');
     expect(stats.ballots).toBe(0);
     // No ballots yet, so the option counts are withheld below the threshold.
     expect(stats.options).toBeNull();
@@ -247,7 +247,8 @@ describe('verdict template proposals', () => {
 
   it('accepts an edited and shortened option list from the same card', async () => {
     const response = await propose({
-      title: 'Edited verdict template proposal',
+      title: 'Edited verdict proposal',
+      pollType: 'verdict',
       options: [
         { position: 1, label: 'Yes' },
         { position: 2, label: 'No' }
@@ -255,6 +256,7 @@ describe('verdict template proposals', () => {
     });
     expect(response.status).toBe(201);
     const pollId = (await response.json() as any).pollId as number;
+    expect((await pollRow(pollId))?.poll_type).toBe(1);
 
     const options = await env.DB.prepare(
       'SELECT position, label FROM poll_options WHERE poll_id = ? ORDER BY position ASC'

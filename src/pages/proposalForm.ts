@@ -22,8 +22,7 @@ import {
   MIN_OPTIONS,
   confirmationMarkup,
   optionRowMarkup,
-  templateOptionLabels,
-  type TemplateType
+  templateOptionLabels
 } from './proposal';
 import { bindAiButtons } from './proposalAi';
 
@@ -50,17 +49,17 @@ export function checkOptionLabels(labels: string[]): OptionRowCheck {
 
 export interface ConfirmationSummary {
   title: string;
-  /** The card the user picked, which names the poll in the summary. */
-  template: TemplateType;
+  /** The poll type the user picked, which names the poll in the summary. */
+  pollType: PollType;
   duration: PollDuration;
   description: string;
   options: Array<{ position: number; label: string }>;
 }
 
-// The i18n key of the label a template is shown under.
-function templateLabelKey(template: TemplateType): string {
-  if (template === 'multi_choice') return 'pollTypeMultiChoice';
-  return template === 'single_choice' ? 'pollTypeSingleChoice' : 'pollTypeVerdict';
+// The i18n key of the label a poll type is shown under.
+function pollTypeLabelKey(pollType: PollType): string {
+  if (pollType === 'verdict') return 'pollTypeVerdict';
+  return pollType === 'multi_choice' ? 'pollTypeMultiChoice' : 'pollTypeSingleChoice';
 }
 
 // Opens the read-only confirmation dialog. The user either goes back to edit or
@@ -70,7 +69,7 @@ export function openConfirmation(
   summary: ConfirmationSummary,
   onBack: () => void
 ): void {
-  const typeLabel = t(templateLabelKey(summary.template));
+  const typeLabel = t(pollTypeLabelKey(summary.pollType));
   const host = document.createElement('div');
   host.className = 'fixed inset-0 z-20 flex items-center justify-center bg-black/40 p-4';
   host.dataset.proposalConfirm = '1';
@@ -111,18 +110,14 @@ export function bindProposalForm(app: HTMLElement, bindNavigation: () => void, a
   const aiHint = form.querySelector<HTMLElement>('[data-ai-hint]');
   const submitButton = form.querySelector<HTMLButtonElement>('button[type="submit"]')!;
 
-  // The card the user picked. "verdict" is a template, not an API type: it
-  // submits as a single choice poll with three pre-filled options.
-  let templateType: TemplateType = 'verdict';
+  // The card the user picked. Every card maps to a stored poll type, so the form
+  // submits it as-is.
+  let pollType: PollType = 'verdict';
   // The height the description grows to before it scrolls, measured on first use.
   let descriptionMaxHeight = 0;
   // Set while the confirmation dialog is open so the second submit sends the
   // request instead of opening the dialog again.
   let confirming = false;
-
-  // The poll type sent to the API for the picked card.
-  const apiPollType = (template: TemplateType): PollType =>
-    template === 'multi_choice' ? 'multi_choice' : 'single_choice';
 
   const rows = () => Array.from(optionRows?.querySelectorAll<HTMLDivElement>('[data-option-row]') ?? []);
   const renumber = () => rows().forEach((row, index) => { row.dataset.position = String(index + 1); });
@@ -178,12 +173,12 @@ export function bindProposalForm(app: HTMLElement, bindNavigation: () => void, a
     if (aiHint) aiHint.hidden = longEnough;
   };
 
-  // Fills the editor with the rows the picked card starts from. Every row is
-  // editable: the Verdict template pre-fills the three verdict words and the user
-  // may rename them, drop to two, or add up to seven. A choice poll has nothing to
-  // pre-fill, so it starts with two empty rows.
+  // Fills the editor with the rows the picked type starts from. Every row is
+  // editable: the verdict type pre-fills the three verdict words and the user may
+  // rename them, drop to two, or add up to seven. The other two types have nothing
+  // to pre-fill, so they start with two empty rows.
   const fillTemplateRows = () => {
-    const labels = templateOptionLabels(templateType);
+    const labels = templateOptionLabels(pollType);
     if (labels.length > 0) {
       optionRows?.replaceChildren();
       labels.forEach((label, index) => {
@@ -237,12 +232,12 @@ export function bindProposalForm(app: HTMLElement, bindNavigation: () => void, a
 
   form.querySelectorAll<HTMLInputElement>('[data-poll-type]').forEach((radio) => {
     radio.addEventListener('change', () => {
-      const next = radio.value as TemplateType;
-      // Leaving the Verdict template clears its pre-filled rows, so a single or
-      // multiple choice poll starts from an empty list instead of keeping
+      const next = radio.value as PollType;
+      // Leaving the verdict type clears its pre-filled rows, so a single or multiple
+      // choice poll starts from an empty list instead of keeping
       // Approve / Neutral / Oppose.
-      if (templateType === 'verdict' && next !== 'verdict') optionRows?.replaceChildren();
-      templateType = next;
+      if (pollType === 'verdict' && next !== 'verdict') optionRows?.replaceChildren();
+      pollType = next;
       syncOptionEditor();
     });
   });
@@ -256,7 +251,7 @@ export function bindProposalForm(app: HTMLElement, bindNavigation: () => void, a
     renumber,
     syncOptionButtons,
     syncAiGates,
-    currentPollType: () => apiPollType(templateType),
+    currentPollType: () => pollType,
     titleInput,
     descriptionInput,
     aiSuggestions,
@@ -288,12 +283,11 @@ export function bindProposalForm(app: HTMLElement, bindNavigation: () => void, a
       return;
     }
     const options = checked.options;
-    const pollType = apiPollType(templateType);
 
     // Before the request is sent the summary is shown; `confirming` keeps the
     // second submit (from the dialog) going straight to the server.
     if (!confirming) {
-      openConfirmation(app, { title, template: templateType, duration, description, options }, () => {
+      openConfirmation(app, { title, pollType, duration, description, options }, () => {
         confirming = false;
       });
       confirming = true;
@@ -315,7 +309,7 @@ export function bindProposalForm(app: HTMLElement, bindNavigation: () => void, a
       rememberMyPoll(result.pollId);
       // The form is reset for another submission.
       confirming = false;
-      templateType = 'verdict';
+      pollType = 'verdict';
       const verdictRadio = form.querySelector<HTMLInputElement>('[data-poll-type][value="verdict"]');
       if (verdictRadio) verdictRadio.checked = true;
       if (titleInput) titleInput.value = '';

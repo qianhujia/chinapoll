@@ -266,7 +266,11 @@ export function renderModeBadge(mode: PollSummary['mode']): string {
 // Small badge that names the ballot shape of a poll, using the same badge style
 // as the mode badge, plus how many options it carries.
 export function renderPollTypeBadge(pollType: string, optionCount = 0): string {
-  const label = pollType === 'multi_choice' ? t('pollTypeMultiChoice') : t('pollTypeSingleChoice');
+  const label = pollType === 'verdict'
+    ? t('pollTypeVerdict')
+    : pollType === 'multi_choice'
+      ? t('pollTypeMultiChoice')
+      : t('pollTypeSingleChoice');
   const suffix = optionCount <= 0 ? '' : ` · ${optionCount} ${t('options')}`;
   return `<span class="shrink-0 rounded-full bg-[#eef3fb] px-[9px] py-[3px] text-xs leading-[1.5] font-light whitespace-nowrap text-muted">${label}${suffix}</span>`;
 }

@@ -17,18 +17,18 @@ import {
 } from '../lib/poll';
 import { escapeHtml, t } from '../ui';
 
-// The type cards the form offers. "Verdict" is not an API poll type: choosing it
-// submits a single choice poll whose options are pre-filled with the words
-// Approve, Neutral, and Oppose, which the user may then edit freely.
-export type TemplateType = 'verdict' | 'single_choice' | 'multi_choice';
+// The type cards the form offers, one per stored poll type. The Verdict card is the
+// verdict type: the form pre-fills its three options with Approve, Neutral, and
+// Oppose, and the submitter may then edit them like any other option row.
+export type TemplateType = PollType;
 
-// i18n keys of the options the Verdict template pre-fills, in row order.
+// i18n keys of the options the Verdict type pre-fills, in row order.
 export const VERDICT_TEMPLATE_LABEL_KEYS: ReadonlyArray<string> = ['approve', 'neutral', 'oppose'];
 
-// The option texts a template starts with, in row order. Only the Verdict template
+// The option texts a poll type starts with, in row order. Only the verdict type
 // pre-fills words; a single choice or multiple choice poll starts from an empty
 // list, so switching away from Verdict never carries Approve / Neutral / Oppose
-// into an ordinary choice poll.
+// into another type.
 export function templateOptionLabels(template: TemplateType): string[] {
   return template === 'verdict' ? VERDICT_TEMPLATE_LABEL_KEYS.map((key) => t(key)) : [];
 }

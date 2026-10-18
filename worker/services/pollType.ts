@@ -1,10 +1,14 @@
 // Shared poll-type helpers.
 //
-// A poll is one of two ballot shapes (see worker/enums.ts): single choice or
-// multiple choice. Both keep their options in `poll_options` as plain text labels
-// and record one `vote_selections` row per chosen option. Every public response
-// shows the ballots per poll and the counts per option only - never which options
-// were chosen together on one ballot.
+// A poll is one of three ballot shapes (see worker/enums.ts): verdict, single
+// choice, or multiple choice. All three keep their options in `poll_options` as
+// plain text labels and record one `vote_selections` row per chosen option. The
+// verdict type differs only in how the proposal form builds its option rows: it
+// pre-fills Approve, Neutral, and Oppose, and it accepts exactly one option per
+// ballot, like a single choice poll.
+//
+// Every public response shows the ballots per poll and the counts per option only -
+// never which options were chosen together on one ballot.
 
 import { getPollTypeLabel, PollType, type PollTypeLabel } from '../enums';
 
@@ -12,8 +16,10 @@ export const MIN_POLL_OPTIONS = 2;
 export const MAX_POLL_OPTIONS = 7;
 export const MAX_OPTION_LABEL_LENGTH = 80;
 
-// How many options a ballot of this type must carry.
+// How many options a ballot of this type must carry. The verdict type takes the
+// same single ballot as a single choice poll.
 export function requiredSelectionCount(pollType: number): { min: number; max: number } | null {
+  if (pollType === PollType.Verdict) return { min: 1, max: 1 };
   if (pollType === PollType.SingleChoice) return { min: 1, max: 1 };
   if (pollType === PollType.MultiChoice) return { min: 1, max: MAX_POLL_OPTIONS };
   return null;

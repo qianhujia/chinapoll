@@ -54,16 +54,17 @@ const REPORT_REASON_LABELS: Record<ReportReason, string> = {
   other: 'reportReasonOther'
 };
 
-// Radio (single choice) or checkbox (multiple choice) list. The submit button
-// stays disabled until the ballot is complete, and a returning voter sees their
-// stored options pre-checked and the form disabled.
+// Radio (verdict and single choice) or checkbox (multiple choice) list. A verdict
+// poll takes the same single ballot as a single choice poll, so it renders radios
+// too. The submit button stays disabled until the ballot is complete, and a
+// returning voter sees their stored options pre-checked and the form disabled.
 export function renderChoiceInputs(
   pollType: PollType,
   options: PollOption[],
   hasVoted: boolean,
   selectedIds: number[] = []
 ): string {
-  const inputType = pollType === 'single_choice' ? 'radio' : 'checkbox';
+  const inputType = pollType === 'multi_choice' ? 'checkbox' : 'radio';
   return `
     <form class="choice-stack mx-auto mt-6 grid w-full max-w-[420px] gap-2.5" data-choice-form data-poll-type="${pollType}" title="${hasVoted ? t('alreadyVoted') : ''}">
       <fieldset class="m-0 grid gap-2 border-0 p-0">

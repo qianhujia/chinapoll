@@ -134,10 +134,10 @@ describe('admin poll options', () => {
     expect(frozen.status).toBe(409);
     expect(await frozen.json()).toMatchObject({ message: expect.stringContaining('already has ballots') });
 
-    // A verdict template poll is an ordinary single choice poll, so its labels can
-    // be rewritten and trimmed like any other poll's.
+    // A verdict poll is its own type with its own rows, so its labels can be
+    // rewritten and trimmed like any other poll's.
     const { pollId: templatePoll } = await seedVerdictTemplatePoll({
-      title: 'Verdict template options poll',
+      title: 'Verdict options poll',
       status: 4
     });
     const edited = await optionsRequest(templatePoll, [
@@ -177,14 +177,14 @@ describe('admin poll listing', () => {
     ]);
   });
 
-  it('shows the option rows of a verdict template poll with their counts', async () => {
+  it('shows the option rows of a verdict poll with their counts', async () => {
     const { pollId, options } = await seedVerdictTemplatePoll({ title: 'Listed verdict poll' });
     await insertBallot(pollId, 'e'.repeat(64), [options.get(1)!]);
 
     const response = await listRequest();
     const body = await response.json() as any;
     const row = body.polls.find((entry: any) => entry.id === pollId);
-    expect(row.pollType).toBe('single_choice');
+    expect(row.pollType).toBe('verdict');
     expect(row.ballots).toBe(1);
     expect(row.options.map((option: any) => [option.label, option.position, option.count])).toEqual([
       ['Approve', 1, 1],
