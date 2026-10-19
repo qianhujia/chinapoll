@@ -33,7 +33,10 @@ the schema or the network handling changes.
 - Poll reports: only the poll reference, the reason code, an optional free-text
   note, and an hour-coarsened timestamp. There is no reporter identifier at all.
 - Poll views: one counter per poll per UTC day. There are no per-view rows, so a
-  view cannot be attributed to a viewer.
+  view cannot be attributed to a viewer. Views are buffered in the poll's
+  `ViewCounter` Durable Object (a pending count and nothing about the visitor) and
+  flushed every five minutes, so the counts are approximate: an object evicted
+  between flushes loses up to five minutes of views.
 
 ## Adversaries and mitigations
 

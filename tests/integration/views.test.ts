@@ -1,9 +1,15 @@
 import { beforeAll, describe, expect, it } from 'vitest';
-import { env, SELF } from 'cloudflare:test';
+import { env, runDurableObjectAlarm, SELF } from 'cloudflare:test';
 import { ORIGIN, applySchema, seedPoll, viewRequest } from './helpers';
 
 function todayBucket(): number {
   return Math.floor(Date.now() / 1000 / 86400) * 86400;
+}
+
+// The per-poll counter object, whose five-minute alarm flushes the buffered
+// count to D1. Tests fire the alarm directly instead of waiting.
+function viewCounter(pollId: number): DurableObjectStub {
+  return env.VIEW_COUNTER.get(env.VIEW_COUNTER.idFromName(String(pollId)));
 }
 
 beforeAll(async () => {
@@ -17,6 +23,9 @@ describe('poll view counting', () => {
     expect((await viewRequest(pollId)).status).toBe(204);
     expect((await viewRequest(pollId)).status).toBe(204);
 
+    // The two views are buffered in the counter until its alarm flushes them.
+    expect(await runDurableObjectAlarm(viewCounter(pollId))).toBe(true);
+
     const row = await env.DB.prepare('SELECT ts_day, views FROM poll_views WHERE poll_id = ?')
       .bind(pollId).first<{ ts_day: number; views: number }>();
     expect(row?.views).toBe(2);
@@ -26,6 +35,8 @@ describe('poll view counting', () => {
 
   it('answers 204 for a missing poll without writing a row', async () => {
     expect((await viewRequest(999_999)).status).toBe(204);
+    // The buffered view is dropped when the flush trips the poll foreign key.
+    expect(await runDurableObjectAlarm(viewCounter(999_999))).toBe(true);
     const count = await env.DB.prepare('SELECT COUNT(*) AS total FROM poll_views WHERE poll_id = ?')
       .bind(999_999).first<{ total: number }>();
     expect(count?.total).toBe(0);

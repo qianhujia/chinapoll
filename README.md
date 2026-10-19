@@ -241,12 +241,16 @@ public listings until an admin reviews it, and an audit entry with action
 
 Each poll also counts how often it is opened, without recording who opened it:
 `POST /api/polls/:id/view` increments one per-poll, per-UTC-day counter
-(`poll_views`). The browser calls it once per tab session, and the server rate
-limits the call at `60/h` through the Durable Object, always answering `204` so
-the response reveals nothing. `GET /api/polls/:id` and the poll list report
-`views: { total, last7Days } | null`, where the value is `null` below
-`min_views_to_display` (default 20). Cumulative views are included in the signed
-hourly snapshot chain.
+(`poll_views`). The browser calls it once per tab session; the request is a single
+call to the poll's `ViewCounter` Durable Object, which enforces the `60/h`
+per-network rate limit in the same call and buffers the count in memory. The
+object flushes to D1 on a five-minute alarm, so an active poll costs at most
+twelve writes an hour instead of one per view; an object evicted between flushes
+loses up to five minutes of views (counts are approximate by design). The endpoint
+always answers `204` so the response reveals nothing. `GET /api/polls/:id` and the
+poll list report `views: { total, last7Days } | null`, where the value is `null`
+below `min_views_to_display` (default 20). Cumulative views are included in the
+signed hourly snapshot chain.
 
 Retention: resolved reports are deleted 90 days after `resolved_at`, and view
 rows older than 90 days are rolled up into a single per-poll row so long-term

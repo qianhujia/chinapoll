@@ -8,16 +8,17 @@ crons = ["0 * * * *"]
 [durable_objects]
 bindings = [
   { name = "RATE_LIMITER", class_name = "RateLimiter" },
-  { name = "PASSWORD_HASHER", class_name = "PasswordHasher" }
+  { name = "PASSWORD_HASHER", class_name = "PasswordHasher" },
+  { name = "VIEW_COUNTER", class_name = "ViewCounter" }
 ]
 
 # Durable Object migration list. This is unrelated to the D1 migrations_table
-# setting below, which names the D1 tracking table. Both classes are SQLite-backed
+# setting below, which names the D1 tracking table. All classes are SQLite-backed
 # (`new_sqlite_classes`); nothing has been deployed yet, so the single `v1` tag
 # declares them in their final storage backend.
 [[migrations]]
 tag = "v1"
-new_sqlite_classes = ["RateLimiter", "PasswordHasher"]
+new_sqlite_classes = ["RateLimiter", "PasswordHasher", "ViewCounter"]
 
 [assets]
 directory = "./dist/web"
@@ -62,7 +63,8 @@ migrations_table = "migrations"
 [env.production.durable_objects]
 bindings = [
   { name = "RATE_LIMITER", class_name = "RateLimiter" },
-  { name = "PASSWORD_HASHER", class_name = "PasswordHasher" }
+  { name = "PASSWORD_HASHER", class_name = "PasswordHasher" },
+  { name = "VIEW_COUNTER", class_name = "ViewCounter" }
 ]
 
 [env.production.ai]
@@ -70,4 +72,4 @@ binding = "AI"
 
 [[env.production.migrations]]
 tag = "v1"
-new_sqlite_classes = ["RateLimiter", "PasswordHasher"]
+new_sqlite_classes = ["RateLimiter", "PasswordHasher", "ViewCounter"]

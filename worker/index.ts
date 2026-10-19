@@ -34,6 +34,8 @@ export interface Env {
   RATE_LIMITER: DurableObjectNamespace;
   /** Durable Object that performs PBKDF2 password hashing off the request CPU path. */
   PASSWORD_HASHER: DurableObjectNamespace;
+  /** One per-poll Durable Object that buffers view counts and flushes them to D1. */
+  VIEW_COUNTER: DurableObjectNamespace;
   ASSETS: Fetcher;
   /** Cloudflare Workers AI binding, used only by the optional AI assistance. */
   AI: Ai;
@@ -245,6 +247,7 @@ export default {
 // Durable Object classes referenced by the bindings in wrangler.toml.
 export { RateLimiter } from './services/rateLimiter';
 export { PasswordHasher } from './services/passwordHasher';
+export { ViewCounter } from './services/viewCounter';
 
 // Re-exported for tests and the scheduled handler.
 export { makeSnapshot };

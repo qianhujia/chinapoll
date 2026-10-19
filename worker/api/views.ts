@@ -1,18 +1,19 @@
 // Poll view counting.
 //
 // The goal is to count how often each poll is opened without recording who
-// opened it. A view increments a single per-poll, per-UTC-day counter; there are
-// no per-view rows anywhere, so a view can never be attributed to a viewer. The
-// browser deduplicates itself (one call per tab session), and the server rate
-// limits the call through the Durable Object with the keyed, daily-rotated
-// network hash. The endpoint always answers 204 so the response reveals nothing,
-// whether or not the rate limit was hit.
+// opened it. A view increments the poll's ViewCounter Durable Object, which
+// buffers the count in memory and flushes it to a single per-poll, per-UTC-day
+// row every five minutes; there are no per-view rows anywhere, so a view can
+// never be attributed to a viewer. The browser deduplicates itself (one call per
+// tab session), and the object enforces the per-network rate limit inside the
+// same call with the keyed, daily-rotated network hash. The endpoint always
+// answers 204 so the response reveals nothing, whether or not the rate limit was
+// hit.
 
 import type { HandlerEnv } from '../index';
-import { checkRateLimit } from '../services/rateLimit';
+import { countView } from '../services/viewCounter';
 import { clientAddress, hashedNetworkBucket, serverHmacKey } from '../services/ip';
 
-const VIEW_RATE_LIMIT = '60/h';
 const VIEW_PATH_PATTERN = /^\/api\/polls\/([1-9]\d*)\/view$/;
 
 // Returns the start of the UTC day for a Unix timestamp, in seconds.
@@ -34,26 +35,16 @@ export async function handleViewRequest(request: Request, url: URL, env: Handler
     return Response.json({ ok: false, message: 'invalid poll ID' }, { status: 400 });
   }
 
-  // A missing poll is answered like every other outcome so the response cannot
-  // be used to probe which polls exist.
-  const poll = await env.DB.prepare('SELECT id FROM polls WHERE id = ?')
-    .bind(pollId).first<{ id: number }>();
-  if (!poll) return noContent();
-
+  // The keyed, daily-rotated network hash is computed here and passed to the
+  // counter, which never stores it. A missing server key means no counting.
   const ipHash = await hashedNetworkBucket(clientAddress(request), serverHmacKey(env));
   if (!ipHash) return noContent();
 
-  const limited = await checkRateLimit(env, 'view', ipHash, undefined, VIEW_RATE_LIMIT);
-  if (!limited.allowed) return noContent();
-
-  // One statement, one D1 write per view. That is acceptable at this scale; a
-  // per-poll Durable Object counter is the upgrade path if write volume becomes
-  // a problem. Views are deliberately not buffered in Worker memory or KV.
-  const tsDay = dayBucket(Math.floor(Date.now() / 1000));
-  await env.DB.prepare(
-    `INSERT INTO poll_views (poll_id, ts_day, views) VALUES (?, ?, 1)
-     ON CONFLICT(poll_id, ts_day) DO UPDATE SET views = views + 1`
-  ).bind(pollId, tsDay).run();
+  // One call: the object enforces the per-network rate limit, buffers the view,
+  // and flushes it to D1 on its alarm. A view for a poll that does not exist is
+  // buffered too; its flush fails the foreign key and is dropped, so the response
+  // still reveals nothing about which polls exist.
+  await countView(env, pollId, ipHash);
 
   return noContent();
 }
