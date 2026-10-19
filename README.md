@@ -180,7 +180,7 @@ the buttons at all.
 | Setting | Default | Public? |
 | --- | --- | --- |
 | `ai_enable` | `false` | yes (only this flag is exposed) |
-| `ai_model` | `@cf/meta/llama-3.3-70b-instruct-fp8-fast` | no |
+| `ai_model` | `@cf/qwen/qwen3-30b-a3b-fp8` | no |
 | `ai_rate_limit` | `10/h` | no |
 
 Both endpoints require a signed-in account, pass the same account-age gate as

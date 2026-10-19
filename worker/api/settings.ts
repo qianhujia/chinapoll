@@ -65,7 +65,7 @@ export const DEFAULT_PUBLIC_SETTINGS = {
   // endpoints answer 404 and the frontend hides the buttons. Only `ai_enable`
   // is exposed publicly; the model and the rate limit stay in the database.
   ai_enable: false,
-  ai_model: '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
+  ai_model: '@cf/qwen/qwen3-30b-a3b-fp8',
   ai_rate_limit: '10/h',
   // Public audit publishing. When enabled, the hourly maintenance run copies the
   // signed snapshot chain to a data repository through the GitHub API. These

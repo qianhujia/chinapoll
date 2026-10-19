@@ -23,7 +23,7 @@ import { requireUser } from '../services/session';
 import { checkAccountAge } from '../services/users';
 
 const DEFAULT_AI_RATE_LIMIT = '10/h';
-const DEFAULT_AI_MODEL = '@cf/meta/llama-3.3-70b-instruct-fp8-fast';
+const DEFAULT_AI_MODEL = '@cf/qwen/qwen3-30b-a3b-fp8';
 const DEFAULT_POLL_DELAY_HOURS = 48;
 const MIN_TITLE_CHARACTERS = 10;
 
