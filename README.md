@@ -243,14 +243,15 @@ Each poll also counts how often it is opened, without recording who opened it:
 `POST /api/polls/:id/view` increments one per-poll, per-UTC-day counter
 (`poll_views`). The browser calls it once per tab session; the request is a single
 call to the poll's `ViewCounter` Durable Object, which enforces the `60/h`
-per-network rate limit in the same call and buffers the count in memory. The
-object flushes to D1 on a five-minute alarm, so an active poll costs at most
-twelve writes an hour instead of one per view; an object evicted between flushes
-loses up to five minutes of views (counts are approximate by design). The endpoint
-always answers `204` so the response reveals nothing. `GET /api/polls/:id` and the
-poll list report `views: { total, last7Days } | null`, where the value is `null`
-below `min_views_to_display` (default 20). Cumulative views are included in the
-signed hourly snapshot chain.
+per-network limit in its own memory (so the view path makes one object request and
+no second call to the rate limiter) and buffers the count in memory. The object
+flushes to D1 on a five-minute alarm, so an active poll costs at most twelve writes
+an hour instead of one per view; an object evicted between flushes loses up to five
+minutes of views (counts are approximate by design). The endpoint always answers
+`204` so the response reveals nothing. `GET /api/polls/:id` and the poll list
+report `views: { total, last7Days } | null`, where the value is `null` below
+`min_views_to_display` (default 20). Cumulative views are included in the signed
+hourly snapshot chain.
 
 Retention: resolved reports are deleted 90 days after `resolved_at`, and view
 rows older than 90 days are rolled up into a single per-poll row so long-term
@@ -375,8 +376,10 @@ Password hashing uses PBKDF2-HMAC-SHA256 at 600,000 iterations. Every hash is
 produced and checked by the `PasswordHasher` Durable Object
 (`worker/services/passwordHasher.ts`), which runs the CPU-heavy derivation with
 its own CPU budget so the request Worker only pays for the round trip; the raw
-primitives in `shared/password.ts` are never called directly. The 600,000-iteration
-cost still needs the Cloudflare Workers **paid plan**. Lower `PBKDF2_ITERATIONS` in
+primitives in `shared/password.ts` are never called directly. Hashing is sharded
+across 16 instances by a hash of the username, so one object is neither a single
+queue nor a single lockout target for every sign-in. The 600,000-iteration cost
+still needs the Cloudflare Workers **paid plan**. Lower `PBKDF2_ITERATIONS` in
 `shared/password.ts` if the free plan must be used.
 
 Both Durable Object classes (`RateLimiter` and `PasswordHasher`) are SQLite-backed

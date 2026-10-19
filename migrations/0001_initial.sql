@@ -247,7 +247,10 @@ CREATE INDEX IF NOT EXISTS idx_stats_snapshots_hour ON stats_snapshots(ts_hour);
 -- Publish cursor for the Worker publisher: the newest snapshot hour that has been
 -- copied to the public audit repository for a poll, and whether that hour was the
 -- terminal (final) record. `final` is 0 while the poll is still open, so the next
--- run re-reads the closing hour when the poll ends.
+-- run re-reads the closing hour when the poll ends. The reserved row with
+-- `poll_id = 0` holds the publisher batch cursor in `published_through`: the last
+-- poll id a run examined, so the unprocessed remainder of the tracked polls is
+-- carried to the next run.
 CREATE TABLE IF NOT EXISTS publish_state (
   poll_id INTEGER PRIMARY KEY,
   published_through INTEGER NOT NULL,

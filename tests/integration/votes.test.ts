@@ -10,6 +10,8 @@ import {
   seedPoll,
   voteStatusRequest
 } from './helpers';
+import { handleVoteRequest } from '../../worker/api/vote';
+import type { HandlerEnv } from '../../worker/index';
 
 beforeAll(async () => {
   await applySchema();
@@ -184,5 +186,21 @@ describe('vote endpoint', () => {
     const response = await SELF.fetch(`${ORIGIN}/poll/1`);
     expect(response.status).toBe(200);
     expect(response.headers.get('content-security-policy')).toContain("default-src 'none'");
+  });
+
+  // Read-only mode returns 423 Locked, kept distinct from the 503 a missing
+  // server key returns. The handler is called directly so the read-only flag is
+  // set without waiting for the Worker's settings cache.
+  it('answers 423 in read-only mode, distinct from the missing-key 503', async () => {
+    const request = new Request(`${ORIGIN}/api/vote`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ pollId: 1, tokenHash: 'a'.repeat(64), optionIds: [1] })
+    });
+    const response = await handleVoteRequest(
+      request,
+      { ...env, read_only_mode: true } as unknown as HandlerEnv
+    );
+    expect(response.status).toBe(423);
   });
 });

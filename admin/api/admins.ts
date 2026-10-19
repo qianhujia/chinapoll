@@ -123,7 +123,7 @@ async function createAdmin(request: Request, env: AdminEnv, actor: AdminActor): 
     return noStoreJson({ message: 'username already exists' }, 409);
   }
 
-  const passwordHash = await hashPassword(env, password);
+  const passwordHash = await hashPassword(env, usernameResult.value, password);
   const result = await env.DB.prepare(
     'INSERT INTO admin_users (username, password_hash, role) VALUES (?, ?, ?)'
   ).bind(usernameResult.value, passwordHash, roleCode).run();
@@ -183,7 +183,7 @@ async function resetPassword(
   const passwordResult = validatePassword(password);
   if (!passwordResult.ok) return noStoreJson({ message: passwordResult.error }, 422);
 
-  const passwordHash = await hashPassword(env, password);
+  const passwordHash = await hashPassword(env, admin.username, password);
   await env.DB.prepare(
     `UPDATE admin_users
      SET password_hash = ?, failed_attempts = 0, locked_until = NULL, updated_at = unixepoch()

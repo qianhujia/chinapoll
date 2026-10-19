@@ -190,6 +190,7 @@
   "accountLogoutAllNote": "Ends every session for this account on all devices, including this one.",
   "accountLogoutAllDone": "Signed out on all devices.",
   "siteNotConfigured": "This site is not fully configured yet",
+  "readOnlyMode": "This site is in read-only mode",
   "moreActions": "More actions",
   "reportLink": "Report",
   "reportTitle": "Why are you reporting this poll?",

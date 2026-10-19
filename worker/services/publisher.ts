@@ -29,6 +29,12 @@ export interface PublisherEnv {
 const CLOSED_DAYS = 35;
 // The dashboard keeps only the most recent publisher runs.
 const RUN_HISTORY_LIMIT = 50;
+// The most polls examined in one run. A run makes one read per examined poll, so
+// this bounds the subrequests on a plan with a per-invocation limit; the
+// unprocessed remainder is carried to the next run by the batch cursor.
+const BATCH_SIZE = 40;
+// The reserved `publish_state` row (poll_id = 0) that holds the batch cursor.
+const BATCH_CURSOR_POLL_ID = 0;
 // The schema version of the copied chain.
 const SNAPSHOT_SCHEMA_VERSION = 3;
 const GITHUB_API = 'https://api.github.com';
@@ -165,13 +171,16 @@ async function listTrackedPolls(env: PublisherEnv, now: number): Promise<number[
 }
 
 // Reads the publish cursor of every poll that has been published at least once.
+// The reserved batch-cursor row (poll_id = 0) is skipped.
 async function loadPublishState(env: PublisherEnv): Promise<Map<number, TrackedState>> {
   const result = await env.DB.prepare(
     'SELECT poll_id, published_through, final FROM publish_state'
   ).all<PublishStateRow>();
   const states = new Map<number, TrackedState>();
   for (const row of result.results ?? []) {
-    states.set(Number(row.poll_id), {
+    const pollId = Number(row.poll_id);
+    if (pollId <= 0) continue;
+    states.set(pollId, {
       publishedThrough: Number(row.published_through),
       final: Number(row.final) === 1
     });
@@ -214,6 +223,23 @@ async function savePublishState(
        published_through = excluded.published_through,
        final = excluded.final`
   ).bind(update.pollId, update.publishedThrough, update.final ? 1 : 0)));
+}
+
+// Reads the batch cursor: the last poll id a run examined. It is stored in the
+// reserved `publish_state` row (poll_id = 0) so the unprocessed remainder of the
+// tracked polls is carried to the next run.
+async function loadBatchCursor(env: PublisherEnv): Promise<number> {
+  const row = await env.DB.prepare(
+    'SELECT published_through FROM publish_state WHERE poll_id = ?'
+  ).bind(BATCH_CURSOR_POLL_ID).first<{ published_through: number }>();
+  return Number(row?.published_through ?? 0);
+}
+
+async function saveBatchCursor(env: PublisherEnv, cursor: number): Promise<void> {
+  await env.DB.prepare(
+    `INSERT INTO publish_state (poll_id, published_through, final) VALUES (?, ?, 0)
+     ON CONFLICT(poll_id) DO UPDATE SET published_through = excluded.published_through`
+  ).bind(BATCH_CURSOR_POLL_ID, cursor).run();
 }
 
 // Records one publisher run and keeps only the most recent RUN_HISTORY_LIMIT
@@ -392,10 +418,26 @@ async function publishOnce(
   const directory = normalizeDirectory(settings.path);
   const pathFor = (name: string) => (directory ? `${directory}/${name}` : name);
 
-  const pollIds = await listTrackedPolls(env, now);
+  const allIds = await listTrackedPolls(env, now);
   const states = await loadPublishState(env);
 
-  // First, find the polls that have new snapshot rows without touching GitHub.
+  // Examine at most BATCH_SIZE polls per run, starting after the poll named by
+  // the batch cursor so every tracked poll is reached in turn. When the batch
+  // reaches the end of the list the cursor resets to 0 for the next cycle, so the
+  // unprocessed remainder is carried to the next run rather than starved.
+  const cursor = await loadBatchCursor(env);
+  let start = allIds.findIndex((id) => id > cursor);
+  if (start === -1) start = 0;
+  const pollIds = allIds.slice(start, start + BATCH_SIZE);
+  await saveBatchCursor(
+    env,
+    pollIds.length === 0 || start + pollIds.length >= allIds.length
+      ? 0
+      : pollIds[pollIds.length - 1]
+  );
+
+  // Find the polls in this batch that have new snapshot rows, without touching
+  // GitHub.
   const candidates: Array<{ pollId: number; path: string; added: PublishedSnapshot[] }> = [];
   for (const pollId of pollIds) {
     const state = states.get(pollId);
@@ -445,7 +487,7 @@ async function publishOnce(
 
   files.push({
     path: pathFor('index.json'),
-    content: JSON.stringify({ generatedAt: new Date().toISOString(), polls: pollIds }, null, 2)
+    content: JSON.stringify({ generatedAt: new Date().toISOString(), polls: allIds }, null, 2)
   });
 
   const commitSha = await createCommit(

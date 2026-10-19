@@ -37,7 +37,15 @@ export async function getTurnstileConfig(env: TurnstileEnv, siteKey = ''): Promi
 
 // Verifies a token against the given secret. The secret is passed in so callers
 // that already hold it (the public Worker keeps it in `env`) do not re-read D1.
-export async function verifyTurnstile(secret: string, token: string): Promise<boolean> {
+//
+// When `expectedHostname` is given, the hostname Turnstile reports for the solved
+// widget must match it. This stops a token solved on one host from being replayed
+// against another host that shares the same site key.
+export async function verifyTurnstile(
+  secret: string,
+  token: string,
+  expectedHostname = ''
+): Promise<boolean> {
   if (!secret || !token) return false;
 
   const form = new FormData();
@@ -50,8 +58,10 @@ export async function verifyTurnstile(secret: string, token: string): Promise<bo
       body: form
     });
     if (!response.ok) return false;
-    const data = await response.json() as { success?: boolean };
-    return data.success === true;
+    const data = await response.json() as { success?: boolean; hostname?: string };
+    if (data.success !== true) return false;
+    if (expectedHostname && data.hostname !== expectedHostname) return false;
+    return true;
   } catch {
     return false;
   }

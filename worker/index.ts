@@ -137,7 +137,8 @@ async function handleHealth(env: Env, settingsError: boolean): Promise<Response>
   }
   // A missing or malformed SERVER_HMAC_KEY makes every vote, comment, and
   // account request fail with 503, so surface it here (and fail `ok`) before a
-  // visitor tries to vote. The vote page maps that 503 to a localized message.
+  // visitor tries to vote. The vote page maps that 503, and the 423 that
+  // read-only mode returns, to localized messages.
   const serverKey = isValidServerKey(serverHmacKey(env));
   // Publish status is reported separately and never makes `ok` false: a failed
   // publish is visible in the admin dashboard but must not take the site down.

@@ -80,7 +80,7 @@ async function adminSessionAlive(cookie: string): Promise<boolean> {
 }
 
 async function seedAdmin(username: string, role: number): Promise<number> {
-  const passwordHash = await hashPassword(env, PASSWORD);
+  const passwordHash = await hashPassword(env, username, PASSWORD);
   await env.DB.prepare(
     'INSERT INTO admin_users (username, password_hash, role, status) VALUES (?, ?, ?, ?)'
   ).bind(username, passwordHash, role, ADMIN_STATUS_ACTIVE).run();

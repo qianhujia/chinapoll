@@ -300,10 +300,11 @@ async function regenerateRecoveryCode(request: Request, env: UserEnv, userId: nu
     return noStoreJson({ message: 'current password is required' }, 400);
   }
 
+  // The password hasher is sharded by username, so the username is read here.
   const user = await env.DB.prepare(
-    'SELECT password_hash FROM users WHERE id = ?'
-  ).bind(userId).first<{ password_hash: string }>();
-  if (!user || !await verifyPassword(env, currentPassword, user.password_hash)) {
+    'SELECT username, password_hash FROM users WHERE id = ?'
+  ).bind(userId).first<{ username: string; password_hash: string }>();
+  if (!user || !await verifyPassword(env, user.username, currentPassword, user.password_hash)) {
     return noStoreJson({ message: 'current password is incorrect' }, 403);
   }
 
@@ -340,10 +341,11 @@ async function deleteAccount(request: Request, env: UserEnv, userId: number): Pr
     return noStoreJson({ message: 'current password is required' }, 400);
   }
 
+  // The password hasher is sharded by username, so the username is read here.
   const user = await env.DB.prepare(
-    'SELECT password_hash FROM users WHERE id = ?'
-  ).bind(userId).first<{ password_hash: string }>();
-  if (!user || !await verifyPassword(env, currentPassword, user.password_hash)) {
+    'SELECT username, password_hash FROM users WHERE id = ?'
+  ).bind(userId).first<{ username: string; password_hash: string }>();
+  if (!user || !await verifyPassword(env, user.username, currentPassword, user.password_hash)) {
     return noStoreJson({ message: 'current password is incorrect' }, 403);
   }
 

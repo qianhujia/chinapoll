@@ -417,12 +417,14 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
       });
     } catch (error) {
       const errorMessage = getErrorMessage(error);
-      // A 503 means the deployment is missing its server key (or is in
-      // read-only mode). Show a clear localized message instead of the terse
-      // server text so a misconfiguration does not look like a client error.
-      let statusMessage = errorMessage.includes('(503)')
-        ? t('siteNotConfigured')
-        : `${t('submitFailed')}: ${errorMessage}`;
+      // A 503 means the deployment is missing its server key; a 423 means the
+      // site is in read-only mode. Show a clear localized message for each
+      // instead of the terse server text so neither looks like a client error.
+      let statusMessage = errorMessage.includes('(423)')
+        ? t('readOnlyMode')
+        : errorMessage.includes('(503)')
+          ? t('siteNotConfigured')
+          : `${t('submitFailed')}: ${errorMessage}`;
       try {
         const currentVoteStatus = await getVoteStatus(poll.id, hash);
         if (currentVoteStatus.voted) {

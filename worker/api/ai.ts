@@ -90,7 +90,7 @@ async function openAiContext(request: Request, env: HandlerEnv): Promise<AiConte
   // The same Turnstile gate as the other account actions.
   if (env.turnstile_enable && env.turnstile_secret_key) {
     const token = typeof body.turnstileToken === 'string' ? body.turnstileToken : '';
-    if (!token || !await verifyTurnstile(env.turnstile_secret_key, token)) {
+    if (!token || !await verifyTurnstile(env.turnstile_secret_key, token, new URL(request.url).hostname)) {
       return Response.json({ message: 'turnstile verification failed' }, { status: 403 });
     }
   }

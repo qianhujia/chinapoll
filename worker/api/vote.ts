@@ -72,8 +72,10 @@ export async function handleVoteStatusRequest(request: Request, env: HandlerEnv)
 }
 
 export async function handleVoteRequest(request: Request, env: HandlerEnv): Promise<Response> {
+  // 423 Locked, kept distinct from the 503 that a missing server key returns so a
+  // read-only window is not mistaken for a misconfiguration.
   if (env.read_only_mode === true) {
-    return Response.json({ ok: false, message: 'readonly mode enabled' }, { status: 503 });
+    return Response.json({ ok: false, message: 'readonly mode enabled' }, { status: 423 });
   }
   if (request.method !== 'POST') {
     return Response.json({ ok: false, message: 'POST only' }, { status: 405 });
@@ -117,7 +119,7 @@ export async function handleVoteRequest(request: Request, env: HandlerEnv): Prom
 
   // Turnstile is enforced only when it is enabled and fully configured.
   if (env.turnstile_enable && env.turnstile_secret_key) {
-    if (!turnstileResponse || !await verifyTurnstile(env.turnstile_secret_key, turnstileResponse)) {
+    if (!turnstileResponse || !await verifyTurnstile(env.turnstile_secret_key, turnstileResponse, new URL(request.url).hostname)) {
       return Response.json({ ok: false, message: 'turnstile verification failed' }, { status: 403 });
     }
   }

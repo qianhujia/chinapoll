@@ -16,8 +16,13 @@ export function getTurnstileConfig(env: AdminEnv): Promise<TurnstileConfig> {
   return loadConfig(env, env.TURNSTILE_SITE_KEY ?? '');
 }
 
-// Reads the secret once and verifies the token against it.
-export async function verifyAdminTurnstile(env: AdminEnv, token: string): Promise<boolean> {
+// Reads the secret once and verifies the token against it, requiring the hostname
+// Turnstile reports to match the admin host the request was served on.
+export async function verifyAdminTurnstile(
+  env: AdminEnv,
+  token: string,
+  hostname = ''
+): Promise<boolean> {
   const secret = await getTurnstileSecret(env);
-  return verifyTurnstile(secret, token);
+  return verifyTurnstile(secret, token, hostname);
 }

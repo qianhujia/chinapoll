@@ -1,13 +1,17 @@
 // Durable Object backed rate limiter.
 //
-// Counters are persisted in the Durable Object's private storage so an idle
-// object that gets evicted does not lose its state; an attacker cannot reset a
-// quota by pausing. Storage keys are keyed hashes or `user:<id>` and never leave
-// the platform. The read-modify-write runs inside a storage transaction so
-// concurrent requests for the same key cannot interleave, without stalling the
-// whole object for callers that touch other keys. An alarm evicts
-// expired keys and is only re-armed when a new reset time is earlier than the
-// one already scheduled (tracked in memory).
+// Counters live in the object's memory and are backed by its private storage, so
+// an idle object that gets evicted resumes from the last persisted count; an
+// attacker cannot reset a quota by pausing. Storage keys are keyed hashes or
+// `user:<id>` and never leave the platform. Durable Object requests run one at a
+// time, so the in-memory counter is authoritative and needs no storage
+// transaction.
+//
+// Storage writes are kept low: a bucket is written only when its window starts,
+// when the count crosses a multiple of PERSIST_STEP, or when it reaches the
+// limit, and the eviction alarm is armed once per window. The persisted count can
+// therefore lag the real count by at most PERSIST_STEP - 1, which only loosens a
+// limit after an eviction, never tightens it.
 
 interface RateLimitRequest {
   key: string;
@@ -20,10 +24,17 @@ interface Bucket {
   resetAt: number;
 }
 
+// How often a live counter is written back to storage.
+const PERSIST_STEP = 10;
+
 export class RateLimiter {
   // In-memory view of the currently scheduled alarm so a call does not need a
   // storage read just to decide whether to re-arm.
   private nextAlarmAt = 0;
+  // Authoritative counters, kept in memory. A key is read from storage the first
+  // time it is seen in this object's lifetime, so an eviction resumes from the
+  // last persisted count (at most PERSIST_STEP - 1 behind).
+  private readonly buckets = new Map<string, Bucket>();
 
   constructor(private state: DurableObjectState) {}
 
@@ -42,22 +53,42 @@ export class RateLimiter {
       return Response.json({ message: 'invalid rate limit request' }, { status: 400 });
     }
 
-    const result = await this.state.storage.transaction(async (txn) => {
-      const now = Date.now();
-      const stored = await txn.get<Bucket>(key);
-      const bucket: Bucket = stored && stored.resetAt > now ? stored : { count: 0, resetAt: now + windowMs };
-
-      if (bucket.count >= limit) {
-        return { allowed: false, remaining: 0, resetAt: bucket.resetAt };
+    // Durable Object requests run one at a time, so the in-memory map can be
+    // updated without a storage transaction.
+    const now = Date.now();
+    let bucket = this.buckets.get(key);
+    let newWindow = false;
+    if (!bucket) {
+      const stored = await this.state.storage.get<Bucket>(key);
+      if (stored && stored.resetAt > now) {
+        bucket = stored;
+      } else {
+        bucket = { count: 0, resetAt: now + windowMs };
+        newWindow = true;
       }
+      this.buckets.set(key, bucket);
+    } else if (bucket.resetAt <= now) {
+      bucket.count = 0;
+      bucket.resetAt = now + windowMs;
+      newWindow = true;
+    }
 
-      bucket.count += 1;
-      await txn.put(key, bucket);
-      return { allowed: true, remaining: Math.max(0, limit - bucket.count), resetAt: bucket.resetAt };
+    if (bucket.count >= limit) {
+      return Response.json({ allowed: false, remaining: 0, resetAt: bucket.resetAt });
+    }
+
+    bucket.count += 1;
+    if (newWindow || bucket.count % PERSIST_STEP === 0 || bucket.count >= limit) {
+      await this.state.storage.put(key, bucket);
+    }
+    // The eviction alarm is armed once per window, when the window starts.
+    if (newWindow) await this.scheduleAlarm(bucket.resetAt);
+
+    return Response.json({
+      allowed: true,
+      remaining: Math.max(0, limit - bucket.count),
+      resetAt: bucket.resetAt
     });
-
-    await this.scheduleAlarm(result.resetAt);
-    return Response.json(result);
   }
 
   async alarm(): Promise<void> {
@@ -67,9 +98,15 @@ export class RateLimiter {
     for (const [key, bucket] of entries) {
       if (bucket.resetAt <= now) {
         await this.state.storage.delete(key);
+        this.buckets.delete(key);
       } else if (this.nextAlarmAt === 0 || bucket.resetAt < this.nextAlarmAt) {
         this.nextAlarmAt = bucket.resetAt;
       }
+    }
+    // Drop in-memory windows that expired without their count ever being
+    // persisted.
+    for (const [key, bucket] of this.buckets) {
+      if (bucket.resetAt <= now) this.buckets.delete(key);
     }
     if (this.nextAlarmAt !== 0) {
       await this.state.storage.setAlarm(this.nextAlarmAt);

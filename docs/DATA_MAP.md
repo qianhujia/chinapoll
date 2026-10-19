@@ -132,13 +132,14 @@ Note: `poll_views` holds only per-poll daily counters. There are no per-view row
 anywhere, so a view cannot be attributed to a viewer, and no network value is
 stored. Each view is buffered by the poll's `ViewCounter` Durable Object and
 flushed to this table every five minutes; the object keeps only a pending count
-and nothing about the visitor, and the per-network rate limit is checked in the
-same call (its keyed daily hash lives in the RateLimiter object, never here). The
-counts are therefore approximate by design: an object evicted between flushes
-loses up to five minutes of views, which drops D1 writes from one per view to at
-most twelve per active poll per hour. Rows older than 90 days are rolled up into a
-single `ts_day = 0` row per poll so long-term totals survive while daily
-resolution is dropped. Rows are removed with the poll by the foreign key cascade.
+and the per-network rate windows in its own memory (keyed by the daily-rotated
+network hash, never persisted, never written here) and nothing about the visitor.
+The counts are therefore approximate by design: an object evicted between flushes
+loses up to five minutes of views and resets its in-memory rate windows, which
+drops D1 writes from one per view to at most twelve per active poll per hour. Rows
+older than 90 days are rolled up into a single `ts_day = 0` row per poll so
+long-term totals survive while daily resolution is dropped. Rows are removed with
+the poll by the foreign key cascade.
 
 ## users
 
@@ -204,6 +205,7 @@ never served to the public.
 | Table | Column | Contents | Readers | Retention |
 | --- | --- | --- | --- | --- |
 | publish_state | poll_id, published_through | cursor: the newest snapshot hour copied out for the poll | none | until the poll is deleted |
+| publish_state | poll_id = 0 | reserved row whose `published_through` is the publisher batch cursor (the last poll id a run examined) | none | forever |
 | publish_state | final | 1 when that hour is the terminal record, 0 while the poll is open | none | as above |
 | publish_runs | started_at, finished_at | run window | Admin | last 50 runs |
 | publish_runs | polls_updated | number of poll files rewritten | Admin | last 50 runs |

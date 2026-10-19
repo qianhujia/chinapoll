@@ -336,5 +336,30 @@ describe('publisher', () => {
     expect(failing.publishError).toBe(true);
     expect(failing.ok).toBe(true);
   });
+
+  it('publishes at most 40 polls in one run and carries the remainder', async () => {
+    const stub = createGitHubStub();
+    await setPublishSettings({
+      publish_enable: 'true',
+      publish_repository: 'owner/data',
+      publish_branch: 'main',
+      publish_path: 'snapshots',
+      github_token: TOKEN
+    });
+    // One more poll than a batch, so the first run must leave one behind.
+    for (let index = 0; index < 41; index += 1) {
+      const pollId = await seedPoll({ title: `Batch poll ${index}` });
+      await insertSnapshot(pollId, 9_000, 1, 'GENESIS', true);
+    }
+
+    const first = await runPublisher(env, 100_000);
+    expect(first.pollsUpdated).toBe(40);
+    expect(stub.commits).toHaveLength(1);
+
+    // The batch cursor carries the remaining poll to the next run.
+    const second = await runPublisher(env, 100_000);
+    expect(second.pollsUpdated).toBe(1);
+    expect(stub.commits).toHaveLength(2);
+  });
 });
 

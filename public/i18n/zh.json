@@ -190,6 +190,7 @@
   "accountLogoutAllNote": "结束该账号在所有设备上的登录，包括当前设备。",
   "accountLogoutAllDone": "已退出所有设备。",
   "siteNotConfigured": "本站尚未完成配置",
+  "readOnlyMode": "本站目前为只读模式",
   "moreActions": "更多操作",
   "reportLink": "举报",
   "reportTitle": "你为什么要举报此投票？",

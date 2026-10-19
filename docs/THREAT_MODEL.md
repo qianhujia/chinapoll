@@ -46,8 +46,8 @@ the schema or the network handling changes.
   keyed network hash without `SERVER_HMAC_KEY`, and cannot use a stolen password
   hash offline faster than the 600k-iteration PBKDF2 cost allows. That derivation
   runs in the `PasswordHasher` Durable Object rather than on the request path, so
-  the request Worker never performs it and every hash is routed through one
-  place.
+  the request Worker never performs it; hashing is sharded by username across 16
+  instances, so one object is neither a single queue nor a single lockout target.
 - **Spammer**: rate limiting is atomic and per-scope in a Durable Object; new
   accounts must age before they can submit; per-network account creation is
   capped.
@@ -237,6 +237,14 @@ When it is on:
   both Durable Object classes to the SQLite storage backend (`new_sqlite_classes`),
   so the CPU-heavy PBKDF2 derivation never runs on the request path and all hashing
   is centralised.
+- Reduced Durable Object cost: the password hasher is sharded by username across 16
+  instances, the view counter keeps its per-network rate window in its own memory
+  instead of calling the rate limiter (one object request per page view, no
+  rate-limit rows), and the rate limiter writes a bucket only when its window
+  starts or the count crosses a threshold and arms its alarm once per window. Also
+  verified the Turnstile response hostname, returned `423` for read-only votes
+  instead of sharing the missing-key `503`, and batched the publisher to 40 polls
+  per run with a `publish_state` batch cursor.
 
 ## Known trade-offs
 

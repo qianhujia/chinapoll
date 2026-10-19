@@ -2,29 +2,32 @@
 //
 // One instance per poll (`VIEW_COUNTER.idFromName(String(pollId))`) buffers view
 // increments in memory and flushes them to `poll_views` on a five-minute alarm, so
-// a view costs one Durable Object call from the request Worker and no database
-// write. The object holds only a `pending` count and nothing about visitors: the
-// per-network rate limit is enforced inside the same call by delegating to the
-// RateLimiter Durable Object with the keyed, daily-rotated network hash, which the
-// caller passes in and the object never stores.
+// a page view costs a single Durable Object request and no database write. The
+// per-network rate limit also lives in the object's own memory, keyed by the
+// daily-rotated network hash the caller passes in (never persisted), so the
+// request makes no second object call and writes no rate-limit rows. The object
+// holds a pending count and the in-memory rate windows, and nothing about
+// visitors.
 //
-// Counts are approximate by design. An object that is evicted between flushes
-// loses up to five minutes of views, so D1 writes drop from one per view to at
-// most twelve per active poll per hour. The hourly cron, the snapshots, and the
-// 90-day roll-up keep reading `poll_views` unchanged.
+// Everything here is approximate by design: an object that is evicted between
+// flushes loses up to five minutes of views and resets its in-memory rate windows,
+// which drops D1 writes from one per view to at most twelve per active poll per
+// hour. The hourly cron, the snapshots, and the 90-day roll-up keep reading
+// `poll_views` unchanged.
 
-import { checkRateLimit, type RateLimitEnv } from './rateLimit';
-
-export interface ViewCounterEnv extends RateLimitEnv {
+export interface ViewCounterEnv {
   DB: D1Database;
   VIEW_COUNTER: DurableObjectNamespace;
 }
 
 // How long increments are buffered before a flush.
 const FLUSH_INTERVAL_MS = 5 * 60 * 1000;
-// The per-network view rate limit. The endpoint always answers 204, so this only
+// Per-network view rate window. The endpoint always answers 204, so this only
 // decides whether a view is counted.
-const VIEW_RATE_LIMIT = '60/h';
+const RATE_WINDOW_MS = 60 * 60 * 1000;
+const RATE_LIMIT = 60;
+// The in-memory rate windows are pruned before they can grow past this many keys.
+const MAX_TRACKED_NETWORKS = 4096;
 const COUNTER_URL = 'https://view-counter.internal/';
 const FLUSH_SQL = `INSERT INTO poll_views (poll_id, ts_day, views) VALUES (?, ?, ?)
    ON CONFLICT(poll_id, ts_day) DO UPDATE SET views = views + excluded.views`;
@@ -34,11 +37,18 @@ interface ViewRequest {
   ipHash?: string;
 }
 
+interface RateWindow {
+  count: number;
+  resetAt: number;
+}
+
 export class ViewCounter {
-  // Views counted since the last flush. Nothing else is kept in memory.
+  // Views counted since the last flush.
   private pending = 0;
   // In-memory view of whether a flush is already scheduled.
   private alarmArmed = false;
+  // Fixed-window view rate limit per network hash, kept only in memory.
+  private readonly windows = new Map<string, RateWindow>();
 
   constructor(private state: DurableObjectState, private env: ViewCounterEnv) {}
 
@@ -56,14 +66,37 @@ export class ViewCounter {
       return Response.json({ ok: false, message: 'invalid view request' }, { status: 400 });
     }
 
-    // The per-network rate limit rides along in this same call, so the request
-    // Worker does not make a second subrequest.
-    const limited = await checkRateLimit(this.env, 'view', ipHash, undefined, VIEW_RATE_LIMIT);
-    if (!limited.allowed) return Response.json({ ok: true, counted: false });
+    // The per-network rate limit is a local memory check, so the request path
+    // never calls another object and never writes a rate-limit row.
+    if (!this.allow(ipHash)) return Response.json({ ok: true, counted: false });
 
     this.pending += 1;
     await this.armFlush();
     return Response.json({ ok: true, counted: true });
+  }
+
+  // True when this network bucket is still under the hourly view limit. The
+  // window lives only in memory: an eviction resets it, like the buffered count.
+  private allow(networkHash: string): boolean {
+    const now = Date.now();
+    if (this.windows.size >= MAX_TRACKED_NETWORKS) this.prune(now);
+    const window = this.windows.get(networkHash);
+    if (!window || window.resetAt <= now) {
+      this.windows.set(networkHash, { count: 1, resetAt: now + RATE_WINDOW_MS });
+      return true;
+    }
+    if (window.count >= RATE_LIMIT) return false;
+    window.count += 1;
+    return true;
+  }
+
+  // Drops expired windows. If every tracked window is still active the whole map
+  // is cleared, which only resets best-effort limits and keeps memory bounded.
+  private prune(now: number): void {
+    for (const [key, window] of this.windows) {
+      if (window.resetAt <= now) this.windows.delete(key);
+    }
+    if (this.windows.size >= MAX_TRACKED_NETWORKS) this.windows.clear();
   }
 
   // Flushes the buffered count to `poll_views` and resets the buffer.

@@ -70,7 +70,7 @@ export async function handleReportRequest(request: Request, url: URL, env: Handl
   // Turnstile is enforced only when it is enabled and fully configured.
   const turnstileResponse = typeof body.turnstileToken === 'string' ? body.turnstileToken : '';
   if (env.turnstile_enable && env.turnstile_secret_key) {
-    if (!turnstileResponse || !await verifyTurnstile(env.turnstile_secret_key, turnstileResponse)) {
+    if (!turnstileResponse || !await verifyTurnstile(env.turnstile_secret_key, turnstileResponse, new URL(request.url).hostname)) {
       return Response.json({ ok: false, message: 'turnstile verification failed' }, { status: 403 });
     }
   }

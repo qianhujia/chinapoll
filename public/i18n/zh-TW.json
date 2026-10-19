@@ -190,6 +190,7 @@
   "accountLogoutAllNote": "結束此帳號在所有裝置上的工作階段，包括這台裝置。",
   "accountLogoutAllDone": "已登出所有裝置。",
   "siteNotConfigured": "本站尚未完成設定",
+  "readOnlyMode": "本站目前為唯讀模式",
   "moreActions": "更多操作",
   "reportLink": "檢舉",
   "reportTitle": "你為什麼要檢舉此投票？",

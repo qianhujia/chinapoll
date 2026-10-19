@@ -102,10 +102,14 @@ async function recordAccount(db: D1Database, ipHash: string): Promise<void> {
 }
 
 // Verifies the Turnstile token when the feature is enabled and configured.
-async function turnstileGate(env: HandlerEnv, body: Record<string, unknown> | null): Promise<Response | null> {
+async function turnstileGate(
+  request: Request,
+  env: HandlerEnv,
+  body: Record<string, unknown> | null
+): Promise<Response | null> {
   if (!env.turnstile_enable || !env.turnstile_secret_key) return null;
   const token = readString(body, 'turnstileToken');
-  if (!token || !await verifyTurnstile(env.turnstile_secret_key, token)) {
+  if (!token || !await verifyTurnstile(env.turnstile_secret_key, token, new URL(request.url).hostname)) {
     return noStoreJson({ message: 'turnstile verification failed' }, 403);
   }
   return null;
@@ -153,7 +157,7 @@ async function register(request: Request, env: HandlerEnv): Promise<Response> {
   const passwordResult = validateUserPassword(password, usernameResult.value);
   if (!passwordResult.ok) return noStoreJson({ message: passwordResult.error }, 422);
 
-  const turnstileError = await turnstileGate(env, body);
+  const turnstileError = await turnstileGate(request, env, body);
   if (turnstileError) return turnstileError;
 
   // Rate limiting uses the daily hash; the account cap uses the monthly hash so
@@ -174,7 +178,7 @@ async function register(request: Request, env: HandlerEnv): Promise<Response> {
     return noStoreJson({ message: 'registration rate limit reached' }, 429);
   }
 
-  const passwordHash = await hashPassword(env, password);
+  const passwordHash = await hashPassword(env, usernameResult.value, password);
   // Issue the first recovery code. The plaintext code is returned here only; the
   // database keeps just its hash.
   const recoveryCode = await generateRecoveryCode();
@@ -209,7 +213,7 @@ async function login(request: Request, env: HandlerEnv): Promise<Response> {
     return noStoreJson({ message: 'username and password are required' }, 400);
   }
 
-  const turnstileError = await turnstileGate(env, body);
+  const turnstileError = await turnstileGate(request, env, body);
   if (turnstileError) return turnstileError;
 
   const ipHash = await hashedNetworkBucket(clientAddress(request), serverHmacKey(env), new Date(), 'day');
@@ -235,7 +239,7 @@ async function login(request: Request, env: HandlerEnv): Promise<Response> {
     return noStoreJson({ message: GENERIC_LOGIN_ERROR }, 401);
   }
 
-  if (!await verifyPassword(env, password, user.password_hash)) {
+  if (!await verifyPassword(env, username, password, user.password_hash)) {
     const attempts = Number(user.failed_attempts) + 1;
     if (attempts >= maxFailed) {
       const lockedUntil = now + lockMinutes * 60;
@@ -253,7 +257,7 @@ async function login(request: Request, env: HandlerEnv): Promise<Response> {
   // Rehash with the current iteration count when the stored hash predates it.
   const storedIterations = passwordIterations(user.password_hash);
   const nextHash = storedIterations !== null && storedIterations < PBKDF2_ITERATIONS
-    ? await hashPassword(env, password)
+    ? await hashPassword(env, username, password)
     : null;
 
   // last_login_at is rounded to the day so it cannot be joined against precise
@@ -315,7 +319,7 @@ async function recover(request: Request, env: HandlerEnv): Promise<Response> {
   ).bind(usernameResult.value).first<{ id: number; status: number; recovery_code_hash: string | null }>();
   if (!user || user.status !== USER_STATUS_ACTIVE || !user.recovery_code_hash) return invalid;
 
-  const passwordHash = await hashPassword(env, newPassword);
+  const passwordHash = await hashPassword(env, usernameResult.value, newPassword);
   const providedHash = await hashRecoveryCode(code);
   // Consume and rotate the code in a single statement: the WHERE clause matches
   // only the current code, which makes the update atomic (a code can never be
