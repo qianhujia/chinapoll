@@ -23,6 +23,8 @@ export interface AdminEnv {
   DB: D1Database;
   /** Bound RateLimiter Durable Object used for login and setup throttling. */
   RATE_LIMITER: DurableObjectNamespace;
+  /** Bound PasswordHasher Durable Object used for all admin password hashing. */
+  PASSWORD_HASHER: DurableObjectNamespace;
   /** Public Turnstile site key rendered by the login form. */
   TURNSTILE_SITE_KEY?: string;
   /** Optional extra origin allowed for cookie-authenticated mutations. */

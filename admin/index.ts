@@ -25,8 +25,9 @@ import { renderDashboard } from './ui';
 
 export interface Env extends AdminEnv {}
 
-// Durable Object class referenced by the RATE_LIMITER binding in wrangler.toml.
+// Durable Object classes referenced by the bindings in wrangler.toml.
 export { RateLimiter } from '../worker/services/rateLimiter';
+export { PasswordHasher } from '../worker/services/passwordHasher';
 
 const TURNSTILE_ORIGIN = 'https://challenges.cloudflare.com';
 

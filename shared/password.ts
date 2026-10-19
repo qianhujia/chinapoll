@@ -1,4 +1,9 @@
-// PBKDF2-HMAC-SHA256 password hashing shared by both Workers.
+// PBKDF2-HMAC-SHA256 password derivation shared by both Workers.
+//
+// These are the raw primitives. Production callers must not use them directly:
+// every password hash is produced and checked by the PasswordHasher Durable
+// Object (worker/services/passwordHasher.ts), which calls the functions here so
+// the CPU-heavy derivation runs off the request Worker's CPU path.
 //
 // Storage format: "pbkdf2$<iterations>$<salt-hex>$<hash-hex>". The iteration
 // count is part of the stored value, so hashes created with an older (lower)
@@ -47,7 +52,7 @@ async function derive(password: string, salt: Uint8Array<ArrayBuffer>, iteration
   return toHex(new Uint8Array(bits));
 }
 
-export async function hashPassword(password: string, iterations = PBKDF2_ITERATIONS): Promise<string> {
+export async function derivePasswordHash(password: string, iterations = PBKDF2_ITERATIONS): Promise<string> {
   const salt = new Uint8Array(new ArrayBuffer(SALT_BYTES));
   crypto.getRandomValues(salt);
   const hash = await derive(password, salt, iterations);
@@ -64,7 +69,7 @@ export function passwordIterations(stored: string): number | null {
   return iterations;
 }
 
-export async function verifyPassword(password: string, stored: string): Promise<boolean> {
+export async function checkPasswordHash(password: string, stored: string): Promise<boolean> {
   const parts = stored.split('$');
   if (parts.length !== 4 || parts[0] !== 'pbkdf2') return false;
   const iterations = Number(parts[1]);

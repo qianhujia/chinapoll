@@ -9,7 +9,7 @@
 import type { HandlerEnv } from '../index';
 import { buildClearSessionCookie, isSecureRequest, requireUser } from '../services/session';
 import { enforceSameOrigin } from '../services/csrf';
-import { verifyPassword } from '../../shared/password';
+import { verifyPassword } from '../services/passwordHasher';
 import { generateRecoveryCode } from '../services/recovery';
 import { commentOwnerHash, ownerHash } from '../services/owner';
 import { serverHmacKey } from '../services/ip';
@@ -303,7 +303,7 @@ async function regenerateRecoveryCode(request: Request, env: UserEnv, userId: nu
   const user = await env.DB.prepare(
     'SELECT password_hash FROM users WHERE id = ?'
   ).bind(userId).first<{ password_hash: string }>();
-  if (!user || !await verifyPassword(currentPassword, user.password_hash)) {
+  if (!user || !await verifyPassword(env, currentPassword, user.password_hash)) {
     return noStoreJson({ message: 'current password is incorrect' }, 403);
   }
 
@@ -343,7 +343,7 @@ async function deleteAccount(request: Request, env: UserEnv, userId: number): Pr
   const user = await env.DB.prepare(
     'SELECT password_hash FROM users WHERE id = ?'
   ).bind(userId).first<{ password_hash: string }>();
-  if (!user || !await verifyPassword(currentPassword, user.password_hash)) {
+  if (!user || !await verifyPassword(env, currentPassword, user.password_hash)) {
     return noStoreJson({ message: 'current password is incorrect' }, 403);
   }
 

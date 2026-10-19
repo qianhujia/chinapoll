@@ -12,12 +12,8 @@ import { checkRateLimit } from '../services/rateLimit';
 import { clientAddress, hashedNetworkBucket, serverHmacKey } from '../services/ip';
 import { verifyTurnstile } from '../services/turnstile';
 import { enforceSameOrigin } from '../services/csrf';
-import {
-  PBKDF2_ITERATIONS,
-  hashPassword,
-  passwordIterations,
-  verifyPassword
-} from '../../shared/password';
+import { PBKDF2_ITERATIONS, passwordIterations } from '../../shared/password';
+import { hashPassword, verifyPassword } from '../services/passwordHasher';
 import { generateRecoveryCode, hashRecoveryCode, normalizeRecoveryCode } from '../services/recovery';
 import {
   USER_STATUS_ACTIVE,
@@ -178,7 +174,7 @@ async function register(request: Request, env: HandlerEnv): Promise<Response> {
     return noStoreJson({ message: 'registration rate limit reached' }, 429);
   }
 
-  const passwordHash = await hashPassword(password);
+  const passwordHash = await hashPassword(env, password);
   // Issue the first recovery code. The plaintext code is returned here only; the
   // database keeps just its hash.
   const recoveryCode = await generateRecoveryCode();
@@ -239,7 +235,7 @@ async function login(request: Request, env: HandlerEnv): Promise<Response> {
     return noStoreJson({ message: GENERIC_LOGIN_ERROR }, 401);
   }
 
-  if (!await verifyPassword(password, user.password_hash)) {
+  if (!await verifyPassword(env, password, user.password_hash)) {
     const attempts = Number(user.failed_attempts) + 1;
     if (attempts >= maxFailed) {
       const lockedUntil = now + lockMinutes * 60;
@@ -257,7 +253,7 @@ async function login(request: Request, env: HandlerEnv): Promise<Response> {
   // Rehash with the current iteration count when the stored hash predates it.
   const storedIterations = passwordIterations(user.password_hash);
   const nextHash = storedIterations !== null && storedIterations < PBKDF2_ITERATIONS
-    ? await hashPassword(password)
+    ? await hashPassword(env, password)
     : null;
 
   // last_login_at is rounded to the day so it cannot be joined against precise
@@ -319,7 +315,7 @@ async function recover(request: Request, env: HandlerEnv): Promise<Response> {
   ).bind(usernameResult.value).first<{ id: number; status: number; recovery_code_hash: string | null }>();
   if (!user || user.status !== USER_STATUS_ACTIVE || !user.recovery_code_hash) return invalid;
 
-  const passwordHash = await hashPassword(newPassword);
+  const passwordHash = await hashPassword(env, newPassword);
   const providedHash = await hashRecoveryCode(code);
   // Consume and rotate the code in a single statement: the WHERE clause matches
   // only the current code, which makes the update atomic (a code can never be

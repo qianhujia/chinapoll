@@ -12,7 +12,7 @@ import { ADMIN_ROLE_ADMIN, ADMIN_ROLE_SUPER, ADMIN_STATUS_ACTIVE } from '../../a
 import { handleAdminsRequest } from '../../admin/api/admins';
 import { handleSessionRequest } from '../../admin/api/session';
 import { handleUsersRequest } from '../../admin/api/users';
-import { hashPassword } from '../../shared/password';
+import { hashPassword } from '../../worker/services/passwordHasher';
 import type { AdminActor } from '../../admin/auth';
 import { ORIGIN, applySchema, lastId } from './helpers';
 
@@ -80,7 +80,7 @@ async function adminSessionAlive(cookie: string): Promise<boolean> {
 }
 
 async function seedAdmin(username: string, role: number): Promise<number> {
-  const passwordHash = await hashPassword(PASSWORD);
+  const passwordHash = await hashPassword(env, PASSWORD);
   await env.DB.prepare(
     'INSERT INTO admin_users (username, password_hash, role, status) VALUES (?, ?, ?, ?)'
   ).bind(username, passwordHash, role, ADMIN_STATUS_ACTIVE).run();

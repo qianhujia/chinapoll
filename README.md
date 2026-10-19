@@ -306,7 +306,7 @@ records admin actions without client IP addresses. Deploy with
 - Node unit tests (`vitest.config.ts`) for pure functions.
 - Workers-runtime integration tests (`vitest.workers.config.ts`, backed by
   `@cloudflare/vitest-pool-workers`) that run inside a real workerd instance with
-  D1 and the RateLimiter Durable Object. They cover the vote path, threshold
+  D1 and the RateLimiter and PasswordHasher Durable Objects. They cover the vote path, threshold
   hiding, rate-limit exhaustion and reset, the account comment delay, CSRF
   rejection, the cron snapshot chain including the close-hour terminal snapshot,
   the Worker publisher with a stubbed GitHub API (`fetch`) for the disabled and
@@ -367,10 +367,16 @@ account-cap hash is linkable within a calendar month, and the browser vote token
 rotates every 30 days (which lets a returning browser vote again on an evergreen
 poll).
 
-Password hashing uses PBKDF2-HMAC-SHA256 at 600,000 iterations, which needs the
-Cloudflare Workers **paid plan** (the free plan allows only 10 ms of CPU per
-request). Lower the iteration count in `shared/password.ts` if the free plan must
-be used.
+Password hashing uses PBKDF2-HMAC-SHA256 at 600,000 iterations. Every hash is
+produced and checked by the `PasswordHasher` Durable Object
+(`worker/services/passwordHasher.ts`), which runs the CPU-heavy derivation with
+its own CPU budget so the request Worker only pays for the round trip; the raw
+primitives in `shared/password.ts` are never called directly. The 600,000-iteration
+cost still needs the Cloudflare Workers **paid plan**. Lower `PBKDF2_ITERATIONS` in
+`shared/password.ts` if the free plan must be used.
+
+Both Durable Object classes (`RateLimiter` and `PasswordHasher`) are SQLite-backed
+(`new_sqlite_classes` in both `wrangler.toml` files).
 
 ## Local workflow
 

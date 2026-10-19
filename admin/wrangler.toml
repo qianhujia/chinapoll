@@ -38,11 +38,14 @@ migrations_table = "migrations"
 [env.production.vars]
 
 [env.production.durable_objects]
-bindings = [{ name = "RATE_LIMITER", class_name = "RateLimiter" }]
+bindings = [
+  { name = "RATE_LIMITER", class_name = "RateLimiter" },
+  { name = "PASSWORD_HASHER", class_name = "PasswordHasher" }
+]
 
 [[env.production.migrations]]
 tag = "v1"
-new_classes = ["RateLimiter"]
+new_sqlite_classes = ["RateLimiter", "PasswordHasher"]
 
 [vars]
 # Public Turnstile site key used to render the login widget. Server-side token
@@ -53,12 +56,15 @@ new_classes = ["RateLimiter"]
 # Optional: origin of the public site, used to link a report row to its poll.
 # PUBLIC_SITE_ORIGIN = "https://chinapoll.org"
 
-# Shared rate limiter used for admin login and setup throttling. This is a
-# separate Durable Object namespace from the public Worker's.
+# Shared rate limiter and password hasher. These are separate Durable Object
+# namespaces from the public Worker's.
 [durable_objects]
-bindings = [{ name = "RATE_LIMITER", class_name = "RateLimiter" }]
+bindings = [
+  { name = "RATE_LIMITER", class_name = "RateLimiter" },
+  { name = "PASSWORD_HASHER", class_name = "PasswordHasher" }
+]
 
 [[migrations]]
 tag = "v1"
-new_classes = ["RateLimiter"]
+new_sqlite_classes = ["RateLimiter", "PasswordHasher"]
 

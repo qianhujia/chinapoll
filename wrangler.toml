@@ -6,13 +6,18 @@ compatibility_date = "2026-10-08"
 crons = ["0 * * * *"]
 
 [durable_objects]
-bindings = [{ name = "RATE_LIMITER", class_name = "RateLimiter" }]
+bindings = [
+  { name = "RATE_LIMITER", class_name = "RateLimiter" },
+  { name = "PASSWORD_HASHER", class_name = "PasswordHasher" }
+]
 
 # Durable Object migration list. This is unrelated to the D1 migrations_table
-# setting below, which names the D1 tracking table.
+# setting below, which names the D1 tracking table. Both classes are SQLite-backed
+# (`new_sqlite_classes`); nothing has been deployed yet, so the single `v1` tag
+# declares them in their final storage backend.
 [[migrations]]
 tag = "v1"
-new_classes = ["RateLimiter"]
+new_sqlite_classes = ["RateLimiter", "PasswordHasher"]
 
 [assets]
 directory = "./dist/web"
@@ -55,11 +60,14 @@ migrations_table = "migrations"
 [env.production.vars]
 
 [env.production.durable_objects]
-bindings = [{ name = "RATE_LIMITER", class_name = "RateLimiter" }]
+bindings = [
+  { name = "RATE_LIMITER", class_name = "RateLimiter" },
+  { name = "PASSWORD_HASHER", class_name = "PasswordHasher" }
+]
 
 [env.production.ai]
 binding = "AI"
 
 [[env.production.migrations]]
 tag = "v1"
-new_classes = ["RateLimiter"]
+new_sqlite_classes = ["RateLimiter", "PasswordHasher"]

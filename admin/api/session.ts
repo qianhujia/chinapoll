@@ -20,7 +20,8 @@ import {
 } from '../lib/admins';
 import { logAudit } from '../lib/audit';
 import { noStoreJson, readJsonBody, readString } from '../../shared/http';
-import { PBKDF2_ITERATIONS, hashPassword, passwordIterations, validatePassword, verifyPassword } from '../../shared/password';
+import { PBKDF2_ITERATIONS, passwordIterations, validatePassword } from '../../shared/password';
+import { hashPassword, verifyPassword } from '../../worker/services/passwordHasher';
 import { getTurnstileConfig, verifyAdminTurnstile } from '../services/turnstile';
 import { checkRateLimit } from '../../worker/services/rateLimit';
 
@@ -133,7 +134,7 @@ async function login(request: Request, env: AdminEnv): Promise<Response> {
     return noStoreJson({ message: 'invalid username or password' }, 401);
   }
 
-  if (!await verifyPassword(password, user.password_hash)) {
+  if (!await verifyPassword(env, password, user.password_hash)) {
     const attempts = user.failed_attempts + 1;
     if (attempts >= MAX_FAILED_ATTEMPTS) {
       const lockedUntil = now + LOCK_DURATION_SECONDS;
@@ -162,7 +163,7 @@ async function login(request: Request, env: AdminEnv): Promise<Response> {
   // Rehash with the current iteration count when the stored hash predates it.
   const storedIterations = passwordIterations(user.password_hash);
   const nextHash = storedIterations !== null && storedIterations < PBKDF2_ITERATIONS
-    ? await hashPassword(password)
+    ? await hashPassword(env, password)
     : null;
 
   await env.DB.prepare(
@@ -203,7 +204,7 @@ async function setup(request: Request, env: AdminEnv): Promise<Response> {
   const passwordResult = validatePassword(password);
   if (!passwordResult.ok) return noStoreJson({ message: passwordResult.error }, 422);
 
-  const passwordHash = await hashPassword(password);
+  const passwordHash = await hashPassword(env, password);
   const result = await env.DB.prepare(
     'INSERT INTO admin_users (username, password_hash, role) VALUES (?, ?, ?)'
   ).bind(usernameResult.value, passwordHash, ADMIN_ROLE_SUPER).run();

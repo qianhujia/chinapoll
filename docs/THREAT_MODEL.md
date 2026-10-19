@@ -41,7 +41,10 @@ the schema or the network handling changes.
   referenced by the application build.
 - **Database attacker**: cannot reverse a vote to a person, cannot reverse a
   keyed network hash without `SERVER_HMAC_KEY`, and cannot use a stolen password
-  hash offline faster than the 600k-iteration PBKDF2 cost allows.
+  hash offline faster than the 600k-iteration PBKDF2 cost allows. That derivation
+  runs in the `PasswordHasher` Durable Object rather than on the request path, so
+  the request Worker never performs it and every hash is routed through one
+  place.
 - **Spammer**: rate limiting is atomic and per-scope in a Durable Object; new
   accounts must age before they can submit; per-network account creation is
   capped.
@@ -227,6 +230,10 @@ When it is on:
   a fine-grained token stored as a secret (`github_token`). Restored the CI workflow
   (`.github/workflows/ci.yml`), which had briefly been removed while the checks ran
   locally.
+- Moved every password hash into the `PasswordHasher` Durable Object and converted
+  both Durable Object classes to the SQLite storage backend (`new_sqlite_classes`),
+  so the CPU-heavy PBKDF2 derivation never runs on the request path and all hashing
+  is centralised.
 
 ## Known trade-offs
 

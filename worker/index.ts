@@ -32,6 +32,8 @@ import { isValidServerKey, serverHmacKey } from './services/ip';
 export interface Env {
   DB: D1Database;
   RATE_LIMITER: DurableObjectNamespace;
+  /** Durable Object that performs PBKDF2 password hashing off the request CPU path. */
+  PASSWORD_HASHER: DurableObjectNamespace;
   ASSETS: Fetcher;
   /** Cloudflare Workers AI binding, used only by the optional AI assistance. */
   AI: Ai;
@@ -240,8 +242,9 @@ export default {
   }
 } satisfies ExportedHandler<Env>;
 
-// Durable Object class referenced by the RATE_LIMITER binding in wrangler.toml.
+// Durable Object classes referenced by the bindings in wrangler.toml.
 export { RateLimiter } from './services/rateLimiter';
+export { PasswordHasher } from './services/passwordHasher';
 
 // Re-exported for tests and the scheduled handler.
 export { makeSnapshot };
