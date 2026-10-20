@@ -157,17 +157,26 @@ async function readPublishSettings(env: PublisherEnv): Promise<PublishSettings> 
 }
 
 // Lists the polls the publisher tracks: every open poll plus every poll that
-// closed within the retention window.
-async function listTrackedPolls(env: PublisherEnv, now: number): Promise<number[]> {
+// closed within the retention window. Each entry carries the poll's category slug
+// for the published `index.json`; the slug is metadata and is not part of the
+// hashed snapshot chain, which covers counts only.
+async function listTrackedPolls(
+  env: PublisherEnv,
+  now: number
+): Promise<Array<{ id: number; categorySlug: string | null }>> {
   const cutoff = now - CLOSED_DAYS * 24 * 60 * 60;
   const result = await env.DB.prepare(
-    `SELECT id FROM polls
-     WHERE status = ? OR (closed_at IS NOT NULL AND closed_at >= ?)
-     ORDER BY id ASC`
-  ).bind(PollStatus.Open, cutoff).all<{ id: number }>();
-  const ids = new Set<number>();
-  for (const row of result.results ?? []) ids.add(Number(row.id));
-  return [...ids].sort((left, right) => left - right);
+    `SELECT p.id, c.slug AS category_slug
+     FROM polls p
+     LEFT JOIN categories c ON c.id = p.category_id
+     WHERE p.status = ? OR (p.closed_at IS NOT NULL AND p.closed_at >= ?)
+     ORDER BY p.id ASC`
+  ).bind(PollStatus.Open, cutoff).all<{ id: number; category_slug: string | null }>();
+  const byId = new Map<number, string | null>();
+  for (const row of result.results ?? []) byId.set(Number(row.id), row.category_slug ?? null);
+  return [...byId.entries()]
+    .sort((left, right) => left[0] - right[0])
+    .map(([id, categorySlug]) => ({ id, categorySlug }));
 }
 
 // Reads the publish cursor of every poll that has been published at least once.
@@ -418,7 +427,8 @@ async function publishOnce(
   const directory = normalizeDirectory(settings.path);
   const pathFor = (name: string) => (directory ? `${directory}/${name}` : name);
 
-  const allIds = await listTrackedPolls(env, now);
+  const tracked = await listTrackedPolls(env, now);
+  const allIds = tracked.map((entry) => entry.id);
   const states = await loadPublishState(env);
 
   // Examine at most BATCH_SIZE polls per run, starting after the poll named by
@@ -487,7 +497,10 @@ async function publishOnce(
 
   files.push({
     path: pathFor('index.json'),
-    content: JSON.stringify({ generatedAt: new Date().toISOString(), polls: allIds }, null, 2)
+    content: JSON.stringify({
+      generatedAt: new Date().toISOString(),
+      polls: tracked.map((entry) => ({ id: entry.id, categorySlug: entry.categorySlug }))
+    }, null, 2)
   });
 
   const commitSha = await createCommit(

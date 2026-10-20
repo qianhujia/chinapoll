@@ -23,6 +23,9 @@ import {
   type PollDuration
 } from '../enums';
 import { validatePollOptions, type ParsedOption } from '../services/pollType';
+import { DEFAULT_AI_MODEL, categorisePoll } from '../services/ai';
+import { loadEnabledCategories } from './categories';
+import { CATEGORY_SLUG_PATTERN, categoryNames } from '../../shared/categories';
 import { checkRateLimit } from '../services/rateLimit';
 import { enforceSameOrigin } from '../services/csrf';
 import { ownerHash } from '../services/owner';
@@ -83,6 +86,26 @@ export async function handleProposalRequest(request: Request, env: HandlerEnv): 
     return Response.json({ ok: false, message: 'proposal rate limit reached' }, { status: 429 });
   }
 
+  // The submitter's explicit category always wins. Only when none was chosen does
+  // an enabled auto-categoriser fill it in, and a failed suggestion simply leaves
+  // the poll uncategorised.
+  const requestedCategory = typeof body.category === 'string' ? body.category.trim().toLowerCase() : '';
+  let categoryId: number | null = null;
+  if (requestedCategory) {
+    if (!CATEGORY_SLUG_PATTERN.test(requestedCategory)) {
+      return Response.json({ ok: false, message: 'invalid category' }, { status: 400 });
+    }
+    const categories = await loadEnabledCategories(env);
+    const match = categories.find((category) => category.slug === requestedCategory);
+    if (!match) {
+      return Response.json({ ok: false, message: 'unknown category' }, { status: 400 });
+    }
+    categoryId = match.id;
+  }
+  if (categoryId === null && env.ai_auto_categorise === true && env.ai_enable === true) {
+    categoryId = await suggestCategory(env, title, description);
+  }
+
   // With auto-approval enabled a submitted poll is published immediately;
   // otherwise it stays pending until an admin approves it.
   const autoApprove = env.auto_approve_polls === true;
@@ -100,8 +123,8 @@ export async function handleProposalRequest(request: Request, env: HandlerEnv): 
   const newPollId = '(SELECT id FROM polls ORDER BY id DESC LIMIT 1)';
   const statements: D1PreparedStatement[] = [
     env.DB.prepare(
-      `INSERT INTO polls (title, description, mode, poll_type, duration_seconds, end_at, status, reviewed_at)
-       VALUES (?, ?, ?, ?, ?, CASE WHEN ? THEN unixepoch() + ? ELSE NULL END, ?, ?)`
+      `INSERT INTO polls (title, description, mode, poll_type, duration_seconds, end_at, status, reviewed_at, category_id)
+       VALUES (?, ?, ?, ?, ?, CASE WHEN ? THEN unixepoch() + ? ELSE NULL END, ?, ?, ?)`
     ).bind(
       title,
       description,
@@ -111,7 +134,8 @@ export async function handleProposalRequest(request: Request, env: HandlerEnv): 
       openNow ? 1 : 0,
       endAt ?? 0,
       autoApprove ? PollStatus.Open : PollStatus.Pending,
-      autoApprove ? Math.floor(Date.now() / 1000) : null
+      autoApprove ? Math.floor(Date.now() / 1000) : null,
+      categoryId
     ),
     ...options.map((option) => env.DB.prepare(
       `INSERT INTO poll_options (poll_id, position, label)
@@ -136,6 +160,27 @@ export async function handleProposalRequest(request: Request, env: HandlerEnv): 
     pollType: getPollTypeLabel(pollType),
     status: autoApprove ? 'open' : 'pending'
   }, { status: 201 });
+}
+
+// Asks the categoriser for a slug and maps it to an enabled category id. Any
+// failure (model error, no match) leaves the poll uncategorised.
+async function suggestCategory(
+  env: HandlerEnv,
+  title: string,
+  description: string | null
+): Promise<number | null> {
+  const categories = await loadEnabledCategories(env);
+  if (categories.length === 0) return null;
+  const result = await categorisePoll(env, env.ai_model?.trim() || DEFAULT_AI_MODEL, {
+    title,
+    description: description ?? undefined,
+    categories: categories.map((category) => ({
+      slug: category.slug,
+      names: categoryNames(category.slug, category.name)
+    }))
+  });
+  if (!result.ok || !result.value) return null;
+  return categories.find((category) => category.slug === result.value)?.id ?? null;
 }
 
 export interface ProposalInput {

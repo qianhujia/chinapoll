@@ -7,6 +7,21 @@ Legend for readers: **Public** = anyone through the public API; **User** = the
 signed-in owner through `/api/user`; **Admin** = the admin dashboard; **CF** =
 Cloudflare (edge and logs).
 
+## categories
+
+Poll categories, created by the admin. There is no seed data; the admin Settings
+tab can insert the suggested set. A category is deleted with `ON DELETE SET NULL`
+on its polls, so those polls become uncategorised.
+
+| Column | Contents | Readers | Retention |
+| --- | --- | --- | --- |
+| id | internal category id | Public (as part of a poll), Admin | until deleted |
+| slug | public identifier (`[a-z0-9-]`, 2 to 40 characters) used by `category=<slug>` | Public, Admin | as above |
+| name | display name, or the default English name for a suggested category | Public, Admin | as above |
+| position | display order | Public (ordering), Admin | as above |
+| enabled | 1 when the category is offered publicly | Public (enabled only), Admin | as above |
+| created_at | creation timestamp | Admin | as above |
+
 ## polls
 
 | Column | Contents | Readers | Retention |
@@ -16,6 +31,7 @@ Cloudflare (edge and logs).
 | mode, start_at, end_at, status, reviewed_at | lifecycle | Public, User, Admin | as above |
 | poll_type | ballot shape: 1 verdict, 2 single choice, 3 multi choice | Public, User, Admin | as above |
 | duration_seconds | length of the poll in seconds, or NULL for no end date | Public, User, Admin | as above |
+| category_id | the poll's category, or NULL when uncategorised | Public, Admin | as above |
 | owner_hash | one-way HMAC of the server secret with the account id and poll id | none | until the poll is deleted |
 | created_at, updated_at | timestamps | Public (derived), Admin | as above |
 

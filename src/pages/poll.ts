@@ -24,6 +24,8 @@ import {
   type VoteResponse
 } from '../lib/poll';
 import { getCurrentUser } from '../lib/session';
+import { getPublicSettings } from '../config';
+import { localizedCategoryName } from '../../shared/categories';
 import { renderTurnstile, resetTurnstile, turnstileSiteKey, turnstileToken } from '../lib/turnstile';
 import {
   getCommentsPerPage,
@@ -311,6 +313,9 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
               <h1 class="m-0 text-2xl font-bold">${escapeHtml(poll.title)}</h1>
               ${renderModeBadge(poll.mode)}
               ${renderPollTypeBadge(pollType)}
+              ${poll.category
+    ? `<span class="shrink-0 rounded-full bg-[#eef3fb] px-2.5 py-1 text-xs text-muted" data-poll-category>${escapeHtml(localizedCategoryName(poll.category.slug, poll.category.name, (getPublicSettings().default_locale ?? 'en') as 'en' | 'zh-CN' | 'zh-TW'))}</span>`
+    : ''}
             </div>
             ${renderPollMenu(alreadyReported)}
           </div>

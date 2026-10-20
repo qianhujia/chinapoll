@@ -32,3 +32,14 @@ export async function suggestOptions(payload: {
     body: JSON.stringify(payload)
   });
 }
+
+// Asks for one category slug, or `none` when nothing fits.
+export async function categorise(payload: {
+  title: string;
+  description?: string;
+}): Promise<{ slug: string }> {
+  return fetchJson('/api/ai/categorise', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  });
+}

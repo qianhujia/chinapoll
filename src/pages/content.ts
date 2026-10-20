@@ -1,6 +1,7 @@
 import {
   aiPrivacyNoteMarkup,
   aiTitleMarkup,
+  categoryFieldMarkup,
   descriptionFieldMarkup,
   durationFieldMarkup,
   optionsFieldsetMarkup,
@@ -85,6 +86,8 @@ export function mountProposePage(app: HTMLElement, bindNavigation: () => void): 
             ${optionsFieldsetMarkup()}
 
             ${durationFieldMarkup()}
+
+            ${categoryFieldMarkup()}
 
             ${descriptionFieldMarkup()}
 

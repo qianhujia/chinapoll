@@ -47,7 +47,11 @@ export const scriptSettings = `  // Keys that belong to the "Public audit reposi
       '<section class="card" style="margin-top:18px"><h2>Application settings</h2>' +
       '<p class="small muted">Values are validated with the same rules the public Worker API enforces.</p>' +
       '<div class="toolbar"><button data-action="initialize-settings">Insert missing defaults</button></div>' +
-      genericRows + '</section>';
+      genericRows + '</section>' +
+      '<section class="card" style="margin-top:18px"><h2>Poll categories</h2>' +
+      '<p class="small muted">Categories order the public home page chip row and the submit form dropdown. Add and edit them in the Categories tab, or start from the suggested set.</p>' +
+      '<div class="toolbar"><button data-action="insert-suggested-categories">Insert suggested categories</button></div>' +
+      '</section>';
   }
 
   function loadSettings() {
@@ -96,6 +100,15 @@ export const scriptSettings = `  // Keys that belong to the "Public audit reposi
       guard(api('/api/admin/settings/publish/run', { method: 'POST' }).then(function (result) {
         toast(result.message);
         return loadOverview();
+      }).then(function () { target.disabled = false; }));
+      return true;
+    }
+    if (action === 'insert-suggested-categories') {
+      if (!window.confirm('Insert the suggested categories (politics, economy, education, environment, health, technology, culture, society, other)?')) return true;
+      target.disabled = true;
+      guard(api('/api/admin/categories/suggested', { method: 'POST' }).then(function (result) {
+        toast(result.message);
+        state.categories = null;
       }).then(function () { target.disabled = false; }));
       return true;
     }

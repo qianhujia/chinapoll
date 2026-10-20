@@ -361,5 +361,30 @@ describe('publisher', () => {
     expect(second.pollsUpdated).toBe(1);
     expect(stub.commits).toHaveLength(2);
   });
+
+  it('describes every poll entry in index.json with its category slug', async () => {
+    const stub = createGitHubStub();
+    await setPublishSettings({
+      publish_enable: 'true',
+      publish_repository: 'owner/data',
+      publish_branch: 'main',
+      publish_path: 'snapshots',
+      github_token: TOKEN
+    });
+    const pollId = await seedPoll({ title: 'Index category poll' });
+    await insertSnapshot(pollId, 11_000, 1, 'GENESIS', true);
+
+    const result = await runPublisher(env, 100_000);
+    expect(result.pollsUpdated).toBe(1);
+
+    const index = JSON.parse(stub.files.get('snapshots/index.json') ?? '{}') as {
+      polls: Array<{ id: number; categorySlug: string | null }>;
+    };
+    const entry = index.polls.find((item) => item.id === pollId);
+    expect(entry).toBeDefined();
+    // The slug is metadata: it is absent (null) for an uncategorised poll and is
+    // never part of the hashed snapshot chain.
+    expect(entry?.categorySlug ?? null).toBeNull();
+  });
 });
 

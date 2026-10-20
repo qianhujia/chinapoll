@@ -113,6 +113,23 @@ export function durationFieldMarkup(): string {
   `;
 }
 
+// The category dropdown with "No category" first, plus the subtle AI button and
+// tag. The options are filled from `GET /api/categories` after the form mounts,
+// so the markup itself is static.
+export function categoryFieldMarkup(): string {
+  return `
+    <label class="grid gap-2 font-bold" for="proposal-category">${t('categoryLabel')}
+      <div class="flex flex-wrap items-center gap-2">
+        <select class="w-full min-w-[200px] flex-[1_1_auto] rounded-[14px] border border-border bg-[#f9fbff] px-3.5 py-3 font-normal" id="proposal-category" name="category" data-category>
+          <option value="">${t('categoryNone')}</option>
+        </select>
+        <button class="cursor-pointer rounded-full border border-border bg-panel px-3.5 py-2 text-sm text-ink disabled:cursor-not-allowed disabled:opacity-60" type="button" data-ai-category hidden>${t('categorySuggest')}</button>
+        <span class="shrink-0 rounded-full bg-[#eef3fb] px-2 py-0.5 text-xs text-muted" data-category-ai-tag hidden>${t('aiTag')}</span>
+      </div>
+    </label>
+  `;
+}
+
 // The rules a submission has to meet, shown on the submit page. There are four:
 // the old "it can produce a clear yes/no/neutral outcome" rule was removed once the
 // poll types carried that meaning themselves, so the wording that followed it moved

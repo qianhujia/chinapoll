@@ -92,6 +92,11 @@ export interface PollResults {
   options: PollOption[] | null;
 }
 
+export interface PollCategoryRef {
+  slug: string;
+  name: string;
+}
+
 export interface PollSummary {
   id: number;
   title: string;
@@ -102,6 +107,19 @@ export interface PollSummary {
   start_at: string | null;
   end_at?: string | null;
   status: 'open' | 'closed' | 'archived';
+  /** The poll's category, or null/absent when it is uncategorised. */
+  category?: PollCategoryRef | null;
+}
+
+// An enabled category from `GET /api/categories`, with its name for each locale
+// and the number of open polls it holds.
+export interface PollCategory {
+  id: number;
+  slug: string;
+  name: string;
+  position: number;
+  names: { en: string; 'zh-CN': string; 'zh-TW': string };
+  count: number;
 }
 
 export interface PollWithStats {
@@ -170,7 +188,7 @@ export async function getStats(pollId: number): Promise<PollResults & {
   return fetchJson(`/api/stats/${pollId}`);
 }
 
-export async function getPolls(page: number, pageSize: number, query = ''): Promise<{
+export async function getPolls(page: number, pageSize: number, query = '', category = ''): Promise<{
   polls: PollWithStats[];
   page: number;
   pageSize: number;
@@ -181,7 +199,14 @@ export async function getPolls(page: number, pageSize: number, query = ''): Prom
 }> {
   const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
   if (query) params.set('q', query);
+  if (category) params.set('category', category);
   return fetchJson(`/api/polls?${params}`);
+}
+
+// The enabled categories and the number of open polls overall, for the home page
+// chip row.
+export async function getCategories(): Promise<{ categories: PollCategory[]; total: number }> {
+  return fetchJson('/api/categories');
 }
 
 export async function getPoll(pollId: number): Promise<{ poll: PollSummary; views: PollViewCounts | null }> {
@@ -281,6 +306,8 @@ export async function submitProposal(payload: {
   pollType: PollType;
   duration: PollDuration;
   options: Array<{ position: number; label: string }>;
+  /** The slug the submitter chose; omitted when none was selected. */
+  category?: string;
 }): Promise<{ ok: boolean; message: string; pollId: number; status?: 'open' | 'pending' }> {
   return fetchJson('/api/proposal', {
     method: 'POST',

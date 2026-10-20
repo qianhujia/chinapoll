@@ -15,6 +15,7 @@ import {
   type PollOption
 } from '../services/options.js';
 import { loadViewCounts, publicViews } from './views';
+import { CATEGORY_SLUG_PATTERN } from '../../shared/categories';
 
 const MAX_PAGE_SIZE = 100;
 const MAX_QUERY_LENGTH = 100;
@@ -35,6 +36,8 @@ interface PollRow {
   end_at: number | null;
   status: PollStatus;
   ballots: number;
+  category_slug: string | null;
+  category_name: string | null;
 }
 
 // Builds the LIKE parameters and the WHERE fragment for a title/description
@@ -75,13 +78,24 @@ export async function handlePollsRequest(request: Request, url: URL, env: Handle
   const search = buildSearch(query);
   const searchBinds = search.pattern ? [search.pattern, search.pattern] : [];
 
+  // An optional category filter. A slug that does not name an enabled category
+  // matches nothing, so the listing is simply empty.
+  const categorySlug = (url.searchParams.get('category') ?? '').trim();
+  if (categorySlug && !CATEGORY_SLUG_PATTERN.test(categorySlug)) {
+    return Response.json({ message: 'invalid category' }, { status: 400 });
+  }
+  const categoryClause = categorySlug
+    ? ' AND category_id = (SELECT id FROM categories WHERE slug = ? AND enabled = 1)'
+    : '';
+  const categoryBinds = categorySlug ? [categorySlug] : [];
+
   const countResult = await env.DB.prepare(
     `SELECT COUNT(*) AS total
      FROM polls
-     WHERE status = ? AND mode IN (?, ?)${search.clause}`
+     WHERE status = ? AND mode IN (?, ?)${search.clause}${categoryClause}`
   ).bind(
     PollStatus.Open, PollMode.Deadline, PollMode.Evergreen,
-    ...searchBinds
+    ...searchBinds, ...categoryBinds
   ).first<{ total: number }>();
 
   const allPollsResult = await env.DB.prepare(
@@ -106,17 +120,19 @@ export async function handlePollsRequest(request: Request, url: URL, env: Handle
   const result = await env.DB.prepare(
     `WITH page AS (
        SELECT id FROM polls
-       WHERE status = ? AND mode IN (?, ?)${search.clause}
+       WHERE status = ? AND mode IN (?, ?)${search.clause}${categoryClause}
        ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?
      )
      SELECT i.id, i.title, i.description, i.mode, i.poll_type, i.start_at, i.end_at, i.status,
+       c.slug AS category_slug, c.name AS category_name,
        (SELECT COUNT(*) FROM votes b WHERE b.poll_id = i.id) AS ballots
      FROM page
      JOIN polls i ON i.id = page.id
+     LEFT JOIN categories c ON c.id = i.category_id
      ORDER BY i.created_at DESC, i.id DESC`
   ).bind(
     PollStatus.Open, PollMode.Deadline, PollMode.Evergreen,
-    ...searchBinds,
+    ...searchBinds, ...categoryBinds,
     pageSize, offset
   ).all<PollRow>();
 
@@ -151,7 +167,10 @@ export async function handlePollsRequest(request: Request, url: URL, env: Handle
         options: options.map(publicOption),
         start_at: toIsoDate(row.start_at),
         end_at: toIsoDate(row.end_at),
-        status: getPollStatusLabel(row.status)
+        status: getPollStatusLabel(row.status),
+        category: row.category_slug && row.category_name
+          ? { slug: row.category_slug, name: row.category_name }
+          : null
       },
       stats: {
         pollId: row.id,
@@ -224,9 +243,11 @@ async function getPoll(pollIdText: string, env: HandlerEnv): Promise<Response> {
   }
 
   const poll = await env.DB.prepare(
-    `SELECT id, title, description, mode, poll_type, start_at, end_at, duration_seconds, status
-     FROM polls
-     WHERE id = ? AND mode IN (?, ?) AND status IN (?, ?, ?)`
+    `SELECT p.id, p.title, p.description, p.mode, p.poll_type, p.start_at, p.end_at,
+            p.duration_seconds, p.status, c.slug AS category_slug, c.name AS category_name
+     FROM polls p
+     LEFT JOIN categories c ON c.id = p.category_id
+     WHERE p.id = ? AND p.mode IN (?, ?) AND p.status IN (?, ?, ?)`
   ).bind(
     pollId,
     PollMode.Deadline, PollMode.Evergreen,
@@ -241,6 +262,8 @@ async function getPoll(pollIdText: string, env: HandlerEnv): Promise<Response> {
     end_at: number | null;
     duration_seconds: number | null;
     status: PollStatus;
+    category_slug: string | null;
+    category_name: string | null;
   }>();
 
   if (!poll) {
@@ -255,8 +278,13 @@ async function getPoll(pollIdText: string, env: HandlerEnv): Promise<Response> {
   const options = await getOptionsForPolls(env, [{ id: pollId, poll_type: poll.poll_type }]);
   const pollOptions = options.get(pollId) ?? [];
 
+  const { category_slug: categorySlugValue, category_name: categoryNameValue, ...pollFields } = poll;
+
   return Response.json({ poll: {
-    ...poll,
+    ...pollFields,
+    category: categorySlugValue && categoryNameValue
+      ? { slug: categorySlugValue, name: categoryNameValue }
+      : null,
     mode: getPollModeLabel(poll.mode),
     pollType: pollTypeLabel(Number(poll.poll_type ?? PollType.SingleChoice)),
     options: pollOptions.map(publicOption),

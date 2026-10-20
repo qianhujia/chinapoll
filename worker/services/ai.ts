@@ -23,6 +23,9 @@ async function runWithTimeout<T>(task: (signal: AbortSignal) => Promise<T>): Pro
   }
 }
 
+// Fallback model when the `ai_model` setting is empty.
+export const DEFAULT_AI_MODEL = '@cf/qwen/qwen3-30b-a3b-fp8';
+
 export const MAX_TITLE_LENGTH = 200;
 export const MAX_DESCRIPTION_LENGTH = 2000;
 export const MAX_SUGGESTION_LENGTH = 200;
@@ -116,6 +119,22 @@ const OPTIONS_SCHEMA = {
   },
   required: ['options']
 };
+
+const CATEGORY_SCHEMA = {
+  type: 'object',
+  properties: {
+    slug: { type: 'string' }
+  },
+  required: ['slug']
+};
+
+// A dedicated system prompt: categorisation is a classification task, not a
+// drafting task.
+const CATEGORISE_SYSTEM_PROMPT = [
+  'You classify a public opinion poll into exactly one of the categories the user lists.',
+  'You must not add facts that are not present in the input.',
+  'Answer only with the requested JSON.'
+].join(' ');
 
 // Unwraps the JSON the model returned. The binding normally answers with the
 // parsed object, but a text or `response` wrapper is tolerated as well.
@@ -237,4 +256,46 @@ export async function suggestPollOptions(
   const options = parseStringList(result.value, 'options', MIN_OPTION_COUNT, MAX_OPTION_COUNT, MAX_OPTION_LENGTH);
   if (!options) return { ok: false, reason: 'bad_model_output' };
   return { ok: true, value: options };
+}
+
+export interface CategoriseInput {
+  title: string;
+  description?: string;
+  /** The enabled categories the model may choose from. */
+  categories: ReadonlyArray<{ slug: string; names: { en: string } }>;
+}
+
+// Asks the model for exactly one enabled slug, or `none`. The answer is validated
+// against the enabled list and anything else (including `none`) becomes null, so a
+// caller can never store a slug that is not enabled. The input is never logged.
+export async function categorisePoll(
+  env: AiEnv,
+  model: string,
+  input: CategoriseInput
+): Promise<AiResult<string | null>> {
+  const enabled = new Set(input.categories.map((category) => category.slug));
+  const listing = input.categories.map((category) => `- ${category.slug}: ${category.names.en}`).join('\n');
+  const messages = [
+    { role: 'system', content: CATEGORISE_SYSTEM_PROMPT },
+    {
+      role: 'user',
+      content: [
+        `Poll title: ${input.title}`,
+        input.description ? `Poll description: ${input.description}` : '',
+        'Choose exactly one category for this poll from this list:',
+        listing,
+        'If none of them fits, answer with "none".',
+        'Return JSON: {"slug": "<one-slug-or-none>"}.'
+      ].filter((line) => line.length > 0).join('\n')
+    }
+  ];
+  const result = await callModel(env, model, messages, CATEGORY_SCHEMA);
+  if (!result.ok) return result;
+
+  const root = readJsonField(result.value);
+  if (typeof root !== 'object' || root === null) return { ok: false, reason: 'bad_model_output' };
+  const slug = (root as Record<string, unknown>).slug;
+  if (typeof slug !== 'string') return { ok: false, reason: 'bad_model_output' };
+  const normalized = slug.trim().toLowerCase();
+  return { ok: true, value: enabled.has(normalized) ? normalized : null };
 }

@@ -67,6 +67,9 @@ export const DEFAULT_PUBLIC_SETTINGS = {
   ai_enable: false,
   ai_model: '@cf/qwen/qwen3-30b-a3b-fp8',
   ai_rate_limit: '10/h',
+  // When true (and `ai_enable` is on), a submitted poll that did not choose a
+  // category is categorised by the model. Admin only; never served publicly.
+  ai_auto_categorise: false,
   // Public audit publishing. When enabled, the hourly maintenance run copies the
   // signed snapshot chain to a data repository through the GitHub API. These
   // settings are private: none of them is served by the public settings
@@ -204,6 +207,7 @@ export async function loadPublicSettings(db: D1Database): Promise<PublicSettings
       case 'login_badge_enable':
       case 'auto_approve_polls':
       case 'ai_enable':
+      case 'ai_auto_categorise':
       case 'publish_enable':
       case 'read_only_mode':
       case 'turnstile_enable':
@@ -262,6 +266,7 @@ function stripPrivateSettings(settings: PublicSettings): Record<string, unknown>
     turnstile_secret_key: _secretKey,
     ai_model: _aiModel,
     ai_rate_limit: _aiRateLimit,
+    ai_auto_categorise: _aiAutoCategorise,
     publish_enable: _publishEnable,
     publish_repository: _publishRepository,
     publish_branch: _publishBranch,

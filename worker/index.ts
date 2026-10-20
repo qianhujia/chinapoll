@@ -13,6 +13,7 @@ import { handleStatsRequest } from './api/stats';
 import { handleVoteRequest, handleVoteStatusRequest } from './api/vote';
 import { handleCommentsRequest } from './api/comments';
 import { handlePollsRequest } from './api/polls';
+import { handleCategoriesRequest } from './api/categories';
 import { handleReportRequest } from './api/reports';
 import { handleViewRequest } from './api/views';
 import { handleSnapshotRequest } from './api/snapshots';
@@ -171,6 +172,9 @@ async function route(request: Request, env: Env): Promise<Response> {
 
     if (url.pathname === '/api/settings/public') {
       return handlePublicSettingsRequest(request, envWithSettings);
+    }
+    if (url.pathname === '/api/categories') {
+      return handleCategoriesRequest(request, envWithSettings);
     }
     if (url.pathname.startsWith('/api/stats/')) {
       return handleStatsRequest(request, url, envWithSettings);

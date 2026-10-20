@@ -11,6 +11,7 @@ import { scriptCore } from './core';
 import { scriptAuth } from './auth';
 import { scriptOverview } from './pages/overview';
 import { scriptPolls } from './pages/polls';
+import { scriptCategories } from './pages/categories';
 import { scriptReports } from './pages/reports';
 import { scriptComments } from './pages/comments';
 import { scriptUsers } from './pages/users';
@@ -24,6 +25,7 @@ export const dashboardScript = [
   scriptAuth,
   scriptOverview,
   scriptPolls,
+  scriptCategories,
   scriptReports,
   scriptComments,
   scriptUsers,

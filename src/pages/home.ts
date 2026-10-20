@@ -1,4 +1,6 @@
-import { getPolls } from '../lib/poll';
+import { getCategories, getPolls } from '../lib/poll';
+import { getPublicSettings } from '../config';
+import { localizedCategoryName } from '../../shared/categories';
 import {
   escapeHtml,
   getErrorMessage,
@@ -20,6 +22,11 @@ import {
 // are built here.
 export function renderPollRow({ poll, stats, views }: Awaited<ReturnType<typeof getPolls>>['polls'][number]): string {
   const pollType = poll.pollType ?? stats.pollType ?? 'single_choice';
+  const locale = (getPublicSettings().default_locale ?? 'en') as 'en' | 'zh-CN' | 'zh-TW';
+  // An uncategorised poll shows nothing.
+  const categoryBadge = poll.category
+    ? `<span class="shrink-0 rounded-full bg-[#eef3fb] px-2 py-0.5 text-xs text-muted" data-poll-category>${escapeHtml(localizedCategoryName(poll.category.slug, poll.category.name, locale))}</span>`
+    : '';
   const resultsHidden = stats.hidden === true;
   // The threshold notice replaces the ballot total, never the link.
   const voteTotalLine = resultsHidden
@@ -34,6 +41,7 @@ export function renderPollRow({ poll, stats, views }: Awaited<ReturnType<typeof 
           <h2 class="m-0 flex-[1_1_auto] text-[1.15rem] leading-[1.5]"><a class="text-inherit no-underline hover:text-primary hover:underline focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-[3px] focus-visible:outline-primary" href="/poll/${poll.id}" data-route="/poll/${poll.id}">${escapeHtml(poll.title)}</a></h2>
           ${renderModeBadge(poll.mode)}
           ${renderPollTypeBadge(pollType, poll.options?.length ?? 0)}
+          ${categoryBadge}
         </div>
       </div>
 
@@ -49,16 +57,22 @@ export function renderPollRow({ poll, stats, views }: Awaited<ReturnType<typeof 
 export async function mountHome(app: HTMLElement, page: number, bindNavigation: () => void, settings?: Record<string, any>): Promise<void> {
   const pollsPerPage = getPollsPerPage();
   const searchQuery = getQueryValue('q');
+  const categoryFilter = getQueryValue('category');
   let pollStats: Awaited<ReturnType<typeof getPolls>>['polls'];
+  let categories: Awaited<ReturnType<typeof getCategories>> | null = null;
   let openPolls: number;
   let totalPolls: number;
   let totalVotes: number;
   try {
-    const response = await getPolls(page, pollsPerPage, searchQuery);
+    const [response, categoryData] = await Promise.all([
+      getPolls(page, pollsPerPage, searchQuery, categoryFilter),
+      getCategories().catch(() => null)
+    ]);
     pollStats = response.polls;
     openPolls = response.total;
     totalPolls = response.totalPolls;
     totalVotes = response.totalVotes;
+    categories = categoryData;
   } catch (error) {
     app.innerHTML = `
       <div class="mx-auto max-w-[var(--page-width)] px-5 pt-6 pb-16">
@@ -89,6 +103,17 @@ export async function mountHome(app: HTMLElement, page: number, bindNavigation: 
     : 'border border-border bg-panel text-ink hover:border-primary hover:text-primary';
   const openPollsCount = openPolls;
   const showHero = currentPage === 1 && searchQuery === '';
+
+  // The category chip row lists every enabled category with the number of open
+  // polls it holds; "All" is selected when no category is filtered.
+  const localeCode = (getPublicSettings().default_locale ?? 'en') as 'en' | 'zh-CN' | 'zh-TW';
+  const chipClass = (active: boolean) => 'rounded-full border px-3 py-1.5 text-sm no-underline '
+    + (active ? 'border-primary bg-primary text-white' : 'border-border bg-panel text-ink hover:border-primary hover:text-primary');
+  const chipRow = !categories || categories.categories.length === 0 ? '' : `
+        <nav class="flex flex-wrap items-center gap-2" data-category-chips>
+          <a class="${chipClass(categoryFilter === '')}" href="/" data-route="/">${t('categoryAll')} <span class="tabular-nums text-xs">${categories.total}</span></a>
+          ${categories.categories.map((category) => `<a class="${chipClass(categoryFilter === category.slug)}" href="/?category=${encodeURIComponent(category.slug)}" data-route="/?category=${encodeURIComponent(category.slug)}">${escapeHtml(category.names[localeCode] ?? category.name)} <span class="tabular-nums text-xs">${category.count}</span></a>`).join('')}
+        </nav>`;
 
   app.innerHTML = `
     <div class="mx-auto max-w-[var(--page-width)] px-5 pt-6">
@@ -130,14 +155,20 @@ export async function mountHome(app: HTMLElement, page: number, bindNavigation: 
             <a class="text-primary hover:underline" href="/" data-route="/">${t('searchClear')}</a>
           </div>`
     : ''}
+        ${chipRow}
         <section class="border-t border-border">
           ${pollStats.length === 0
     ? `<p class="py-6 text-center text-muted">${searchQuery ? t('searchNoResults') : t('noPolls')}</p>`
     : pollStats.map(renderPollRow).join('')}
         </section>
-        ${renderPagination(currentPage, totalPages, (targetPage) => searchQuery
-    ? `/?q=${encodeURIComponent(searchQuery)}&page=${targetPage}`
-    : `/?page=${targetPage}`)}
+        ${renderPagination(currentPage, totalPages, (targetPage) => {
+    // The category filter and the search survive paging.
+    const params = new URLSearchParams();
+    if (searchQuery) params.set('q', searchQuery);
+    if (categoryFilter) params.set('category', categoryFilter);
+    params.set('page', String(targetPage));
+    return `/?${params}`;
+  })}
       </main>
 
       ${renderToast()}

@@ -15,6 +15,7 @@ export const scriptCore = `  var app = document.getElementById('app');
     admins: null,
     audit: null,
     settings: null,
+    categories: null,
     pollStatus: 'all',
     pollQuery: '',
     // Poll ids whose option editor is expanded in the Polls tab.
@@ -49,8 +50,8 @@ export const scriptCore = `  var app = document.getElementById('app');
 
   // Each dashboard view has a dedicated URL. The overview is also reachable at
   // "/overview" as an alias of "/".
-  var VIEW_PATHS = { overview: '/', polls: '/polls', reports: '/reports', comments: '/comments', users: '/users', admins: '/admins', audit: '/audit', settings: '/settings' };
-  var PATH_VIEWS = { '/': 'overview', '/overview': 'overview', '/polls': 'polls', '/reports': 'reports', '/comments': 'comments', '/users': 'users', '/admins': 'admins', '/audit': 'audit', '/settings': 'settings' };
+  var VIEW_PATHS = { overview: '/', polls: '/polls', categories: '/categories', reports: '/reports', comments: '/comments', users: '/users', admins: '/admins', audit: '/audit', settings: '/settings' };
+  var PATH_VIEWS = { '/': 'overview', '/overview': 'overview', '/polls': 'polls', '/categories': 'categories', '/reports': 'reports', '/comments': 'comments', '/users': 'users', '/admins': 'admins', '/audit': 'audit', '/settings': 'settings' };
 
   function viewFromPath(pathname) {
     var path = pathname || '/';

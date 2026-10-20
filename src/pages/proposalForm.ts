@@ -7,6 +7,7 @@
 import {
   MAX_OPTION_LABEL_LENGTH,
   DURATION_LABEL_KEYS,
+  getCategories,
   rememberMyPoll,
   submitProposal,
   type PollDuration,
@@ -14,7 +15,7 @@ import {
 } from '../lib/poll';
 import { getPublicSettings } from '../config';
 import { getErrorMessage, showToast, t } from '../ui';
-import type { AiLocale } from '../lib/ai';
+import { categorise, type AiLocale } from '../lib/ai';
 import {
   DESCRIPTION_MAX_ROWS,
   DESCRIPTION_MIN_ROWS,
@@ -109,6 +110,9 @@ export function bindProposalForm(app: HTMLElement, bindNavigation: () => void, a
   const aiEnhanceButton = form.querySelector<HTMLButtonElement>('[data-ai-enhance]');
   const aiHint = form.querySelector<HTMLElement>('[data-ai-hint]');
   const submitButton = form.querySelector<HTMLButtonElement>('button[type="submit"]')!;
+  const categorySelect = form.querySelector('[data-category]') as HTMLSelectElement | null;
+  const categoryButton = form.querySelector<HTMLButtonElement>('[data-ai-category]');
+  const categoryAiTag = form.querySelector<HTMLElement>('[data-category-ai-tag]');
 
   // The card the user picked. Every card maps to a stored poll type, so the form
   // submits it as-is.
@@ -243,6 +247,46 @@ export function bindProposalForm(app: HTMLElement, bindNavigation: () => void, a
   });
   titleInput?.addEventListener('input', syncAiGates);
 
+  // The category dropdown is filled from the enabled categories. The AI button is
+  // only shown when the feature is on, and the tag marks a suggestion the
+  // submitter has not changed.
+  if (aiEnabled && categoryButton) categoryButton.hidden = false;
+  getCategories().then((result) => {
+    if (!categorySelect) return;
+    const locale = (getPublicSettings().default_locale ?? 'en') as 'en' | 'zh-CN' | 'zh-TW';
+    result.categories.forEach((category) => {
+      const option = document.createElement('option');
+      option.value = category.slug;
+      option.textContent = category.names[locale] ?? category.name;
+      categorySelect.appendChild(option);
+    });
+  }).catch(() => {
+    // The dropdown stays at "No category" when the list cannot be loaded.
+  });
+
+  categorySelect?.addEventListener('change', () => {
+    if (categoryAiTag) categoryAiTag.hidden = true;
+  });
+
+  categoryButton?.addEventListener('click', async () => {
+    const title = titleInput?.value.trim() ?? '';
+    if (!categorySelect || title.length < 10) return;
+    categoryButton.disabled = true;
+    categoryButton.textContent = t('aiEnhancing');
+    try {
+      const result = await categorise({ title, description: descriptionInput?.value.trim() ?? '' });
+      const known = result.slug !== 'none'
+        && Array.from(categorySelect.options).some((option) => option.value === result.slug);
+      categorySelect.value = known ? result.slug : '';
+      if (categoryAiTag) categoryAiTag.hidden = !known;
+    } catch (error) {
+      showToast(`${t('aiFailed')} ${getErrorMessage(error)}`, 'error');
+    } finally {
+      categoryButton.textContent = t('categorySuggest');
+      categoryButton.disabled = false;
+    }
+  });
+
   // The AI buttons are only wired when the setting is on.
   bindAiButtons(form, {
     aiEnabled,
@@ -301,7 +345,8 @@ export function bindProposalForm(app: HTMLElement, bindNavigation: () => void, a
         description: description || undefined,
         pollType,
         duration,
-        options
+        options,
+        category: categorySelect?.value || undefined
       });
       showToast(result.status === 'open'
         ? `${t('proposalPublished')}: ${result.pollId}`
@@ -317,6 +362,8 @@ export function bindProposalForm(app: HTMLElement, bindNavigation: () => void, a
       // A cleared field shrinks back to its starting rows.
       syncDescriptionHeight();
       if (durationSelect) durationSelect.value = 'none';
+      if (categorySelect) categorySelect.value = '';
+      if (categoryAiTag) categoryAiTag.hidden = true;
       rows().forEach((row) => row.remove());
       syncOptionEditor();
       if (aiSuggestions) aiSuggestions.hidden = true;

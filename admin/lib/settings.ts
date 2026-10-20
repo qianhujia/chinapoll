@@ -101,6 +101,7 @@ export function validateSettingValue(key: string, value: string): SettingValidat
     case 'login_badge_enable':
     case 'auto_approve_polls':
     case 'ai_enable':
+    case 'ai_auto_categorise':
     case 'publish_enable':
       if (value !== 'true' && value !== 'false') return { ok: false, error: `${key} must be "true" or "false".` };
       break;

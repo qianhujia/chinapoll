@@ -1,21 +1,25 @@
 // AI assistance endpoints.
 //
-// Both endpoints require a signed-in account, pass the same account-age gate as
-// proposals, enforce the Origin check, verify Turnstile when it is enabled, and
-// rate limit with scope `ai` and key `user:<id>`. When the `ai_enable` setting
-// is off they answer 404, exactly as if they did not exist.
+// Every endpoint requires a signed-in account, passes the same account-age gate
+// as proposals, enforces the Origin check, verifies Turnstile when it is enabled,
+// and rate limits with scope `ai` and key `user:<id>`. When the `ai_enable`
+// setting is off they answer 404, exactly as if they did not exist.
 //
 // Privacy: the draft is sent to the model and the validated suggestions go
 // straight back to the caller. Nothing is logged and nothing is written to D1.
 
 import type { HandlerEnv } from '../index';
 import {
+  DEFAULT_AI_MODEL,
   MAX_DESCRIPTION_LENGTH,
   MAX_TITLE_LENGTH,
+  categorisePoll,
   suggestPollOptions,
   suggestTitles,
   type AiLocale
 } from '../services/ai';
+import { loadEnabledCategories } from './categories';
+import { categoryNames } from '../../shared/categories';
 import { checkRateLimit } from '../services/rateLimit';
 import { enforceSameOrigin } from '../services/csrf';
 import { verifyTurnstile } from '../services/turnstile';
@@ -23,7 +27,6 @@ import { requireUser } from '../services/session';
 import { checkAccountAge } from '../services/users';
 
 const DEFAULT_AI_RATE_LIMIT = '10/h';
-const DEFAULT_AI_MODEL = '@cf/qwen/qwen3-30b-a3b-fp8';
 const DEFAULT_POLL_DELAY_HOURS = 48;
 const MIN_TITLE_CHARACTERS = 10;
 
@@ -48,6 +51,9 @@ export async function handleAiRequest(request: Request, url: URL, env: HandlerEn
   }
   if (url.pathname === '/api/ai/suggest-options') {
     return handleSuggestOptions(request, env);
+  }
+  if (url.pathname === '/api/ai/categorise') {
+    return handleCategorise(request, env);
   }
   return Response.json({ message: 'not found' }, { status: 404 });
 }
@@ -199,6 +205,61 @@ async function handleSuggestOptions(request: Request, env: HandlerEnv): Promise<
   if (!result.ok) return failureResponse(result.reason);
 
   return Response.json({ ok: true, options: result.value }, {
+    headers: { 'cache-control': 'no-store' }
+  });
+}
+
+// The categoriser needs no locale: it answers with a slug. The title and
+// description follow the same limits as the other endpoints.
+function readCategoryText(body: Record<string, unknown>): { title: string; description: string } | Response {
+  const title = typeof body.title === 'string' ? body.title.trim() : '';
+  if (title.length < MIN_TITLE_CHARACTERS || title.length > MAX_TITLE_LENGTH) {
+    return Response.json({
+      message: `a title of ${MIN_TITLE_CHARACTERS} to ${MAX_TITLE_LENGTH} characters is required`
+    }, { status: 400 });
+  }
+
+  if (body.description !== undefined && typeof body.description !== 'string') {
+    return Response.json({ message: 'invalid description' }, { status: 400 });
+  }
+  const description = typeof body.description === 'string' ? body.description.trim() : '';
+  if (description.length > MAX_DESCRIPTION_LENGTH) {
+    return Response.json({
+      message: `a description of at most ${MAX_DESCRIPTION_LENGTH} characters is required`
+    }, { status: 400 });
+  }
+
+  return { title, description };
+}
+
+async function handleCategorise(request: Request, env: HandlerEnv): Promise<Response> {
+  const context = await openAiContext(request, env);
+  if (context instanceof Response) return context;
+
+  const input = readCategoryText(context.body);
+  if (input instanceof Response) return input;
+
+  const categories = (await loadEnabledCategories(env)).map((category) => ({
+    slug: category.slug,
+    names: categoryNames(category.slug, category.name)
+  }));
+
+  // Nothing to choose from: answer `none` without spending a model call.
+  if (categories.length === 0) {
+    return Response.json({ ok: true, slug: 'none' }, {
+      headers: { 'cache-control': 'no-store' }
+    });
+  }
+
+  const result = await categorisePoll(env, context.model, {
+    title: input.title,
+    description: input.description || undefined,
+    categories
+  });
+  if (!result.ok) return failureResponse(result.reason);
+
+  // Validate against the enabled list: anything else becomes `none`.
+  return Response.json({ ok: true, slug: result.value ?? 'none' }, {
     headers: { 'cache-control': 'no-store' }
   });
 }
