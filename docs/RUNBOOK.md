@@ -5,7 +5,7 @@ are run from the repository root.
 
 ## Deployments
 
-1. Apply D1 migrations: `npx wrangler d1 migrations apply chinapoll --env production --remote`.
+1. Apply D1 migrations: `npx wrangler d1 migrations apply chinapoll --remote`.
    `migrations/0001_initial.sql` holds the entire schema in a single consolidated
    file, most recently consolidated on **2026-10-18** (an earlier consolidation was
    done on 2026-10-11) because nothing had been deployed yet. All migration SQL
@@ -26,10 +26,16 @@ are run from the repository root.
 6. Optionally set `TURNSTILE_SITE_KEY` for the admin Worker:
    `npx wrangler secret put TURNSTILE_SITE_KEY --config admin/wrangler.toml --env production`.
 
+Neither `wrangler.toml` file commits a production database UUID. The `[env.production]`
+environment declares the D1 binding by database name only (variable `DB` ->
+`chinapoll`), so wrangler resolves the real UUID through the API when it deploys and
+when it applies migrations (`npx wrangler d1 migrations apply chinapoll --remote`).
+Both Workers bind the same database, so they share one schema.
+
 Both Workers also have a Deploy to Cloudflare button (see README.md) for deployments
-driven from the dashboard instead of the CLI. The admin one must bind the same
-`chinapoll` database as the public Worker and use `npm run admin:worker:deploy:remote`
-as its deploy command.
+driven from the dashboard instead of the CLI. Set the public deploy command to
+`npm run deploy` and the admin one to `npm run admin:worker:deploy:remote`; both apply
+the migrations by database name and then deploy `--env production`.
 
 ## Uptime monitoring
 

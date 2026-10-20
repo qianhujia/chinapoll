@@ -43,15 +43,19 @@ migrations_dir = "./migrations"
 migrations_table = "migrations"
 
 # Production environment targeted by the deploy workflow with `--env production`.
-# The deploy step applies migrations to the "chinapoll" database and publishes the
-# production Worker. Replace database_id with the real database UUID before the
-# first production deploy.
+#
+# The D1 binding is declared by database *name* only: wrangler resolves the real
+# database UUID through the API at deploy time, so no account-specific id is
+# committed to the repository. Migrations are applied the same way:
+#   npx wrangler d1 migrations apply chinapoll --remote
+# `name` is pinned so the environment deploy targets the same Worker the Deploy
+# button creates.
 [env.production]
+name = "chinapoll-worker"
 
 [[env.production.d1_databases]]
 binding = "DB"
 database_name = "chinapoll"
-database_id = "REPLACE_WITH_PRODUCTION_DATABASE_ID"
 migrations_dir = "./migrations"
 migrations_table = "migrations"
 
