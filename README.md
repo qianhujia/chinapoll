@@ -400,8 +400,9 @@ Dashboard missing-default settings are inserted from the Settings tab.
 The SPA and the public API share **one hostname**: the public Worker serves the
 built assets from `dist/web` and handles `/api/*`. The admin Worker uses a
 **separate hostname** and a separate dashboard. Both `wrangler.toml` files define
-an `[env.production]` environment that binds the production `chinapoll` database;
-replace the placeholder `database_id` with the real database UUID. Deploy with
+an `[env.production]` environment that binds the production `chinapoll` database by
+**name only** (`DB` -> `chinapoll`), so no database UUID is committed to the
+repository; wrangler resolves it through the API at deploy time. Deploy with
 `npx wrangler deploy --env production` and
 `npx wrangler deploy --config admin/wrangler.toml --env production`, as described
 in `docs/RUNBOOK.md`.

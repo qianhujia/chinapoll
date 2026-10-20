@@ -58,9 +58,10 @@ npm run db:migrate
 
 ## Configuration
 
-The Worker binds to the same D1 database as the public application. Update
-`database_id` in `wrangler.toml` with the production database UUID when
-deploying.
+The Worker binds to the same D1 database as the public application. The
+`[env.production]` environment declares that binding by database name only
+(`DB` -> `chinapoll`), so no database UUID is committed; wrangler resolves it
+through the API at deploy time.
 
 | Variable | Required | Purpose |
 | --- | --- | --- |
