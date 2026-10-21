@@ -73,6 +73,12 @@ export const scriptCategories = `  function categoryOptions(selectedId) {
       var descriptionInput = document.querySelector('[data-cat-description][data-id="' + id + '"]');
       var enabledInput = document.querySelector('[data-cat-enabled][data-id="' + id + '"]');
       var positionInput = document.querySelector('[data-cat-position][data-id="' + id + '"]');
+
+      if (!nameInput || !descriptionInput || !enabledInput || !positionInput) {
+        toast('Category row not found. Please refresh and try again.', true);
+        return true;
+      }
+
       target.disabled = true;
       guard(api('/api/admin/categories/' + id, {
         method: 'PUT',
