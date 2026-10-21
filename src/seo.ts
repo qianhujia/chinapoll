@@ -102,7 +102,7 @@ export function getSeoForRoute(route: string, settings: { site_name: string; sit
   switch (route) {
     case '/':
     case '/index.html':
-      return { ...base, title: settings.site_name, description: settings.site_slogan };
+      return { ...base, title: `${settings.site_name} - ${settings.site_slogan}`, description: settings.site_slogan };
 
     case '/polls':
       return {

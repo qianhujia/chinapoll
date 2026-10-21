@@ -142,7 +142,7 @@ export function getPollSeoContext(
 
 export function getHomeSeoContext(settings: PublicSettingsSeo, origin: string): SeoContext {
   return buildSeoContext('/', settings, origin, {
-    title: settings.site_name,
+    title: `${settings.site_name} - ${settings.site_slogan}`,
     description: settings.site_slogan,
     ogType: 'website'
   });
