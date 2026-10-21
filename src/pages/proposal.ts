@@ -155,6 +155,10 @@ export function descriptionFieldMarkup(): string {
   return `
     <label class="grid gap-2 font-bold" for="proposal-description">${t('proposalDescriptionLabel')}
       <textarea class="w-full resize-none overflow-hidden rounded-[14px] border border-border bg-white px-3.5 py-3 font-normal" id="proposal-description" name="description" rows="${DESCRIPTION_MIN_ROWS}" maxlength="2000"></textarea>
+      <div class="flex flex-wrap items-center gap-2.5" data-ai-description>
+        <button class="cursor-pointer rounded-full border border-border bg-panel px-3.5 py-2 text-sm text-ink disabled:cursor-not-allowed disabled:opacity-60" type="button" data-ai-enhance-description hidden>${t('aiEnhanceDescription')}</button>
+        <div class="hidden" data-turnstile-enhance-description></div>
+      </div>
     </label>
   `;
 }

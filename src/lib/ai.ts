@@ -35,6 +35,19 @@ export async function suggestOptions(payload: {
   });
 }
 
+export async function enhanceDescription(payload: {
+  title: string;
+  description?: string;
+  options: string[];
+  locale: AiLocale;
+  turnstileToken?: string;
+}): Promise<{ description: string }> {
+  return fetchJson('/api/ai/enhance-description', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  });
+}
+
 // Asks for one category slug, or `none` when nothing fits.
 export async function categorise(payload: {
   title: string;

@@ -227,6 +227,12 @@ export interface OptionSuggestionInput {
   count: number;
 }
 
+export interface DescriptionSuggestionInput {
+  title: string;
+  description?: string;
+  options: string[];
+}
+
 export async function suggestPollOptions(
   env: AiEnv,
   model: string,
@@ -298,4 +304,45 @@ export async function categorisePoll(
   if (typeof slug !== 'string') return { ok: false, reason: 'bad_model_output' };
   const normalized = slug.trim().toLowerCase();
   return { ok: true, value: enabled.has(normalized) ? normalized : null };
+}
+
+const DESCRIPTION_SCHEMA = {
+  type: 'object',
+  properties: {
+    description: { type: 'string' }
+  },
+  required: ['description']
+};
+
+export async function enhanceDescription(
+  env: AiEnv,
+  model: string,
+  input: DescriptionSuggestionInput,
+  locale: AiLocale
+): Promise<AiResult<string>> {
+  const messages = [
+    { role: 'system', content: SYSTEM_PROMPT },
+    {
+      role: 'user',
+      content: [
+        `Poll title: ${input.title}`,
+        input.description ? `Current description: ${input.description}` : 'No description yet.',
+        input.options.length > 0 ? `Poll options: ${input.options.join(', ')}` : 'No options yet.',
+        'Write a neutral, concise description for this poll (max 2000 characters).',
+        'The description should explain what the poll is about without taking a side.',
+        `Answer in ${LOCALE_NAMES[locale]}.`,
+        'Return JSON: {"description": "..."}.'
+      ].filter((line) => line.length > 0).join('\n')
+    }
+  ];
+  const result = await callModel(env, model, messages, DESCRIPTION_SCHEMA);
+  if (!result.ok) return result;
+
+  const root = readJsonField(result.value);
+  if (typeof root !== 'object' || root === null) return { ok: false, reason: 'bad_model_output' };
+  const description = (root as Record<string, unknown>).description;
+  if (typeof description !== 'string') return { ok: false, reason: 'bad_model_output' };
+  const trimmed = description.trim().replace(/\s+/g, ' ');
+  if (trimmed.length < 1 || trimmed.length > MAX_DESCRIPTION_LENGTH) return { ok: false, reason: 'bad_model_output' };
+  return { ok: true, value: trimmed };
 }

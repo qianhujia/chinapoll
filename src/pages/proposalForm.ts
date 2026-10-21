@@ -15,7 +15,7 @@ import {
 } from '../lib/poll';
 import { getPublicSettings } from '../config';
 import { getErrorMessage, showToast, t } from '../ui';
-import { categorise, type AiLocale } from '../lib/ai';
+import { categorise, enhanceDescription, type AiLocale } from '../lib/ai';
 import { renderTurnstile, turnstileToken } from '../lib/turnstile';
 import {
   DESCRIPTION_MAX_ROWS,
@@ -109,6 +109,7 @@ export function bindProposalForm(app: HTMLElement, bindNavigation: () => void, a
   const aiDiscardButton = form.querySelector<HTMLButtonElement>('[data-ai-discard]');
   const aiOptionsButton = form.querySelector<HTMLButtonElement>('[data-ai-options]');
   const aiEnhanceButton = form.querySelector<HTMLButtonElement>('[data-ai-enhance]');
+  const aiEnhanceDescriptionButton = form.querySelector<HTMLButtonElement>('[data-ai-enhance-description]');
   const aiHint = form.querySelector<HTMLElement>('[data-ai-hint]');
   const submitButton = form.querySelector<HTMLButtonElement>('button[type="submit"]')!;
   const categorySelect = form.querySelector('[data-category]') as HTMLSelectElement | null;
@@ -178,6 +179,7 @@ export function bindProposalForm(app: HTMLElement, bindNavigation: () => void, a
     const longEnough = (titleInput?.value.trim().length ?? 0) >= 10;
     if (aiEnhanceButton) aiEnhanceButton.disabled = !longEnough;
     if (aiOptionsButton) aiOptionsButton.disabled = !longEnough;
+    if (aiEnhanceDescriptionButton) aiEnhanceDescriptionButton.disabled = !longEnough;
     if (aiHint) aiHint.hidden = longEnough;
   };
 
@@ -218,9 +220,11 @@ export function bindProposalForm(app: HTMLElement, bindNavigation: () => void, a
     const enhanceWidget = form.querySelector<HTMLElement>('[data-turnstile-enhance]');
     const optionsWidget = form.querySelector<HTMLElement>('[data-turnstile-options]');
     const categoryWidget = form.querySelector<HTMLElement>('[data-turnstile-category]');
+    const enhanceDescriptionWidget = form.querySelector<HTMLElement>('[data-turnstile-enhance-description]');
     if (enhanceWidget) renderTurnstile('ai-enhance', enhanceWidget);
     if (optionsWidget) renderTurnstile('ai-options', optionsWidget);
     if (categoryWidget) renderTurnstile('ai-category', categoryWidget);
+    if (enhanceDescriptionWidget) renderTurnstile('ai-enhance-description', enhanceDescriptionWidget);
   }
 
   addOptionButton?.addEventListener('click', () => {
@@ -317,6 +321,31 @@ export function bindProposalForm(app: HTMLElement, bindNavigation: () => void, a
     } finally {
       categoryButton.textContent = t('categorySuggest');
       categoryButton.disabled = false;
+    }
+  });
+
+  aiEnhanceDescriptionButton?.addEventListener('click', async () => {
+    if (!titleInput || titleInput.value.trim().length < 10) return;
+    aiEnhanceDescriptionButton.disabled = true;
+    aiEnhanceDescriptionButton.textContent = t('aiEnhancing');
+    try {
+      const options = rows().map((row) =>
+        row.querySelector<HTMLInputElement>('[data-option-label]')?.value.trim() ?? ''
+      ).filter((label) => label.length > 0);
+      const result = await enhanceDescription({
+        title: titleInput.value.trim(),
+        description: descriptionInput?.value.trim() ?? '',
+        options,
+        locale: (getPublicSettings().default_locale ?? 'en') as AiLocale,
+        turnstileToken: turnstileToken('ai-enhance-description')
+      });
+      if (descriptionInput) descriptionInput.value = result.description;
+      syncDescriptionHeight();
+    } catch (error) {
+      showToast(`${t('aiFailed')} ${getErrorMessage(error)}`, 'error');
+    } finally {
+      aiEnhanceDescriptionButton.textContent = t('aiEnhanceDescription');
+      aiEnhanceDescriptionButton.disabled = false;
     }
   });
 

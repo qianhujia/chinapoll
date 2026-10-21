@@ -14,6 +14,7 @@ import {
   MAX_DESCRIPTION_LENGTH,
   MAX_TITLE_LENGTH,
   categorisePoll,
+  enhanceDescription,
   suggestPollOptions,
   suggestTitles,
   type AiLocale
@@ -51,6 +52,9 @@ export async function handleAiRequest(request: Request, url: URL, env: HandlerEn
   }
   if (url.pathname === '/api/ai/suggest-options') {
     return handleSuggestOptions(request, env);
+  }
+  if (url.pathname === '/api/ai/enhance-description') {
+    return handleEnhanceDescription(request, env);
   }
   if (url.pathname === '/api/ai/categorise') {
     return handleCategorise(request, env);
@@ -205,6 +209,34 @@ async function handleSuggestOptions(request: Request, env: HandlerEnv): Promise<
   if (!result.ok) return failureResponse(result.reason);
 
   return Response.json({ ok: true, options: result.value }, {
+    headers: { 'cache-control': 'no-store' }
+  });
+}
+
+async function handleEnhanceDescription(request: Request, env: HandlerEnv): Promise<Response> {
+  const context = await openAiContext(request, env);
+  if (context instanceof Response) return context;
+
+  const input = readText(context.body, context.model);
+  if (input instanceof Response) return input;
+
+  const options: string[] = Array.isArray(context.body.options)
+    ? context.body.options.filter((o): o is string => typeof o === 'string' && o.trim().length > 0)
+    : [];
+
+  const result = await enhanceDescription(
+    env,
+    input.model,
+    {
+      title: input.title,
+      description: input.description || undefined,
+      options
+    },
+    input.locale
+  );
+  if (!result.ok) return failureResponse(result.reason);
+
+  return Response.json({ ok: true, description: result.value }, {
     headers: { 'cache-control': 'no-store' }
   });
 }
