@@ -275,7 +275,7 @@ This second button turns the same repository into the **admin** Worker applicati
 On its setup page, name the Worker (for example `chinapoll-admin-worker`), bind the
 **same D1 database as the public Worker** (choose the existing database rather than
 creating another one, so both Workers share one schema), and set the deploy command to
-`npm run admin:worker:deploy:remote`. That command applies the D1 migrations by
+`npm run deploy:admin:remote`. That command applies the D1 migrations by
 database name (`npx wrangler d1 migrations apply chinapoll --env production --remote`) and
 then runs
 `npx wrangler deploy --config admin/wrangler.toml --env production`. Turnstile is
@@ -313,7 +313,7 @@ the public Worker: `TURNSTILE_SITE_KEY` renders the widget and
 dashboard is protected by a per-request CSP nonce, cookie-authenticated writes
 are rejected unless they originate from the Worker itself, and the audit log
 records admin actions without client IP addresses. Deploy with
-`npm run admin:worker:deploy`.
+`npm run deploy:admin`.
 
 ## Testing
 

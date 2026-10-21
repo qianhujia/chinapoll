@@ -43,7 +43,7 @@ Both Workers bind the same database, so they share one schema.
 
 Both Workers also have a Deploy to Cloudflare button (see README.md) for deployments
 driven from the dashboard instead of the CLI. Set the public deploy command to
-`npm run deploy` and the admin one to `npm run admin:worker:deploy:remote`; both apply
+`npm run deploy` and the admin one to `npm run deploy:admin:remote`; both apply
 the migrations by database name with `--env production` and then deploy the
 `[env.production]` Worker. Set each project's build command to `npm run build` so that
 `dist/web` exists before the public Worker is deployed.
@@ -59,7 +59,7 @@ which disables the custom domain and enables the `workers.dev` URL, so the
 environment has to be named explicitly.
 
 Use `npm run deploy` for the public Worker and
-`npm run admin:worker:deploy:remote` for the admin Worker, or pass the flag
+`npm run deploy:admin:remote` for the admin Worker, or pass the flag
 directly with `npx wrangler deploy --env production`. When a Deploy to Cloudflare
 button drives the build, set its deploy command to the matching script: the build
 command loads `dist/web` and the deploy command has to select `[env.production]`.

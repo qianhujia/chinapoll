@@ -209,10 +209,10 @@ can view and resolve reports. Resolved reports are deleted 90 days after
 
 ```bash
 npm run admin:worker:dry-run
-npm run admin:worker:deploy
+npm run deploy:admin
 ```
 
-`admin:worker:deploy` deploys `[env.production]`, which declares the D1 binding by
+`deploy:admin` deploys `[env.production]`, which declares the D1 binding by
 database name only (`DB` -> `chinapoll`), so no database UUID is committed. Wrangler
 resolves the real UUID at deploy time; apply the shared schema with
 `npx wrangler d1 migrations apply chinapoll --env production --remote`.
@@ -220,7 +220,7 @@ resolves the real UUID at deploy time; apply the shared schema with
 Or deploy from the repository root with the admin Deploy to Cloudflare button in
 `README.md`: name the second Worker application (for example
 `chinapoll-admin-worker`), bind the same D1 database as the public Worker, and use
-`npm run admin:worker:deploy:remote` as its deploy command.
+`npm run deploy:admin:remote` as its deploy command.
 
 Because this Worker can publish polls, delete comments, and manage other admins,
 put it behind Cloudflare Access or another access control layer in production.
