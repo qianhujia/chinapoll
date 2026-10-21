@@ -9,6 +9,7 @@ import { getPublicSettings, loadPublicSettings } from './config';
 import { loadSession } from './lib/session';
 import { bindHeaderSearch, setSearchNavigator } from './search';
 import { getErrorMessage, getQueryPage, getSiteName } from './ui';
+import { updateSeo, getSeoForRoute } from './seo';
 
 const app = document.querySelector<HTMLElement>('#app');
 
@@ -44,8 +45,12 @@ function navigateTo(route: string): void {
 
 async function render() {
   document.documentElement.lang = DEFAULT_LOCALE;
-  document.title = getSiteName();
   const route = getCurrentRoute();
+
+  // Update SEO for the current route
+  const settings = getPublicSettings();
+  const seo = getSeoForRoute(route, { site_name: settings.site_name, site_slogan: settings.site_slogan });
+  updateSeo(seo);
 
   if (route === '/about') {
     mountAboutPage(app!, bindNavigation);

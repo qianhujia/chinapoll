@@ -1,5 +1,5 @@
 import { loginUser, recoverPassword, registerUser } from '../lib/session';
-import { escapeHtml, getErrorMessage, renderFooter, renderHeader, renderRecoveryCode, renderToast, showToast, t } from '../ui';
+import { escapeHtml, getErrorMessage, renderFooter, renderHeader, renderRecoveryCode, renderToast, showToast, t, viewIconMarkup } from '../ui';
 import { getPublicSettings } from '../config';
 import { renderTurnstile, resetTurnstile, turnstileSiteKey, turnstileToken } from '../lib/turnstile';
 
@@ -11,11 +11,30 @@ function navigate(route: string): void {
 }
 
 function fieldMarkup(id: string, name: string, label: string, type: string, autocomplete: string): string {
+  const isPassword = type === 'password';
+  const toggleBtn = isPassword
+    ? `<button type="button" class="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-ink" aria-label="${t('togglePassword')}" data-toggle-password>${viewIconMarkup('h-5 w-5')}</button>`
+    : '';
   return `
-    <label class="grid gap-2" for="${id}">${escapeHtml(label)}
-      <input class="w-full rounded-[14px] border border-border bg-[#f9fbff] px-3.5 py-3" id="${id}" name="${name}" type="${type}" autocomplete="${autocomplete}" required>
+    <label class="relative grid gap-2" for="${id}">${escapeHtml(label)}
+      <div class="relative">
+        <input class="w-full rounded-[14px] border border-border bg-[#f9fbff] px-3.5 py-3 ${isPassword ? 'pr-12' : ''}" id="${id}" name="${name}" type="${type}" autocomplete="${autocomplete}" required>
+        ${toggleBtn}
+      </div>
     </label>
   `;
+}
+
+function bindPasswordToggles(root: HTMLElement): void {
+  root.querySelectorAll<HTMLButtonElement>('[data-toggle-password]').forEach((btn) => {
+    const input = btn.previousElementSibling as HTMLInputElement;
+    if (!input || input.tagName !== 'INPUT') return;
+    btn.addEventListener('click', () => {
+      const isPassword = input.type === 'password';
+      input.type = isPassword ? 'text' : 'password';
+      btn.setAttribute('aria-label', t(isPassword ? 'hidePassword' : 'togglePassword'));
+    });
+  });
 }
 
 export async function mountLoginPage(app: HTMLElement, bindNavigation: () => void): Promise<void> {
@@ -65,6 +84,8 @@ export async function mountLoginPage(app: HTMLElement, bindNavigation: () => voi
   if (loginWidget) await renderTurnstile('login', loginWidget);
 
   bindNavigation();
+
+  bindPasswordToggles(app);
 }
 
 export async function mountRegisterPage(app: HTMLElement, bindNavigation: () => void): Promise<void> {
@@ -144,6 +165,8 @@ export async function mountRegisterPage(app: HTMLElement, bindNavigation: () => 
   if (registerWidget) await renderTurnstile('register', registerWidget);
 
   bindNavigation();
+
+  bindPasswordToggles(app);
 }
 // Shown right after sign-up or a password reset: the recovery code is visible
 // exactly once, so the user is nudged to copy it before continuing.
@@ -243,4 +266,6 @@ export function mountResetPage(app: HTMLElement, bindNavigation: () => void): vo
   });
 
   bindNavigation();
+
+  bindPasswordToggles(app);
 }

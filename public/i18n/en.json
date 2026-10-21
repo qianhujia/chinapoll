@@ -143,6 +143,8 @@
   "username": "Username",
   "password": "Password",
   "confirmPassword": "Confirm password",
+  "togglePassword": "Show password",
+  "hidePassword": "Hide password",
   "passwordMismatch": "The two passwords do not match.",
   "passwordInvalid": "Password must be at least 12 characters.",
   "accountTitle": "My account",

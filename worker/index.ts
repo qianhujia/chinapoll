@@ -1,11 +1,11 @@
 // Public application Worker: JSON API plus the SPA shell.
 //
-// The Worker binds to D1 for persistent data and to a RateLimiter Durable Object
-// for atomic rate limiting. It never stores a raw client address: network
-// buckets are keyed and rotated with SERVER_HMAC_KEY (see worker/services/ip.ts).
-// Every request is routed through the Worker: the JSON API is answered here, and
-// other paths are served from the assets binding so the HTML document gets a
-// Content Security Policy on every route, including deep links such as /poll/12.
+ // The Worker binds to D1 for persistent data and to a RateLimiter Durable Object
+ // for atomic rate limiting. It never stores a raw client address: network
+ // buckets are keyed and rotated with SERVER_HMAC_KEY (see worker/services/ip.ts).
+ // Every request is routed through the Worker: the JSON API is answered here, and
+ // other paths are served from the assets binding so the HTML document gets a
+ // Content Security Policy on every route, including deep links such as /poll/12.
 
 import { handleProposalRequest } from './api/proposal';
 import { handleAiRequest } from './api/ai';
@@ -29,6 +29,20 @@ import { makeSnapshot } from './services/snapshot';
 import { runMaintenanceTasks } from './services/maintenance';
 import { publishHealth } from './services/publisher';
 import { isValidServerKey, serverHmacKey } from './services/ip';
+import {
+  buildMetaTags,
+  buildSeoContext,
+  getHomeSeoContext,
+  getPollsListSeoContext,
+  getAboutSeoContext,
+  getSubmitSeoContext,
+  getAuthSeoContext,
+  getAccountSeoContext,
+  getNotFoundSeoContext,
+  getPollSeoContext,
+  injectSeoIntoHtml,
+  type PublicSettingsSeo
+} from './services/seo';
 
 export interface Env {
   DB: D1Database;
@@ -63,47 +77,125 @@ function buildSha(env: Env): string {
 }
 
 // Content Security Policy for the SPA document. Only the site itself and the
-// Turnstile host may be used; inline styles are allowed because the SPA sets
-// style attributes. Kept in sync with scripts allowed by the frontend.
-const PUBLIC_CSP = [
-  "default-src 'none'",
-  "script-src 'self' https://challenges.cloudflare.com",
-  "style-src 'self' 'unsafe-inline'",
-  "connect-src 'self' https://challenges.cloudflare.com",
-  "frame-src https://challenges.cloudflare.com",
-  "img-src 'self' data:",
-  "font-src 'self' data:",
-  "base-uri 'none'",
-  "form-action 'self'",
-  "frame-ancestors 'none'"
-].join('; ');
+ // Turnstile host may be used; inline styles are allowed because the SPA sets
+ // style attributes. Kept in sync with scripts allowed by the frontend.
+ const PUBLIC_CSP = [
+   "default-src 'none'",
+   "script-src 'self' https://challenges.cloudflare.com",
+   "style-src 'self' 'unsafe-inline'",
+   "connect-src 'self' https://challenges.cloudflare.com",
+   "frame-src https://challenges.cloudflare.com",
+   "img-src 'self' data:",
+   "font-src 'self' data:",
+   "base-uri 'none'",
+   "form-action 'self'",
+   "frame-ancestors 'none'"
+ ].join('; ');
 
-// Privacy headers applied to every response.
-function withSecurityHeaders(response: Response): Response {
-  const headers = new Headers(response.headers);
-  headers.set('cache-control', 'no-store');
-  headers.set('referrer-policy', 'no-referrer');
-  headers.set('x-content-type-options', 'nosniff');
-  headers.set('x-frame-options', 'DENY');
-  headers.set('strict-transport-security', 'max-age=31536000; includeSubDomains');
-  return new Response(response.body, {
-    status: response.status,
-    statusText: response.statusText,
-    headers
-  });
-}
+ // Privacy headers applied to HTML and API responses. Static assets keep their
+ // original cache headers (hashed assets are immutable).
+ function withSecurityHeaders(response: Response, isHtmlOrApi: boolean): Response {
+   const headers = new Headers(response.headers);
+   if (isHtmlOrApi) {
+     headers.set('cache-control', 'no-store');
+   }
+   headers.set('referrer-policy', 'no-referrer');
+   headers.set('x-content-type-options', 'nosniff');
+   headers.set('x-frame-options', 'DENY');
+   headers.set('strict-transport-security', 'max-age=31536000; includeSubDomains');
+   return new Response(response.body, {
+     status: response.status,
+     statusText: response.statusText,
+     headers
+   });
+ }
 
-// Attaches the CSP to the HTML document returned by the assets layer.
-function withHtmlCsp(response: Response): Response {
-  if (!(response.headers.get('content-type') ?? '').includes('text/html')) return response;
-  const headers = new Headers(response.headers);
-  headers.set('content-security-policy', PUBLIC_CSP);
-  return new Response(response.body, {
-    status: response.status,
-    statusText: response.statusText,
-    headers
-  });
-}
+ // Attaches the CSP to the HTML document returned by the assets layer.
+ function withHtmlCsp(response: Response): Response {
+   if (!(response.headers.get('content-type') ?? '').includes('text/html')) return response;
+   const headers = new Headers(response.headers);
+   headers.set('content-security-policy', PUBLIC_CSP);
+   return new Response(response.body, {
+     status: response.status,
+     statusText: response.statusText,
+     headers
+   });
+ }
+
+// Injects route-specific SEO metadata into the HTML document.
+  async function withSeoMetadata(
+    response: Response,
+    request: Request,
+    settings: PublicSettingsSeo,
+    origin: string,
+    env: Env
+  ): Promise<Response> {
+    console.log('[DEBUG] withSeoMetadata:', new URL(request.url).pathname);
+    if (!(response.headers.get('content-type') ?? '').includes('text/html')) {
+      console.log('[DEBUG] not html, skipping');
+      return response;
+    }
+
+    const url = new URL(request.url);
+    const pathname = url.pathname;
+    let seoContext;
+
+    // Match routes and build appropriate SEO context
+    if (pathname === '/' || pathname === '/index.html') {
+      seoContext = getHomeSeoContext(settings, origin);
+    } else if (pathname === '/polls' || pathname.startsWith('/polls?') || pathname.startsWith('/polls/')) {
+      seoContext = getPollsListSeoContext(settings, origin);
+    } else if (pathname === '/about') {
+      seoContext = getAboutSeoContext(settings, origin);
+    } else if (pathname === '/submit') {
+      seoContext = getSubmitSeoContext(settings, origin);
+    } else if (pathname === '/login' || pathname === '/register' || pathname === '/reset') {
+      seoContext = getAuthSeoContext(pathname, settings, origin);
+    } else if (pathname === '/account' || pathname.startsWith('/account/')) {
+      seoContext = getAccountSeoContext(settings, origin);
+    } else if (pathname.startsWith('/poll/')) {
+      const pollId = Number(pathname.split('/').pop());
+      if (Number.isSafeInteger(pollId) && pollId > 0) {
+        try {
+          const poll = await env.DB.prepare(
+            `SELECT id, title, description, status FROM polls WHERE id = ? AND mode IN (?, ?) AND status IN (?, ?, ?)`
+          ).bind(pollId, 1, 2, 1, 2, 3).first<{ id: number; title: string; description: string | null; status: number }>();
+          if (poll) {
+            const { getPollStatusLabel } = await import('./enums.js');
+            seoContext = getPollSeoContext(
+              { ...poll, status: getPollStatusLabel(poll.status) },
+              settings,
+              origin
+            );
+          }
+        } catch {
+          // Fall through to generic page SEO
+        }
+      }
+    }
+
+    if (!seoContext) {
+      // Check if it's a known SPA route (valid client-side routes)
+      const knownRoutes = ['/', '/about', '/submit', '/login', '/register', '/reset', '/account', '/polls'];
+      const isKnownRoute = knownRoutes.some(r => pathname === r || pathname.startsWith(r + '/') || pathname.startsWith(r + '?'));
+      if (!isKnownRoute && !pathname.startsWith('/poll/') && !pathname.startsWith('/vote/')) {
+        seoContext = getNotFoundSeoContext(settings, origin);
+      }
+    }
+
+    if (seoContext) {
+      const html = await response.text();
+      const metaTags = buildMetaTags(seoContext, settings, origin);
+      const withMeta = injectSeoIntoHtml(html, metaTags);
+      return new Response(withMeta, {
+        status: response.status,
+        statusText: response.statusText,
+        headers: response.headers
+      });
+    }
+
+    return response;
+  }
 
 // Settings are cached per isolate for a short window so every request does not
 // re-read them. A change therefore takes up to 30 seconds to apply.
@@ -163,7 +255,62 @@ async function handleHealth(env: Env, settingsError: boolean): Promise<Response>
 }
 
 async function route(request: Request, env: Env): Promise<Response> {
+  console.log('[DEBUG] route:', new URL(request.url).pathname);
   const url = new URL(request.url);
+  const origin = url.origin;
+
+  // Special static files served by the Worker (not from assets)
+  if (url.pathname === '/robots.txt') {
+    const robots = `User-agent: *
+Allow: /
+
+# Disallow authentication and account pages
+Disallow: /login
+Disallow: /register
+Disallow: /reset
+Disallow: /account/
+
+# Disallow admin (separate subdomain)
+Disallow: /api/
+
+Sitemap: ${origin}/sitemap.xml
+`;
+    return withSecurityHeaders(new Response(robots, {
+      headers: { 'content-type': 'text/plain; charset=utf-8' }
+    }), true);
+  }
+
+  if (url.pathname === '/sitemap.xml') {
+    // Fetch open polls for the sitemap
+    const { PollStatus, PollMode } = await import('./enums.js');
+    const pollResult = await env.DB.prepare(
+      `SELECT id, updated_at FROM polls
+       WHERE status = ? AND mode IN (?, ?)
+       ORDER BY updated_at DESC LIMIT 5000`
+    ).bind(PollStatus.Open, PollMode.Deadline, PollMode.Evergreen).all<{ id: number; updated_at: number }>();
+
+    const polls = (pollResult.results ?? []).map(row => ({
+      url: `${origin}/poll/${row.id}`,
+      lastmod: new Date(row.updated_at * 1000).toISOString().split('T')[0]
+    }));
+
+    const staticUrls = [
+      { url: origin, lastmod: new Date().toISOString().split('T')[0], changefreq: 'daily', priority: 1.0 },
+      { url: `${origin}/about`, lastmod: new Date().toISOString().split('T')[0], changefreq: 'monthly', priority: 0.8 },
+      { url: `${origin}/submit`, lastmod: new Date().toISOString().split('T')[0], changefreq: 'monthly', priority: 0.6 },
+      { url: `${origin}/polls`, lastmod: new Date().toISOString().split('T')[0], changefreq: 'daily', priority: 0.9 }
+    ];
+
+    const sitemap = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+${staticUrls.map(u => `  <url><loc>${u.url}</loc><lastmod>${u.lastmod}</lastmod><changefreq>${u.changefreq}</changefreq><priority>${u.priority}</priority></url>`).join('\n')}
+${polls.map(p => `  <url><loc>${p.url}</loc><lastmod>${p.lastmod}</lastmod><changefreq>weekly</changefreq><priority>0.7</priority></url>`).join('\n')}
+</urlset>`;
+
+    return withSecurityHeaders(new Response(sitemap, {
+      headers: { 'content-type': 'application/xml; charset=utf-8' }
+    }), true);
+  }
 
   // The JSON API is answered by the Worker. Unknown API paths return JSON so
   // they never fall through to the single-page application shell.
@@ -224,15 +371,29 @@ async function route(request: Request, env: Env): Promise<Response> {
   }
 
   // Everything else, including the SPA shell and deep links such as `/poll/12`,
-  // is served from the assets binding; the HTML document receives the CSP. With
-  // `run_worker_first`, static assets still come from the assets layer.
-  return withHtmlCsp(await env.ASSETS.fetch(request));
+  // is served from the assets binding; the HTML document receives the CSP.
+  // With `run_worker_first`, static assets still come from the assets layer.
+  const { settings } = await loadSettings(env);
+  const publicSettings: PublicSettingsSeo = {
+    site_name: settings.site_name,
+    site_slogan: settings.site_slogan,
+    default_locale: settings.default_locale
+  };
+
+  const assetsResponse = await env.ASSETS.fetch(request);
+  const withCsp = withHtmlCsp(assetsResponse);
+  const withSeo = await withSeoMetadata(withCsp, request, publicSettings, origin, env);
+  
+  const isHtml = (withSeo.headers.get('content-type') ?? '').includes('text/html');
+  const isApi = url.pathname.startsWith('/api/');
+  return withSecurityHeaders(withSeo, isHtml || isApi);
 }
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    console.log('[DEBUG] fetch:', request.url);
     try {
-      return withSecurityHeaders(await route(request, env));
+      return withSecurityHeaders(await route(request, env), true);
     } catch (error) {
       // Structured error, never logs headers, bodies, cookies, or addresses.
       console.error(JSON.stringify({
@@ -240,7 +401,7 @@ export default {
         status: 500,
         error: error instanceof Error ? error.message : String(error)
       }));
-      return withSecurityHeaders(Response.json({ message: 'internal error' }, { status: 500 }));
+      return withSecurityHeaders(Response.json({ message: 'internal error' }, { status: 500 }), true);
     } finally {
       void ctx;
     }
