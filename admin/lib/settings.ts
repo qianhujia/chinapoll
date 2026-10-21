@@ -10,7 +10,7 @@ export type SettingKey = keyof typeof DEFAULT_PUBLIC_SETTINGS;
 export const SETTING_KEYS = Object.keys(DEFAULT_PUBLIC_SETTINGS) as SettingKey[];
 
 // Settings that must never be returned in full through the admin API.
-export const SECRET_SETTING_KEYS: ReadonlyArray<SettingKey> = ['turnstile_secret_key', 'github_token'];
+export const SECRET_SETTING_KEYS: ReadonlyArray<SettingKey> = ['github_token'];
 
 export type SettingValidationResult =
   | { ok: true; value: string }
@@ -97,7 +97,6 @@ export function validateSettingValue(key: string, value: string): SettingValidat
       }
       break;
     case 'read_only_mode':
-    case 'turnstile_enable':
     case 'login_badge_enable':
     case 'auto_approve_polls':
     case 'ai_enable':
@@ -146,14 +145,6 @@ export function validateSettingValue(key: string, value: string): SettingValidat
     case 'report_auto_hide_priority_threshold':
       if (!/^\d+$/.test(value) || Number(value) > 1000) {
         return { ok: false, error: 'report_auto_hide_priority_threshold must be an integer from 0 to 1000.' };
-      }
-      break;
-    case 'turnstile_site_key':
-      if (value.length > 100) return { ok: false, error: 'turnstile_site_key must not exceed 100 characters.' };
-      break;
-    case 'turnstile_secret_key':
-      if (value && !/^[0-9a-f]{64}$/i.test(value)) {
-        return { ok: false, error: 'turnstile_secret_key must be a 64-character hex string.' };
       }
       break;
   }

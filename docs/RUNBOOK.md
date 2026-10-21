@@ -23,8 +23,11 @@ are run from the repository root.
 3. Build the SPA: `npm run build` (outputs to `dist/web`).
 4. Deploy the public Worker: `npx wrangler deploy --env production`.
 5. Deploy the admin Worker: `npx wrangler deploy --config admin/wrangler.toml --env production`.
-6. Optionally set `TURNSTILE_SITE_KEY` for the admin Worker:
-   `npx wrangler secret put TURNSTILE_SITE_KEY --config admin/wrangler.toml --env production`.
+6. Optional Turnstile. Set `TURNSTILE_SITE_KEY` as a plain variable under
+   `[env.production.vars]` in `wrangler.toml` and `admin/wrangler.toml`, then store
+   the secret with `npx wrangler secret put TURNSTILE_SECRET_KEY --env production`
+   (add `--config admin/wrangler.toml` for the admin Worker). Turnstile is enabled
+   on a Worker only when both keys are present there.
 
 Neither `wrangler.toml` file commits a production database UUID. The `[env.production]`
 environment declares the D1 binding by database name only (variable `DB` ->
@@ -71,7 +74,7 @@ GitHub Actions workflow. Configure it from the admin Settings tab, under
    has write permission, and **Publish now** to run one pass immediately.
 
 Where the token lives: the `github_token` value is a row in the shared D1
-`settings` table, stored exactly like `turnstile_secret_key`. It is masked in the
+`settings` table as a secret row. It is masked in the
 admin API and dashboard, stripped from the public settings endpoint, and never
 written to the audit log or to any log line.
 
@@ -111,7 +114,8 @@ Test a restore at least quarterly against a staging database.
 
 `SERVER_HMAC_KEY` may be rotated at any time: values already in `auth_attempts` stop
 matching, which only relaxes the rolling account cap for one day. Rotate the
-Turnstile secret from the dashboard and the admin Settings tab, and rotate the
+Turnstile secret by uploading a new value with
+`npx wrangler secret put TURNSTILE_SECRET_KEY`, and rotate the
 GitHub publish token the same way (see [Audit publishing](#audit-publishing)).
 The legacy `IP_HASH_KEY` name is still read as a fallback, so a deployment can
 move to `SERVER_HMAC_KEY` without downtime.

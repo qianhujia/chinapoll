@@ -22,7 +22,7 @@ import { loadEnabledCategories } from './categories';
 import { categoryNames } from '../../shared/categories';
 import { checkRateLimit } from '../services/rateLimit';
 import { enforceSameOrigin } from '../services/csrf';
-import { verifyTurnstile } from '../services/turnstile';
+import { isTurnstileEnabled, turnstileSecretKey, verifyTurnstile } from '../services/turnstile';
 import { requireUser } from '../services/session';
 import { checkAccountAge } from '../services/users';
 
@@ -94,9 +94,9 @@ async function openAiContext(request: Request, env: HandlerEnv): Promise<AiConte
   }
 
   // The same Turnstile gate as the other account actions.
-  if (env.turnstile_enable && env.turnstile_secret_key) {
+  if (isTurnstileEnabled(env)) {
     const token = typeof body.turnstileToken === 'string' ? body.turnstileToken : '';
-    if (!token || !await verifyTurnstile(env.turnstile_secret_key, token, new URL(request.url).hostname)) {
+    if (!token || !await verifyTurnstile(turnstileSecretKey(env), token, new URL(request.url).hostname)) {
       return Response.json({ message: 'turnstile verification failed' }, { status: 403 });
     }
   }

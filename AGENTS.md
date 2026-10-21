@@ -17,5 +17,5 @@ This repository follows strict English-only rules for all contributor-facing tex
 
 - Keep the project runnable locally.
 - Use local D1 migrations for schema updates.
-- Keep Turnstile disabled locally unless explicitly requested for production verification.
+- Keep Turnstile disabled locally unless explicitly requested for production verification. Turnstile is configured only through the `TURNSTILE_SITE_KEY` and `TURNSTILE_SECRET_KEY` environment variables and is enabled exactly when both are set.
 - Treat English-only documentation as a required repository standard, not as optional wording.

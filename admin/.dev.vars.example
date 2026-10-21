@@ -7,3 +7,8 @@
 # super admin; later admins cannot read the audit log.
 #
 # No secrets are required for local development.
+#
+# Optional Turnstile configuration. The login widget and the server-side check are
+# skipped while either value is empty, so leave both blank for normal local work.
+# TURNSTILE_SITE_KEY=0x4AAAAAAA...
+# TURNSTILE_SECRET_KEY=0x4AAAAAAA...

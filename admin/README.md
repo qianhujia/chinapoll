@@ -66,12 +66,13 @@ through the API at deploy time.
 | Variable | Required | Purpose |
 | --- | --- | --- |
 | `TURNSTILE_SITE_KEY` | No | Public Turnstile site key rendered on the login form |
+| `TURNSTILE_SECRET_KEY` | No | Private Turnstile key used to verify login tokens; the login check runs only when both keys are set |
 | `ADMIN_ORIGIN` | No | Extra origin allowed for cookie-authenticated mutations |
 | `PUBLIC_SITE_ORIGIN` | No | Origin of the public site, used to link a report row to its poll (for example `https://chinapoll.org`) |
 
-Turnstile verification runs only when the `turnstile_enable` setting is `true`
-and both the `turnstile_secret_key` setting and `TURNSTILE_SITE_KEY` are present,
-so local development stays usable without keys.
+Turnstile verification runs only when both `TURNSTILE_SITE_KEY` and
+`TURNSTILE_SECRET_KEY` are set. The keys are environment variables, never
+settings, so local development stays usable without keys.
 
 ## Authentication
 
@@ -242,8 +243,8 @@ once an hour. It has four fields plus a secret:
 limited to the one data repository with **Contents: Read and write** only and no
 other permission. Do not use a classic token with a broad scope.
 
-**Storage.** The token is a normal `settings` row, handled like
-`turnstile_secret_key`: it is stored in the `settings` table, masked by
+**Storage.** The token is a normal secret `settings` row: it is stored in the
+`settings` table, masked by
 `GET /api/admin/settings`, never returned by `/api/settings/public`, and never
 written to the audit log. The Settings tab shows a password field; leaving it
 blank keeps the current value.

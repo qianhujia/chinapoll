@@ -188,7 +188,7 @@ Note: `ip_prefix` was removed; account cap counters live in `auth_attempts`.
 
 ## settings
 
-Key/value configuration. Secrets (`turnstile_secret_key`, `github_token`) are read
+Key/value configuration. The `github_token` secret is read
 by the Workers only and are stripped from the public endpoint. The publish
 settings (`publish_enable`, `publish_repository`, `publish_branch`,
 `publish_path`) are private too: they are never served by the public endpoint.

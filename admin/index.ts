@@ -8,8 +8,10 @@
 // Admin users sign in with a username and password (see admin_users). The first
 // admin is a super admin; later admins are regular admins and cannot read the
 // audit log. Optional environment variables:
-//   TURNSTILE_SITE_KEY  public Turnstile site key for the login form
-//   ADMIN_ORIGIN        extra origin allowed for cookie-authenticated mutations
+//   TURNSTILE_SITE_KEY    public Turnstile site key for the login form
+//   TURNSTILE_SECRET_KEY  private Turnstile key used to verify login tokens; the
+//                         login form requires a token only when both keys are set
+//   ADMIN_ORIGIN          extra origin allowed for cookie-authenticated mutations
 
 import { authenticate, enforceSameOrigin, type AdminEnv } from './auth';
 import { handleAdminsRequest } from './api/admins';
@@ -23,6 +25,7 @@ import { handleUsersRequest } from './api/users';
 import { handleSessionRequest, handleSetupRequest } from './api/session';
 import { handleSettingsRequest } from './api/settings';
 import { renderDashboard } from './ui';
+import { isTurnstileEnabled } from '../worker/services/turnstile';
 
 export interface Env extends AdminEnv {}
 
@@ -82,7 +85,7 @@ export default {
 
     if (DASHBOARD_PATHS.has(url.pathname)) {
       const nonce = crypto.randomUUID().replace(/-/g, '');
-      return new Response(renderDashboard(nonce), {
+      return new Response(renderDashboard(nonce, isTurnstileEnabled(env)), {
         headers: htmlSecurityHeaders(nonce)
       });
     }

@@ -1,6 +1,8 @@
 // Public application settings: defaults, validation, and the single loader used
 // by both the request router and the public settings endpoint.
 
+import { isTurnstileEnabled, turnstileSiteKey, type TurnstileEnv } from '../services/turnstile';
+
 interface SettingRow {
   key: string;
   value: string | null;
@@ -33,9 +35,6 @@ export const DEFAULT_PUBLIC_SETTINGS = {
   hero_subtitle: 'Sign in to submit a poll or comment; votes stay anonymous.',
   hero_background_color: '',
   read_only_mode: false,
-  turnstile_secret_key: '',
-  turnstile_site_key: '',
-  turnstile_enable: false,
   // Shows an "optional" badge next to the login link in the site navigation when
   // true, making clear that signing in is not required.
   login_badge_enable: false,
@@ -73,7 +72,7 @@ export const DEFAULT_PUBLIC_SETTINGS = {
   // Public audit publishing. When enabled, the hourly maintenance run copies the
   // signed snapshot chain to a data repository through the GitHub API. These
   // settings are private: none of them is served by the public settings
-  // endpoint, and `github_token` is a secret handled like turnstile_secret_key.
+  // endpoint, and `github_token` is a secret read by the Worker only.
   publish_enable: false,
   publish_repository: '',
   publish_branch: 'main',
@@ -210,7 +209,6 @@ export async function loadPublicSettings(db: D1Database): Promise<PublicSettings
       case 'ai_auto_categorise':
       case 'publish_enable':
       case 'read_only_mode':
-      case 'turnstile_enable':
         if (value !== 'true' && value !== 'false') invalid(row.key, 'must be "true" or "false"');
         (settings as Record<string, unknown>)[row.key] = value === 'true';
         break;
@@ -242,28 +240,20 @@ export async function loadPublicSettings(db: D1Database): Promise<PublicSettings
         if (!value.trim() || value.length > 100) invalid(row.key, 'must contain 1 to 100 characters');
         settings.ai_model = value;
         break;
-      case 'turnstile_secret_key':
-        if (value && !/^[0-9a-f]{64}$/i.test(value)) invalid(row.key, 'must be a 64-character hex string');
-        settings.turnstile_secret_key = value;
-        break;
-      case 'turnstile_site_key':
-        if (value.length > 100) invalid(row.key, 'must not exceed 100 characters');
-        settings.turnstile_site_key = value;
-        break;
     }
   }
 
   return settings;
 }
 
-// Secrets such as the Turnstile secret key stay in the database for the Worker
-// only; they are never served publicly. The site key is public by design, and
-// so is the `ai_enable` flag the frontend needs to show or hide the AI buttons;
-// `ai_model`, `ai_rate_limit`, the publish settings, and the GitHub token stay
-// private.
+// Secrets stay in the database for the Worker only; they are never served
+// publicly. The `ai_enable` flag is public because the frontend needs it to show
+// or hide the AI buttons; `ai_model`, `ai_rate_limit`, the publish settings, and
+// the GitHub token stay private. Turnstile is not a setting at all: the site key
+// and the enabled flag are derived from the Worker environment and merged in by
+// the handler below.
 function stripPrivateSettings(settings: PublicSettings): Record<string, unknown> {
   const {
-    turnstile_secret_key: _secretKey,
     ai_model: _aiModel,
     ai_rate_limit: _aiRateLimit,
     ai_auto_categorise: _aiAutoCategorise,
@@ -277,14 +267,24 @@ function stripPrivateSettings(settings: PublicSettings): Record<string, unknown>
   return publicSettings;
 }
 
-export async function handlePublicSettingsRequest(request: Request, env: { DB: D1Database }): Promise<Response> {
+export async function handlePublicSettingsRequest(
+  request: Request,
+  env: { DB: D1Database } & TurnstileEnv
+): Promise<Response> {
   if (request.method !== 'GET') {
     return Response.json({ message: 'method not allowed' }, { status: 405 });
   }
 
   try {
     const settings = await loadPublicSettings(env.DB);
-    return Response.json(stripPrivateSettings(settings), {
+    // Turnstile is configured through environment variables instead of the
+    // settings table, so the two fields the frontend needs are derived here and
+    // are read-only: they change only when the Worker is redeployed.
+    return Response.json({
+      ...stripPrivateSettings(settings),
+      turnstile_enable: isTurnstileEnabled(env),
+      turnstile_site_key: turnstileSiteKey(env)
+    }, {
       headers: { 'cache-control': 'no-store' }
     });
   } catch (error) {

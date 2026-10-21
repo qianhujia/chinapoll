@@ -10,7 +10,7 @@
 import type { HandlerEnv } from '../index';
 import { checkRateLimit } from '../services/rateLimit';
 import { clientAddress, hashedNetworkBucket, serverHmacKey } from '../services/ip';
-import { verifyTurnstile } from '../services/turnstile';
+import { isTurnstileEnabled, turnstileSecretKey, verifyTurnstile } from '../services/turnstile';
 import { enforceSameOrigin } from '../services/csrf';
 import { PBKDF2_ITERATIONS, passwordIterations } from '../../shared/password';
 import { hashPassword, verifyPassword } from '../services/passwordHasher';
@@ -101,15 +101,15 @@ async function recordAccount(db: D1Database, ipHash: string): Promise<void> {
   ).bind(ipHash, coarseNow).run();
 }
 
-// Verifies the Turnstile token when the feature is enabled and configured.
+// Verifies the Turnstile token when both keys are configured.
 async function turnstileGate(
   request: Request,
   env: HandlerEnv,
   body: Record<string, unknown> | null
 ): Promise<Response | null> {
-  if (!env.turnstile_enable || !env.turnstile_secret_key) return null;
+  if (!isTurnstileEnabled(env)) return null;
   const token = readString(body, 'turnstileToken');
-  if (!token || !await verifyTurnstile(env.turnstile_secret_key, token, new URL(request.url).hostname)) {
+  if (!token || !await verifyTurnstile(turnstileSecretKey(env), token, new URL(request.url).hostname)) {
     return noStoreJson({ message: 'turnstile verification failed' }, 403);
   }
   return null;

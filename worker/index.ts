@@ -40,6 +40,10 @@ export interface Env {
   ASSETS: Fetcher;
   /** Cloudflare Workers AI binding, used only by the optional AI assistance. */
   AI: Ai;
+  /** Public Turnstile site key. Turnstile is enabled only when both keys are set. */
+  TURNSTILE_SITE_KEY?: string;
+  /** Private Turnstile key used for server-side token verification. */
+  TURNSTILE_SECRET_KEY?: string;
   SERVER_HMAC_KEY?: string;
   /** Legacy name for SERVER_HMAC_KEY, accepted as a fallback for one release. */
   IP_HASH_KEY?: string;
@@ -171,7 +175,7 @@ async function route(request: Request, env: Env): Promise<Response> {
     const envWithSettings: HandlerEnv = { ...env, ...settings };
 
     if (url.pathname === '/api/settings/public') {
-      return handlePublicSettingsRequest(request, envWithSettings);
+      return handlePublicSettingsRequest(request, env);
     }
     if (url.pathname === '/api/categories') {
       return handleCategoriesRequest(request, envWithSettings);

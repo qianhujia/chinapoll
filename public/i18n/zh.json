@@ -91,8 +91,6 @@
   "settingHeroSubtitle": "Hero 副标题",
   "settingHeroBackgroundColor": "Hero 背景色",
   "settingReadOnlyMode": "只读模式",
-  "settingTurnstileSecretKey": "Turnstile 密钥",
-  "settingTurnstileEnable": "启用 Turnstile",
   "settingLoginBadgeEnable": "导航栏登录徽标",
   "settingAutoApprovePolls": "自动通过投票",
   "loginOptionalBadge": "可选",

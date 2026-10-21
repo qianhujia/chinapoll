@@ -1,12 +1,20 @@
 // Turnstile verification for the public Worker.
 //
+// The whole configuration comes from the Worker environment and never from the
+// settings table: TURNSTILE_SITE_KEY is the public key rendered by the forms and
+// TURNSTILE_SECRET_KEY is the private key used for server-side verification.
+// Turnstile is enabled exactly when both are configured, so removing either one
+// turns the feature off and local development stays usable with neither set.
+//
 // The public Worker owns server-side verification; the admin Worker imports this
 // module and does not send the client address, so no origin data leaves the
-// platform. Verification runs only when the feature is enabled and a secret key
-// is configured, which keeps local development usable when keys are absent.
+// platform.
 
 export interface TurnstileEnv {
-  DB: D1Database;
+  /** Public site key. Rendered by the vote, report, login, and sign-up forms. */
+  TURNSTILE_SITE_KEY?: string;
+  /** Private key used for server-side verification. Never sent to the browser. */
+  TURNSTILE_SECRET_KEY?: string;
 }
 
 export interface TurnstileConfig {
@@ -14,29 +22,26 @@ export interface TurnstileConfig {
   siteKey: string;
 }
 
-async function getSettingValue(env: TurnstileEnv, key: string): Promise<string> {
-  const row = await env.DB.prepare(
-    'SELECT value FROM settings WHERE key = ?'
-  ).bind(key).first<{ value: string | null }>();
-  return row?.value ?? '';
+export function turnstileSiteKey(env: TurnstileEnv): string {
+  return (env.TURNSTILE_SITE_KEY ?? '').trim();
 }
 
-// Reads the private secret once per request so verification does not re-query D1.
-export function getTurnstileSecret(env: TurnstileEnv): Promise<string> {
-  return getSettingValue(env, 'turnstile_secret_key');
+export function turnstileSecretKey(env: TurnstileEnv): string {
+  return (env.TURNSTILE_SECRET_KEY ?? '').trim();
 }
 
-export async function getTurnstileConfig(env: TurnstileEnv, siteKey = ''): Promise<TurnstileConfig> {
-  const [enableValue, secret] = await Promise.all([
-    getSettingValue(env, 'turnstile_enable'),
-    getSettingValue(env, 'turnstile_secret_key')
-  ]);
-  const enabled = enableValue === 'true' && Boolean(secret) && Boolean(siteKey);
-  return { enabled, siteKey };
+// Both keys are required: a site key alone cannot verify a token, and a secret
+// alone has no widget to solve.
+export function isTurnstileEnabled(env: TurnstileEnv): boolean {
+  return turnstileSiteKey(env) !== '' && turnstileSecretKey(env) !== '';
 }
 
-// Verifies a token against the given secret. The secret is passed in so callers
-// that already hold it (the public Worker keeps it in `env`) do not re-read D1.
+export function getTurnstileConfig(env: TurnstileEnv): TurnstileConfig {
+  return { enabled: isTurnstileEnabled(env), siteKey: turnstileSiteKey(env) };
+}
+
+// Verifies a token against the given secret. The secret is passed in so every
+// caller reads it from its own Worker environment.
 //
 // When `expectedHostname` is given, the hostname Turnstile reports for the solved
 // widget must match it. This stops a token solved on one host from being replayed

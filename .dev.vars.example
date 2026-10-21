@@ -1,0 +1,18 @@
+# Local development variables for the public Worker.
+# Copy this file to `.dev.vars`, which is git-ignored, and fill in the values.
+#
+# Cloudflare does not read this file in production: upload Worker secrets with
+# `wrangler secret put` and put plain variables under `[env.production.vars]` in
+# wrangler.toml.
+
+# Required for keyed network hashing and owner hashing. Any 64-character hex value
+# works locally (`openssl rand -hex 32`). Without it the health endpoint reports
+# `serverKey: false` and voting and account creation return 503.
+SERVER_HMAC_KEY=
+
+# Optional Turnstile. The widget and the server-side check are skipped while either
+# value is empty, so leave both blank for normal local development. Set both to test
+# the widget against a real Turnstile key pair; Turnstile is enabled exactly when
+# both are present.
+TURNSTILE_SITE_KEY=
+TURNSTILE_SECRET_KEY=

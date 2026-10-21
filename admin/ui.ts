@@ -10,7 +10,7 @@
 import { dashboardStyles } from './dashboard/styles';
 import { dashboardScript } from './dashboard/script';
 
-export function renderDashboard(nonce: string): string {
+export function renderDashboard(nonce: string, turnstileEnabled = false): string {
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -21,7 +21,7 @@ export function renderDashboard(nonce: string): string {
 <style nonce="${nonce}">
 ${dashboardStyles}
 </style>
-<script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" async defer></script>
+${turnstileEnabled ? '<script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" async defer></script>' : ''}
 </head>
 <body>
 <div id="app"></div>

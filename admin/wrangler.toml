@@ -53,8 +53,10 @@ tag = "v1"
 new_sqlite_classes = ["RateLimiter", "PasswordHasher"]
 
 [vars]
-# Public Turnstile site key used to render the login widget. Server-side token
-# verification reuses the turnstile_enable and turnstile_secret_key settings.
+# Public Turnstile site key used to render the login widget. The login form
+# requires a solved token only when both this key and TURNSTILE_SECRET_KEY are
+# set; store the secret with
+#   npx wrangler secret put TURNSTILE_SECRET_KEY --config admin/wrangler.toml --env production
 # TURNSTILE_SITE_KEY = "0x4AAAAAAA..."
 # Optional: allow cookie-authenticated mutations from an additional origin.
 # ADMIN_ORIGIN = "https://admin.chinapoll.org"

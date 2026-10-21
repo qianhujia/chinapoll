@@ -27,6 +27,9 @@ export interface AdminEnv {
   PASSWORD_HASHER: DurableObjectNamespace;
   /** Public Turnstile site key rendered by the login form. */
   TURNSTILE_SITE_KEY?: string;
+  /** Private Turnstile key used to verify login tokens. Turnstile is enabled only
+   * when both keys are set, so an unset key disables the widget and the check. */
+  TURNSTILE_SECRET_KEY?: string;
   /** Optional extra origin allowed for cookie-authenticated mutations. */
   ADMIN_ORIGIN?: string;
   /** Optional origin of the public site, used to link to a poll from the dashboard. */

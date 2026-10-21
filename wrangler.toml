@@ -34,6 +34,12 @@ run_worker_first = true
 binding = "AI"
 
 [vars]
+# Turnstile is configured only through environment variables. The feature stays
+# off while either value is empty, which is the local default; put both in the
+# ignored `.dev.vars` file to test the widget locally. In production set the site
+# key under `[env.production.vars]` and store the secret with
+#   npx wrangler secret put TURNSTILE_SECRET_KEY --env production
+# TURNSTILE_SITE_KEY = "0x4AAAAAAA..."
 
 [[d1_databases]]
 binding = "DB"
@@ -63,6 +69,11 @@ migrations_table = "migrations"
 # repeated here. The Durable Object migration list and the AI binding are per
 # environment as well.
 [env.production.vars]
+# Turnstile is on only when both TURNSTILE_SITE_KEY and TURNSTILE_SECRET_KEY are
+# set. The site key is public by design, so it belongs here; the secret must be
+# uploaded separately with
+#   npx wrangler secret put TURNSTILE_SECRET_KEY --env production
+# TURNSTILE_SITE_KEY = "0x4AAAAAAA..."
 
 [env.production.durable_objects]
 bindings = [

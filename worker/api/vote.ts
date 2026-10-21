@@ -15,7 +15,7 @@
 import type { HandlerEnv } from '../index';
 import { checkRateLimit } from '../services/rateLimit';
 import { clientAddress, hashedNetworkBucket, serverHmacKey } from '../services/ip';
-import { verifyTurnstile } from '../services/turnstile';
+import { isTurnstileEnabled, turnstileSecretKey, verifyTurnstile } from '../services/turnstile';
 import {
   countPollBallots,
   getPollOptions,
@@ -117,9 +117,9 @@ export async function handleVoteRequest(request: Request, env: HandlerEnv): Prom
     return Response.json({ ok: false, message: selection.message }, { status: 400 });
   }
 
-  // Turnstile is enforced only when it is enabled and fully configured.
-  if (env.turnstile_enable && env.turnstile_secret_key) {
-    if (!turnstileResponse || !await verifyTurnstile(env.turnstile_secret_key, turnstileResponse, new URL(request.url).hostname)) {
+  // Turnstile is enforced only when both keys are configured.
+  if (isTurnstileEnabled(env)) {
+    if (!turnstileResponse || !await verifyTurnstile(turnstileSecretKey(env), turnstileResponse, new URL(request.url).hostname)) {
       return Response.json({ ok: false, message: 'turnstile verification failed' }, { status: 403 });
     }
   }

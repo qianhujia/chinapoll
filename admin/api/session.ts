@@ -100,7 +100,7 @@ async function login(request: Request, env: AdminEnv): Promise<Response> {
     return noStoreJson({ message: 'username and password are required' }, 400);
   }
 
-  const turnstile = await getTurnstileConfig(env);
+  const turnstile = getTurnstileConfig(env);
   if (turnstile.enabled) {
     if (!turnstileToken) {
       return noStoreJson({ message: 'turnstile verification required' }, 403);
