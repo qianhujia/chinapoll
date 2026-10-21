@@ -17,8 +17,11 @@ export const scriptSettings = `  var CATEGORY_ORDER = ['general', 'appearance', 
       inputHtml = '<select id="setting-' + esc(item.key) + '" data-key="' + esc(item.key) + '">' + enumOptions + '</select>';
     } else if (item.type === 'image_base64') {
       var previewHtml = value ? '<img src="' + esc(value) + '" alt="preview" style="max-height:60px;margin-top:4px">' : '';
+      var fileInputId = 'setting-' + esc(item.key) + '-file';
+      var hiddenInputId = 'setting-' + esc(item.key);
       inputHtml = '<div class="file-upload">' +
-        '<input type="file" id="setting-' + esc(item.key) + '" data-key="' + esc(item.key) + '" accept="image/png,image/jpeg,image/svg+xml,image/webp,image/x-icon">' +
+        '<input type="file" id="' + fileInputId + '" data-key="' + esc(item.key) + '" accept="image/png,image/jpeg,image/svg+xml,image/webp,image/x-icon">' +
+        '<input type="hidden" id="' + hiddenInputId + '" data-key="' + esc(item.key) + '" value="' + esc(value) + '">' +
         '<div class="file-preview" data-key="' + esc(item.key) + '">' + previewHtml + '</div>' +
         (value ? '<button type="button" class="secondary" data-action="clear-image" data-key="' + esc(item.key) + '">Remove</button>' : '') +
         '</div>';
@@ -32,7 +35,7 @@ export const scriptSettings = `  var CATEGORY_ORDER = ['general', 'appearance', 
     if (item.min !== undefined && item.max !== undefined) metaParts.push('range: ' + item.min + '–' + item.max);
 
     return '<div class="setting-row" data-key="' + esc(item.key) + '">' +
-      '<div><label for="setting-' + esc(item.key) + '">' + esc(item.label) + '</label>' +
+      '<div><label for="setting-' + esc(item.key) + '-file">' + esc(item.label) + '</label>' +
       '<div class="meta">' + metaParts.join(' · ') + '</div>' +
       (item.description ? '<div class="small muted desc">' + esc(item.description) + '</div>' : '') +
       '</div>' +
@@ -267,7 +270,7 @@ export const scriptSettings = `  var CATEGORY_ORDER = ['general', 'appearance', 
     var reader = new FileReader();
     reader.onload = function (e) {
       var base64 = e.target.result;
-      // Store the base64 in a hidden input for the save
+      // Store the base64 in the hidden input for the save
       var hiddenInput = document.getElementById('setting-' + key);
       if (!hiddenInput) {
         hiddenInput = document.createElement('input');
