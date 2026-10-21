@@ -12,6 +12,11 @@ bindings = [
   { name = "VIEW_COUNTER", class_name = "ViewCounter" }
 ]
 
+# R2 bucket for storing logos, favicons, and other uploaded assets.
+[[r2_buckets]]
+binding = "R2"
+bucket_name = "chinapoll-assets-local"
+
 # Durable Object migration list. This is unrelated to the D1 migrations_table
 # setting below, which names the D1 tracking table. All classes are SQLite-backed
 # (`new_sqlite_classes`); nothing has been deployed yet, so the single `v1` tag
@@ -83,6 +88,10 @@ bindings = [
   { name = "PASSWORD_HASHER", class_name = "PasswordHasher" },
   { name = "VIEW_COUNTER", class_name = "ViewCounter" }
 ]
+
+[env.production.r2_buckets]
+binding = "R2"
+bucket_name = "chinapoll-assets"
 
 [env.production.ai]
 binding = "AI"
