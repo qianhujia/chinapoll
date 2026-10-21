@@ -113,6 +113,7 @@ export function bindProposalForm(app: HTMLElement, bindNavigation: () => void, a
   const categorySelect = form.querySelector('[data-category]') as HTMLSelectElement | null;
   const categoryButton = form.querySelector<HTMLButtonElement>('[data-ai-category]');
   const categoryAiTag = form.querySelector<HTMLElement>('[data-category-ai-tag]');
+  const categoryDescription = form.querySelector<HTMLElement>('[data-category-description]');
 
   // The card the user picked. Every card maps to a stored poll type, so the form
   // submits it as-is.
@@ -122,6 +123,8 @@ export function bindProposalForm(app: HTMLElement, bindNavigation: () => void, a
   // Set while the confirmation dialog is open so the second submit sends the
   // request instead of opening the dialog again.
   let confirming = false;
+  // Store categories with descriptions for lookup when selection changes.
+  let categoriesWithDescription: Array<{ slug: string; description: string | null }> = [];
 
   const rows = () => Array.from(optionRows?.querySelectorAll<HTMLDivElement>('[data-option-row]') ?? []);
   const renumber = () => rows().forEach((row, index) => { row.dataset.position = String(index + 1); });
@@ -254,6 +257,10 @@ export function bindProposalForm(app: HTMLElement, bindNavigation: () => void, a
   getCategories().then((result) => {
     if (!categorySelect) return;
     const locale = (getPublicSettings().default_locale ?? 'en') as 'en' | 'zh-CN' | 'zh-TW';
+    categoriesWithDescription = result.categories.map((category) => ({
+      slug: category.slug,
+      description: category.description
+    }));
     result.categories.forEach((category) => {
       const option = document.createElement('option');
       option.value = category.slug;
@@ -266,6 +273,17 @@ export function bindProposalForm(app: HTMLElement, bindNavigation: () => void, a
 
   categorySelect?.addEventListener('change', () => {
     if (categoryAiTag) categoryAiTag.hidden = true;
+    if (categoryDescription) {
+      const selectedSlug = categorySelect.value;
+      const category = categoriesWithDescription.find((c) => c.slug === selectedSlug);
+      if (category?.description) {
+        categoryDescription.textContent = category.description;
+        categoryDescription.classList.remove('hidden');
+      } else {
+        categoryDescription.textContent = '';
+        categoryDescription.classList.add('hidden');
+      }
+    }
   });
 
   categoryButton?.addEventListener('click', async () => {
@@ -362,8 +380,14 @@ export function bindProposalForm(app: HTMLElement, bindNavigation: () => void, a
       // A cleared field shrinks back to its starting rows.
       syncDescriptionHeight();
       if (durationSelect) durationSelect.value = 'none';
-      if (categorySelect) categorySelect.value = '';
+      if (categorySelect) {
+        categorySelect.value = '';
+      }
       if (categoryAiTag) categoryAiTag.hidden = true;
+      if (categoryDescription) {
+        categoryDescription.textContent = '';
+        categoryDescription.classList.add('hidden');
+      }
       rows().forEach((row) => row.remove());
       syncOptionEditor();
       if (aiSuggestions) aiSuggestions.hidden = true;

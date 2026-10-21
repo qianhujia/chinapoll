@@ -21,6 +21,7 @@ export const scriptCategories = `  function categoryOptions(selectedId) {
           return '<tr>' +
             '<td>' + esc(item.id) + '</td>' +
             '<td><input data-cat-name data-id="' + esc(item.id) + '" value="' + esc(item.name) + '" maxlength="60"></td>' +
+            '<td><textarea data-cat-description data-id="' + esc(item.id) + '" maxlength="500" class="w-full rounded border border-border bg-panel px-2 py-1 text-sm" rows="2" placeholder="Description">' + esc(item.description || '') + '</textarea></td>' +
             '<td class="small muted">' + esc(item.slug) + '</td>' +
             '<td class="small">' + esc(item.polls) + '</td>' +
             '<td><input type="checkbox" data-cat-enabled data-id="' + esc(item.id) + '"' + (item.enabled ? ' checked' : '') + '></td>' +
@@ -30,16 +31,17 @@ export const scriptCategories = `  function categoryOptions(selectedId) {
             '<button data-action="delete-category" data-id="' + esc(item.id) + '">Delete</button>' +
             '</div></td></tr>';
         }).join('')
-      : '<tr><td colspan="7"><div class="empty">No categories yet.</div></td></tr>';
+      : '<tr><td colspan="8"><div class="empty">No categories yet.</div></td></tr>';
 
     view.innerHTML = '<section class="card"><h2>Categories</h2>' +
       '<p class="small muted">Categories order the public home page chip row and the submit form dropdown. Deleting one keeps its polls and leaves them uncategorised. The slug is the public identifier and cannot be changed.</p>' +
       '<div class="toolbar">' +
       '<input id="new-category-slug" class="grow" placeholder="slug (a-z, 0-9, -)">' +
       '<input id="new-category-name" class="grow" placeholder="Name">' +
+      '<input id="new-category-description" class="grow" placeholder="Description (optional)" maxlength="500">' +
       '<button data-action="create-category" class="primary">Add category</button>' +
       '</div>' +
-      '<table><thead><tr><th>ID</th><th>Name</th><th>Slug</th><th>Polls</th><th>Enabled</th><th>Position</th><th></th></tr></thead>' +
+      '<table><thead><tr><th>ID</th><th>Name</th><th>Description</th><th>Slug</th><th>Polls</th><th>Enabled</th><th>Position</th><th></th></tr></thead>' +
       '<tbody>' + rows + '</tbody></table></section>';
   }
 
@@ -54,10 +56,11 @@ export const scriptCategories = `  function categoryOptions(selectedId) {
     if (action === 'create-category') {
       var slug = document.getElementById('new-category-slug').value.trim();
       var name = document.getElementById('new-category-name').value.trim();
+      var description = document.getElementById('new-category-description').value.trim();
       target.disabled = true;
       guard(api('/api/admin/categories', {
         method: 'POST',
-        body: JSON.stringify({ slug: slug, name: name })
+        body: JSON.stringify({ slug: slug, name: name, description: description })
       }).then(function (result) {
         toast(result.message);
         return loadCategories();
@@ -67,6 +70,7 @@ export const scriptCategories = `  function categoryOptions(selectedId) {
     if (action === 'save-category') {
       var id = target.getAttribute('data-id');
       var nameInput = document.querySelector('[data-cat-name][data-id="' + id + '"]');
+      var descriptionInput = document.querySelector('[data-cat-description][data-id="' + id + '"]');
       var enabledInput = document.querySelector('[data-cat-enabled][data-id="' + id + '"]');
       var positionInput = document.querySelector('[data-cat-position][data-id="' + id + '"]');
       target.disabled = true;
@@ -74,6 +78,7 @@ export const scriptCategories = `  function categoryOptions(selectedId) {
         method: 'PUT',
         body: JSON.stringify({
           name: nameInput.value.trim(),
+          description: descriptionInput.value.trim(),
           enabled: enabledInput.checked,
           position: Number(positionInput.value)
         })

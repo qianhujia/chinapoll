@@ -18,6 +18,7 @@ interface CategoryRow {
   id: number;
   slug: string;
   name: string;
+  description: string | null;
   position: number;
   enabled: number;
   polls: number;
@@ -27,6 +28,7 @@ function publicCategory(row: CategoryRow): {
   id: number;
   slug: string;
   name: string;
+  description: string | null;
   position: number;
   enabled: boolean;
   polls: number;
@@ -35,6 +37,7 @@ function publicCategory(row: CategoryRow): {
     id: Number(row.id),
     slug: row.slug,
     name: row.name,
+    description: row.description,
     position: Number(row.position),
     enabled: Number(row.enabled) === 1,
     polls: Number(row.polls ?? 0)
@@ -102,6 +105,10 @@ async function createCategory(request: Request, env: AdminEnv, actor: AdminActor
   if (!name || name.length > MAX_CATEGORY_NAME_LENGTH) {
     return noStoreJson({ message: `name must contain 1 to ${MAX_CATEGORY_NAME_LENGTH} characters` }, 422);
   }
+  const description = body.description !== undefined ? readString(body, 'description').trim() : '';
+  if (description && description.length > 500) {
+    return noStoreJson({ message: 'description must be at most 500 characters' }, 422);
+  }
 
   const enabledValue = body.enabled === undefined ? true : readBoolean(body.enabled);
   if (enabledValue === null) return noStoreJson({ message: 'enabled must be true or false' }, 422);
@@ -123,18 +130,18 @@ async function createCategory(request: Request, env: AdminEnv, actor: AdminActor
   }
 
   const result = await env.DB.prepare(
-    'INSERT INTO categories (slug, name, position, enabled) VALUES (?, ?, ?, ?)'
-  ).bind(slug, name, position, enabledValue ? 1 : 0).run();
+    'INSERT INTO categories (slug, name, description, position, enabled) VALUES (?, ?, ?, ?, ?)'
+  ).bind(slug, name, description || null, position, enabledValue ? 1 : 0).run();
   const categoryId = Number(result.meta.last_row_id);
 
   await logAudit(env, {
     actor, action: 'category.create', targetType: 'category', targetId: categoryId,
-    details: { slug, name, position, enabled: enabledValue }
+    details: { slug, name, description, position, enabled: enabledValue }
   });
 
   return noStoreJson({
     ok: true,
-    category: { id: categoryId, slug, name, position, enabled: enabledValue, polls: 0 },
+    category: { id: categoryId, slug, name, description, position, enabled: enabledValue, polls: 0 },
     message: `Created category "${slug}".`
   }, 201);
 }
@@ -155,8 +162,8 @@ async function updateCategory(
   if (!body) return noStoreJson({ message: 'invalid JSON' }, 400);
 
   const existing = await env.DB.prepare(
-    'SELECT id, slug, name, position, enabled FROM categories WHERE id = ?'
-  ).bind(categoryId).first<{ id: number; slug: string; name: string; position: number; enabled: number }>();
+    'SELECT id, slug, name, description, position, enabled FROM categories WHERE id = ?'
+  ).bind(categoryId).first<{ id: number; slug: string; name: string; description: string | null; position: number; enabled: number }>();
   if (!existing) return noStoreJson({ message: `category ${categoryId} was not found` }, 404);
 
   const updates: string[] = [];
@@ -171,6 +178,16 @@ async function updateCategory(
     updates.push('name = ?');
     binds.push(name);
     changes.name = name;
+  }
+
+  if (body.description !== undefined) {
+    const description = readString(body, 'description').trim();
+    if (description.length > 500) {
+      return noStoreJson({ message: 'description must be at most 500 characters' }, 422);
+    }
+    updates.push('description = ?');
+    binds.push(description || null);
+    changes.description = description;
   }
 
   if (body.position !== undefined) {
@@ -201,7 +218,7 @@ async function updateCategory(
   await logAudit(env, {
     actor, action: 'category.update', targetType: 'category', targetId: categoryId,
     details: {
-      previous: { name: existing.name, position: Number(existing.position), enabled: Number(existing.enabled) === 1 },
+      previous: { name: existing.name, description: existing.description, position: Number(existing.position), enabled: Number(existing.enabled) === 1 },
       ...changes
     }
   });
@@ -225,10 +242,10 @@ async function deleteCategory(categoryId: number, env: AdminEnv, actor: AdminAct
   }
 
   const existing = await env.DB.prepare(
-    `SELECT c.id, c.slug, c.name,
+    `SELECT c.id, c.slug, c.name, c.description,
             (SELECT COUNT(*) FROM polls p WHERE p.category_id = c.id) AS polls
      FROM categories c WHERE c.id = ?`
-  ).bind(categoryId).first<{ id: number; slug: string; name: string; polls: number }>();
+  ).bind(categoryId).first<{ id: number; slug: string; name: string; description: string | null; polls: number }>();
   if (!existing) return noStoreJson({ message: `category ${categoryId} was not found` }, 404);
 
   // The polls are kept; the foreign key sets their `category_id` to NULL.
@@ -236,7 +253,7 @@ async function deleteCategory(categoryId: number, env: AdminEnv, actor: AdminAct
 
   await logAudit(env, {
     actor, action: 'category.delete', targetType: 'category', targetId: categoryId,
-    details: { slug: existing.slug, name: existing.name, uncategorised: Number(existing.polls ?? 0) }
+    details: { slug: existing.slug, name: existing.name, description: existing.description, uncategorised: Number(existing.polls ?? 0) }
   });
 
   return noStoreJson({
@@ -256,8 +273,8 @@ async function insertSuggestedCategories(env: AdminEnv, actor: AdminActor): Prom
   for (const category of SUGGESTED_CATEGORIES) {
     position += 1;
     statements.push(env.DB.prepare(
-      'INSERT OR IGNORE INTO categories (slug, name, position, enabled) VALUES (?, ?, ?, 1)'
-    ).bind(category.slug, category.names.en, position));
+      'INSERT OR IGNORE INTO categories (slug, name, description, position, enabled) VALUES (?, ?, ?, ?, 1)'
+    ).bind(category.slug, category.names.en, '', position));
   }
   const results = await env.DB.batch(statements);
   const inserted = results.reduce((total, result) => total + Number(result.meta.changes ?? 0), 0);

@@ -117,6 +117,7 @@ export interface PollCategory {
   id: number;
   slug: string;
   name: string;
+  description: string | null;
   position: number;
   names: { en: string; 'zh-CN': string; 'zh-TW': string };
   count: number;

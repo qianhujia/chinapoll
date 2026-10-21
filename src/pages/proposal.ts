@@ -126,6 +126,7 @@ export function categoryFieldMarkup(): string {
         <button class="cursor-pointer rounded-full border border-border bg-panel px-3.5 py-2 text-sm text-ink disabled:cursor-not-allowed disabled:opacity-60" type="button" data-ai-category hidden>${t('categorySuggest')}</button>
         <span class="shrink-0 rounded-full bg-[#eef3fb] px-2 py-0.5 text-xs text-muted" data-category-ai-tag hidden>${t('aiTag')}</span>
       </div>
+      <p class="m-0 text-sm text-muted hidden" data-category-description></p>
     </label>
   `;
 }

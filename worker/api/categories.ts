@@ -13,6 +13,7 @@ interface CategoryRow {
   id: number;
   slug: string;
   name: string;
+  description: string | null;
   position: number;
   count: number;
 }
@@ -21,18 +22,20 @@ export interface EnabledCategory {
   id: number;
   slug: string;
   name: string;
+  description: string | null;
 }
 
 // The enabled categories in display order. Shared by this endpoint, the AI
 // categoriser, and the proposal handler.
 export async function loadEnabledCategories(env: { DB: D1Database }): Promise<EnabledCategory[]> {
   const result = await env.DB.prepare(
-    'SELECT id, slug, name FROM categories WHERE enabled = 1 ORDER BY position ASC, id ASC'
+    'SELECT id, slug, name, description FROM categories WHERE enabled = 1 ORDER BY position ASC, id ASC'
   ).all<EnabledCategory>();
   return (result.results ?? []).map((row) => ({
     id: Number(row.id),
     slug: row.slug,
-    name: row.name
+    name: row.name,
+    description: row.description
   }));
 }
 
@@ -42,7 +45,7 @@ export async function handleCategoriesRequest(request: Request, env: HandlerEnv)
   }
 
   const result = await env.DB.prepare(
-    `SELECT c.id, c.slug, c.name, c.position,
+    `SELECT c.id, c.slug, c.name, c.description, c.position,
             (SELECT COUNT(*) FROM polls p
              WHERE p.category_id = c.id AND p.status = ? AND p.mode IN (?, ?)) AS count
      FROM categories c
@@ -59,6 +62,7 @@ export async function handleCategoriesRequest(request: Request, env: HandlerEnv)
       id: Number(row.id),
       slug: row.slug,
       name: row.name,
+      description: row.description,
       position: Number(row.position),
       names: categoryNames(row.slug, row.name),
       count: Number(row.count ?? 0)
