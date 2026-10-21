@@ -13,7 +13,11 @@ Worker. Set the
 `SERVER_HMAC_KEY` secret to 64 random hex characters (`openssl rand -hex 32`). The
 production D1 binding is declared by database name only (`[env.production]` ->
 `DB` -> `chinapoll`), so no account UUID is committed to the repository; wrangler
-resolves it through the API at deploy time. The admin dashboard Worker and the rest
+resolves it through the API at deploy time, and the deploy command must name that
+environment: a bare `npx wrangler deploy` runs against the top-level local
+configuration, which declares the placeholder `database_id = "local"`, and fails
+with `binding DB of type d1 must have a valid database_id specified [code: 10021]`.
+The admin dashboard Worker and the rest
 of the `[env.production]` deployment flow are covered in the Admin Worker section
 below and in [docs/RUNBOOK.md](docs/RUNBOOK.md).
 

@@ -70,7 +70,8 @@ migrations_table = "migrations"
 # environment as well.
 [env.production.vars]
 # Turnstile is on only when both TURNSTILE_SITE_KEY and TURNSTILE_SECRET_KEY are
-# set. The site key is public by design, so it belongs here; the secret must be
+# set. The site key is public by design, so it belongs here (or in a secret of the
+# same name, but never both); the secret must be
 # uploaded separately with
 #   npx wrangler secret put TURNSTILE_SECRET_KEY --env production
 # TURNSTILE_SITE_KEY = "0x4AAAAAAA..."

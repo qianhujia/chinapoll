@@ -27,7 +27,10 @@ are run from the repository root.
    `[env.production.vars]` in `wrangler.toml` and `admin/wrangler.toml`, then store
    the secret with `npx wrangler secret put TURNSTILE_SECRET_KEY --env production`
    (add `--config admin/wrangler.toml` for the admin Worker). Turnstile is enabled
-   on a Worker only when both keys are present there.
+   on a Worker only when both keys are present there. The site key is public, so a
+   plain variable under `[env.production.vars]` is enough, but
+   `npx wrangler secret put TURNSTILE_SITE_KEY` works as well: keep the key in
+   exactly one place, because a var and a secret cannot share a name.
 
 Neither `wrangler.toml` file commits a production database UUID. The `[env.production]`
 environment declares the D1 binding by database name only (variable `DB` ->
@@ -44,6 +47,22 @@ driven from the dashboard instead of the CLI. Set the public deploy command to
 the migrations by database name with `--env production` and then deploy the
 `[env.production]` Worker. Set each project's build command to `npm run build` so that
 `dist/web` exists before the public Worker is deployed.
+
+## Troubleshooting
+
+### `binding DB of type d1 must have a valid database_id specified [code: 10021]`
+
+The deploy ran without a target environment, so wrangler used the top-level
+configuration, whose D1 binding is the local placeholder (`database_id = "local"`).
+The same mistake also resets the Worker's routes from the local configuration,
+which disables the custom domain and enables the `workers.dev` URL, so the
+environment has to be named explicitly.
+
+Use `npm run deploy` for the public Worker and
+`npm run admin:worker:deploy:remote` for the admin Worker, or pass the flag
+directly with `npx wrangler deploy --env production`. When a Deploy to Cloudflare
+button drives the build, set its deploy command to the matching script: the build
+command loads `dist/web` and the deploy command has to select `[env.production]`.
 
 ## Uptime monitoring
 
