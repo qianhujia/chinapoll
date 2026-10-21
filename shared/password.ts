@@ -11,8 +11,11 @@
 
 import { constantTimeEqual, fromHex, toHex } from './crypto';
 
-// 600k iterations matches the OWASP guidance for PBKDF2-HMAC-SHA256.
-export const PBKDF2_ITERATIONS = 600_000;
+// 100k iterations is the maximum Cloudflare's production WebCrypto accepts for
+// PBKDF2 (higher counts throw NotSupportedError). It is below the OWASP guidance
+// for PBKDF2-HMAC-SHA256, but production cannot derive a stronger hash with the
+// built-in primitive.
+export const PBKDF2_ITERATIONS = 100_000;
 const SALT_BYTES = 16;
 const HASH_BITS = 256;
 

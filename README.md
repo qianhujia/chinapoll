@@ -69,7 +69,7 @@ account column and readers still see an anonymous comment.
 
 ## User accounts
 
-Voting stays anonymous, but submitting a poll and posting a comment require an account. Users sign up with a username and password only; there is no email or recovery channel, so credentials must be kept safe (like a crypto recovery phrase). Passwords are hashed with PBKDF2-HMAC-SHA256 (600,000 iterations, set by the `PBKDF2_ITERATIONS` constant in `shared/password.ts`) and stored in the `users` table as `pbkdf2$iterations$salt$hash`. Sessions live in `user_sessions` with a thirty-day sliding expiry and are stored in an HttpOnly, SameSite=Strict cookie; only the SHA-256 hash of the token is kept.
+Voting stays anonymous, but submitting a poll and posting a comment require an account. Users sign up with a username and password only; there is no email or recovery channel, so credentials must be kept safe (like a crypto recovery phrase). Passwords are hashed with PBKDF2-HMAC-SHA256 (100,000 iterations, set by the `PBKDF2_ITERATIONS` constant in `shared/password.ts`) and stored in the `users` table as `pbkdf2$iterations$salt$hash`. Sessions live in `user_sessions` with a thirty-day sliding expiry and are stored in an HttpOnly, SameSite=Strict cookie; only the SHA-256 hash of the token is kept.
 
 - New accounts can submit a poll after `user_poll_delay_hours` and comment after `user_comment_delay_hours`, so brand-new accounts cannot post immediately.
 - Repeated failed sign-ins lock the account after `login_max_failed_attempts` for `login_lock_minutes` minutes.
@@ -389,9 +389,10 @@ produced and checked by the `PasswordHasher` Durable Object
 its own CPU budget so the request Worker only pays for the round trip; the raw
 primitives in `shared/password.ts` are never called directly. Hashing is sharded
 across 16 instances by a hash of the username, so one object is neither a single
-queue nor a single lockout target for every sign-in. The 600,000-iteration cost
-still needs the Cloudflare Workers **paid plan**. Lower `PBKDF2_ITERATIONS` in
-`shared/password.ts` if the free plan must be used.
+queue nor a single lockout target for every sign-in. The 100,000-iteration count
+is the maximum Cloudflare's production WebCrypto accepts for PBKDF2; a higher
+count throws `NotSupportedError`. Keep `PBKDF2_ITERATIONS` in
+`shared/password.ts` at or below that ceiling.
 
 Both Durable Object classes (`RateLimiter` and `PasswordHasher`) are SQLite-backed
 (`new_sqlite_classes` in both `wrangler.toml` files).
