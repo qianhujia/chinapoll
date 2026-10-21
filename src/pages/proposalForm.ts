@@ -16,6 +16,7 @@ import {
 import { getPublicSettings } from '../config';
 import { getErrorMessage, showToast, t } from '../ui';
 import { categorise, type AiLocale } from '../lib/ai';
+import { renderTurnstile, turnstileToken } from '../lib/turnstile';
 import {
   DESCRIPTION_MAX_ROWS,
   DESCRIPTION_MIN_ROWS,
@@ -212,6 +213,16 @@ export function bindProposalForm(app: HTMLElement, bindNavigation: () => void, a
 
   syncOptionEditor();
 
+  // Render Turnstile widgets for AI buttons when AI is enabled and Turnstile is configured.
+  if (aiEnabled) {
+    const enhanceWidget = form.querySelector<HTMLElement>('[data-turnstile-enhance]');
+    const optionsWidget = form.querySelector<HTMLElement>('[data-turnstile-options]');
+    const categoryWidget = form.querySelector<HTMLElement>('[data-turnstile-category]');
+    if (enhanceWidget) renderTurnstile('ai-enhance', enhanceWidget);
+    if (optionsWidget) renderTurnstile('ai-options', optionsWidget);
+    if (categoryWidget) renderTurnstile('ai-category', categoryWidget);
+  }
+
   addOptionButton?.addEventListener('click', () => {
     if (rows().length >= MAX_OPTIONS) return;
     optionRows?.insertAdjacentHTML('beforeend', optionRowMarkup(rows().length + 1));
@@ -292,7 +303,11 @@ export function bindProposalForm(app: HTMLElement, bindNavigation: () => void, a
     categoryButton.disabled = true;
     categoryButton.textContent = t('aiEnhancing');
     try {
-      const result = await categorise({ title, description: descriptionInput?.value.trim() ?? '' });
+      const result = await categorise({
+        title,
+        description: descriptionInput?.value.trim() ?? '',
+        turnstileToken: turnstileToken('ai-category')
+      });
       const known = result.slug !== 'none'
         && Array.from(categorySelect.options).some((option) => option.value === result.slug);
       categorySelect.value = known ? result.slug : '';

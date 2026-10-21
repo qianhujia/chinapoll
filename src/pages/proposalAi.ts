@@ -6,6 +6,7 @@
 // and keeps a subtle "AI" tag until the row is edited or the poll is submitted.
 
 import { enhanceTitle, suggestOptions, type AiLocale } from '../lib/ai';
+import { turnstileToken } from '../lib/turnstile';
 import type { PollType } from '../lib/poll';
 import { escapeHtml, getErrorMessage, showToast, t } from '../ui';
 import { MAX_OPTIONS, MIN_OPTIONS, optionRowMarkup } from './proposal';
@@ -63,7 +64,8 @@ export function bindAiButtons(form: HTMLFormElement, binding: AiBinding): void {
       const result = await enhanceTitle({
         title: titleInput.value.trim(),
         description: descriptionInput?.value.trim() ?? '',
-        locale
+        locale,
+        turnstileToken: turnstileToken('ai-enhance')
       });
       renderSuggestions(result.suggestions);
     } catch (error) {
@@ -85,7 +87,8 @@ export function bindAiButtons(form: HTMLFormElement, binding: AiBinding): void {
         description: descriptionInput?.value.trim() ?? '',
         pollType,
         count: Math.max(MIN_OPTIONS, rows().length),
-        locale
+        locale,
+        turnstileToken: turnstileToken('ai-options')
       });
       // Suggestions fill the empty rows first and keep a subtle "AI" tag until
       // the user edits them or submits the poll.

@@ -13,6 +13,7 @@ export async function enhanceTitle(payload: {
   title: string;
   description?: string;
   locale: AiLocale;
+  turnstileToken?: string;
 }): Promise<{ suggestions: string[] }> {
   return fetchJson('/api/ai/enhance-title', {
     method: 'POST',
@@ -26,6 +27,7 @@ export async function suggestOptions(payload: {
   pollType: PollType;
   count?: number;
   locale: AiLocale;
+  turnstileToken?: string;
 }): Promise<{ options: string[] }> {
   return fetchJson('/api/ai/suggest-options', {
     method: 'POST',
@@ -37,6 +39,7 @@ export async function suggestOptions(payload: {
 export async function categorise(payload: {
   title: string;
   description?: string;
+  turnstileToken?: string;
 }): Promise<{ slug: string }> {
   return fetchJson('/api/ai/categorise', {
     method: 'POST',

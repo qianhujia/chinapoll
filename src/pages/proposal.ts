@@ -69,6 +69,7 @@ export function optionsFieldsetMarkup(): string {
     <div class="flex flex-wrap items-center gap-2.5">
       <button class="cursor-pointer rounded-full border border-border bg-panel px-3.5 py-2 text-sm text-ink disabled:cursor-not-allowed disabled:opacity-60" type="button" data-add-option>${t('addOption')}</button>
       <button class="cursor-pointer rounded-full border border-border bg-panel px-3.5 py-2 text-sm text-ink disabled:cursor-not-allowed disabled:opacity-60" type="button" data-ai-options disabled hidden>${t('aiSuggestOptions')}</button>
+      <div class="hidden" data-turnstile-options></div>
       <button class="cursor-pointer text-xs text-primary hover:underline" type="button" data-ai-discard hidden>${t('aiDiscardSuggestions')}</button>
     </div>
   </fieldset>
@@ -84,6 +85,7 @@ export function aiTitleMarkup(): string {
       <button class="cursor-pointer rounded-full border border-border bg-panel px-3.5 py-2 text-sm text-ink disabled:cursor-not-allowed disabled:opacity-60" type="button" data-ai-enhance disabled>${t('aiEnhanceTitle')}</button>
       <span class="text-xs text-muted" data-ai-hint>${t('aiDisabledHint')}</span>
     </div>
+    <div class="hidden" data-turnstile-enhance></div>
     <ul class="m-0 grid list-none gap-2 p-0" data-ai-suggestions hidden></ul>
     <p class="m-0 text-xs text-muted">${t('aiPrivacyNote')}</p>
   </div>
@@ -124,6 +126,7 @@ export function categoryFieldMarkup(): string {
           <option value="">${t('categoryNone')}</option>
         </select>
         <button class="cursor-pointer rounded-full border border-border bg-panel px-3.5 py-2 text-sm text-ink disabled:cursor-not-allowed disabled:opacity-60" type="button" data-ai-category hidden>${t('categorySuggest')}</button>
+        <div class="hidden" data-turnstile-category></div>
         <span class="shrink-0 rounded-full bg-[#eef3fb] px-2 py-0.5 text-xs text-muted" data-category-ai-tag hidden>${t('aiTag')}</span>
       </div>
       <p class="m-0 text-sm text-muted hidden" data-category-description></p>
