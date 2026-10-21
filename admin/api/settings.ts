@@ -1,4 +1,4 @@
-// Admin settings API: list, update (single and bulk), initialize, and R2 upload for images.
+// Admin settings API: list, update (single and bulk), initialize.
 
 import { DEFAULT_PUBLIC_SETTINGS } from '../../worker/api/settings';
 import { runPublisher, testGitHubConnection } from '../../worker/services/publisher';
@@ -19,7 +19,6 @@ import {
   getSettingDefaultApi,
   isSettingPublicApi,
   isSettingSecretApi,
-  isSettingR2UploadApi,
   type SettingKey,
 } from '../lib/settings';
 import {
@@ -45,7 +44,6 @@ interface SettingDetail {
   isSet: boolean;
   isSecret: boolean;
   isPublic: boolean;
-  isR2Upload: boolean;
   defaultValue: string | number | boolean;
   enumOptions?: { value: string; label: string }[];
   min?: number;
@@ -81,13 +79,6 @@ export async function handleSettingsRequest(request: Request, url: URL, env: Adm
       return Response.json({ message: 'method not allowed' }, { status: 405 });
     }
     return bulkUpdateSettings(request, env, actor);
-  }
-
-  if (url.pathname === '/api/admin/settings/upload') {
-    if (request.method !== 'POST') {
-      return Response.json({ message: 'method not allowed' }, { status: 405 });
-    }
-    return uploadSettingImage(request, env, actor);
   }
 
   // The publish actions are explicit paths and must be matched before the
@@ -152,7 +143,6 @@ async function listSettings(env: AdminEnv): Promise<Response> {
       isSet: row !== undefined,
       isSecret: isSettingSecretApi(key),
       isPublic: isSettingPublicApi(key),
-      isR2Upload: isSettingR2UploadApi(key),
       defaultValue: getSettingDefaultApi(key) ?? '',
       enumOptions: getSettingEnumOptions(key),
       min: schema?.min,
@@ -221,62 +211,6 @@ async function bulkUpdateSettings(request: Request, env: AdminEnv, actor: AdminA
   }, { status: failed === 0 ? 200 : 422 });
 }
 
-async function uploadSettingImage(request: Request, env: AdminEnv, actor: AdminActor): Promise<Response> {
-  const contentType = request.headers.get('content-type') || '';
-  if (!contentType.includes('multipart/form-data')) {
-    return Response.json({ message: 'Content-Type must be multipart/form-data' }, { status: 400 });
-  }
-
-  const formData = await request.formData();
-  const file = formData.get('file') as File | null;
-  const key = formData.get('key') as string | null;
-
-  if (!file || !(file instanceof File)) {
-    return Response.json({ message: 'file is required' }, { status: 400 });
-  }
-  if (!key || !isSettingKey(key)) {
-    return Response.json({ message: 'valid setting key is required' }, { status: 400 });
-  }
-  if (!isSettingR2UploadApi(key)) {
-    return Response.json({ message: 'this setting does not support image upload' }, { status: 400 });
-  }
-
-  // Validate file
-  const validation = validateImageFile(file);
-  if (!validation.ok) {
-    return Response.json({ message: validation.error }, { status: 400 });
-  }
-
-  // Generate unique key
-  const assetKey = generateAssetKey(file.name, `settings/${key}`);
-
-  try {
-    const arrayBuffer = await file.arrayBuffer();
-    await env.R2.put(assetKey, arrayBuffer, {
-      httpMetadata: {
-        contentType: file.type,
-      },
-    });
-
-    // Store the R2 key in the setting
-    await upsertSetting(env, key, assetKey);
-
-    await logAudit(env, {
-      actor, action: 'setting.upload', targetType: 'setting', targetId: key,
-      details: { assetKey, contentType: file.type, size: file.size }
-    });
-
-    return Response.json({
-      ok: true,
-      key,
-      assetKey,
-      message: `Uploaded ${file.name} for ${key}.`,
-    });
-  } catch (error) {
-    return Response.json({ message: error instanceof Error ? error.message : 'Upload failed.' }, { status: 500 });
-  }
-}
-
 async function updateSetting(key: string, request: Request, env: AdminEnv, actor: AdminActor): Promise<Response> {
   if (!isSettingKey(key)) {
     return Response.json({ message: `unknown setting key "${key}"` }, { status: 404 });
@@ -318,7 +252,7 @@ async function updateSetting(key: string, request: Request, env: AdminEnv, actor
 
 async function initializeSettings(env: AdminEnv, actor: AdminActor): Promise<Response> {
   const insert = env.DB.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)');
-const statements = SETTING_KEYS.map((key) => insert.bind(key, String(getSettingDefaultApi(key) ?? '')));
+  const statements = SETTING_KEYS.map((key) => insert.bind(key, String(getSettingDefaultApi(key) ?? '')));
   const results = await env.DB.batch(statements);
   const inserted = results.reduce((total, result) => total + Number(result.meta.changes ?? 0), 0);
 
@@ -378,23 +312,4 @@ async function publishNow(env: AdminEnv, actor: AdminActor): Promise<Response> {
     error: result.error ?? null,
     message
   }, { status: result.ok ? 200 : 502, headers: { 'cache-control': 'no-store' } });
-}
-
-// R2 upload helpers
-function generateAssetKey(filename: string, prefix = 'assets'): string {
-  const ext = filename.split('.').pop()?.toLowerCase() || 'bin';
-  const timestamp = Date.now();
-  const random = Math.random().toString(36).substring(2, 10);
-  return `${prefix}/${timestamp}-${random}.${ext}`;
-}
-
-function validateImageFile(file: File, maxSizeMB = 5): { ok: true } | { ok: false; error: string } {
-  const allowedTypes = ['image/png', 'image/jpeg', 'image/svg+xml', 'image/webp', 'image/x-icon'];
-  if (!allowedTypes.includes(file.type)) {
-    return { ok: false, error: 'File type not allowed. Use PNG, JPEG, SVG, WebP, or ICO.' };
-  }
-  if (file.size > maxSizeMB * 1024 * 1024) {
-    return { ok: false, error: `File too large. Maximum size is ${maxSizeMB}MB.` };
-  }
-  return { ok: true };
 }

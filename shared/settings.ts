@@ -11,7 +11,7 @@ export type SettingType =
   | 'rate_limit'
   | 'url'
   | 'color'
-  | 'image';
+  | 'image_base64';
 
 export type SettingCategory =
   | 'general'
@@ -42,7 +42,6 @@ export interface SettingSchema {
   pattern?: string;
   secret?: boolean;
   public?: boolean;
-  r2Upload?: boolean;
 }
 
 export const SETTING_SCHEMAS: SettingSchema[] = [
@@ -99,24 +98,22 @@ export const SETTING_SCHEMAS: SettingSchema[] = [
   // Appearance
   {
     key: 'logo',
-    type: 'image',
+    type: 'image_base64',
     category: 'appearance',
     label: 'Logo',
-    description: 'Logo image shown in the header. Upload an image file (PNG, SVG, WebP). Stored in R2.',
+    description: 'Logo image shown in the header. Upload an image file (PNG, SVG, WebP). Stored as base64 in database.',
     defaultValue: '',
     required: false,
-    r2Upload: true,
     public: true,
   },
   {
     key: 'favicon',
-    type: 'image',
+    type: 'image_base64',
     category: 'appearance',
     label: 'Favicon',
-    description: 'Favicon shown in browser tabs. Upload an image file (ICO, PNG, SVG). Stored in R2.',
+    description: 'Favicon shown in browser tabs. Upload an image file (ICO, PNG, SVG). Stored as base64 in database.',
     defaultValue: '',
     required: false,
-    r2Upload: true,
     public: true,
   },
   {
@@ -560,8 +557,4 @@ export function isSettingPublic(key: string): boolean {
 
 export function isSettingSecret(key: string): boolean {
   return getSettingSchema(key)?.secret ?? false;
-}
-
-export function isSettingR2Upload(key: string): boolean {
-  return getSettingSchema(key)?.r2Upload ?? false;
 }

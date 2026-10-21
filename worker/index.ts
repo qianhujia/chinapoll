@@ -52,8 +52,6 @@ export interface Env {
   /** One per-poll Durable Object that buffers view counts and flushes them to D1. */
   VIEW_COUNTER: DurableObjectNamespace;
   ASSETS: Fetcher;
-  /** R2 bucket for storing logos, favicons, and other uploaded assets. */
-  R2: R2Bucket;
   /** Cloudflare Workers AI binding, used only by the optional AI assistance. */
   AI: Ai;
   /** Public Turnstile site key. Turnstile is enabled only when both keys are set. */

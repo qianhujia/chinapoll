@@ -3,7 +3,7 @@
 export const scriptSettings = `  var CATEGORY_ORDER = ['general', 'appearance', 'polls', 'auth', 'reports', 'ai', 'publishing', 'advanced'];
 
   function settingRow(item) {
-    var type = item.isSecret ? 'password' : (item.type === 'boolean' ? 'checkbox' : (item.type === 'enum' ? 'select' : (item.isR2Upload ? 'file' : 'text')));
+    var type = item.isSecret ? 'password' : (item.type === 'boolean' ? 'checkbox' : (item.type === 'enum' ? 'select' : (item.type === 'image_base64' ? 'file' : 'text')));
     var value = item.isSecret ? '' : (item.value === null ? '' : item.value);
     var placeholder = item.isSecret ? 'Leave blank to keep the current secret' : 'Not set';
     var enumOptions = item.enumOptions ? item.enumOptions.map(function (o) {
@@ -15,8 +15,13 @@ export const scriptSettings = `  var CATEGORY_ORDER = ['general', 'appearance', 
       inputHtml = '<label class="checkbox-label"><input type="checkbox" id="setting-' + esc(item.key) + '" data-key="' + esc(item.key) + '"' + (value === 'true' ? ' checked' : '') + '> ' + esc(item.label) + '</label>';
     } else if (item.type === 'enum') {
       inputHtml = '<select id="setting-' + esc(item.key) + '" data-key="' + esc(item.key) + '">' + enumOptions + '</select>';
-    } else if (item.isR2Upload) {
-      inputHtml = '<div class="file-upload"><input type="file" id="setting-' + esc(item.key) + '" data-key="' + esc(item.key) + '" accept="image/png,image/jpeg,image/svg+xml,image/webp,image/x-icon"><div class="file-preview" data-key="' + esc(item.key) + '"></div></div>';
+    } else if (item.type === 'image_base64') {
+      var previewHtml = value ? '<img src="' + esc(value) + '" alt="preview" style="max-height:60px;margin-top:4px">' : '';
+      inputHtml = '<div class="file-upload">' +
+        '<input type="file" id="setting-' + esc(item.key) + '" data-key="' + esc(item.key) + '" accept="image/png,image/jpeg,image/svg+xml,image/webp,image/x-icon">' +
+        '<div class="file-preview" data-key="' + esc(item.key) + '">' + previewHtml + '</div>' +
+        (value ? '<button type="button" class="secondary" data-action="clear-image" data-key="' + esc(item.key) + '">Remove</button>' : '') +
+        '</div>';
     } else {
       inputHtml = '<input id="setting-' + esc(item.key) + '" type="' + type + '" data-key="' + esc(item.key) + '" value="' + esc(value) + '" placeholder="' + esc(placeholder) + '"' + (item.min !== undefined ? ' min="' + item.min + '"' : '') + (item.max !== undefined ? ' max="' + item.max + '"' : '') + '>';
     }
@@ -115,6 +120,10 @@ export const scriptSettings = `  var CATEGORY_ORDER = ['general', 'appearance', 
       var key = target.getAttribute('data-key');
       return saveSingleSetting(key, target);
     }
+    if (action === 'clear-image') {
+      var key = target.getAttribute('data-key');
+      return clearImage(key, target);
+    }
     if (action === 'initialize-settings') {
       target.disabled = true;
       guard(api('/api/admin/settings/initialize', { method: 'POST' }).then(function (result) {
@@ -163,7 +172,7 @@ export const scriptSettings = `  var CATEGORY_ORDER = ['general', 'appearance', 
       if (input.type === 'checkbox') {
         value = input.checked ? 'true' : 'false';
       } else if (input.type === 'file') {
-        // File uploads are handled separately via upload API
+        // File inputs for images are handled separately via base64 conversion
         return;
       } else {
         value = input.value;
@@ -200,7 +209,7 @@ export const scriptSettings = `  var CATEGORY_ORDER = ['general', 'appearance', 
     if (input.type === 'checkbox') {
       value = input.checked ? 'true' : 'false';
     } else if (input.type === 'file') {
-      // Handled by upload
+      // Handled by base64 conversion on change
       return true;
     } else {
       value = input.value;
@@ -222,7 +231,20 @@ export const scriptSettings = `  var CATEGORY_ORDER = ['general', 'appearance', 
     return true;
   }
 
-  // Handle file upload for R2 images
+  function clearImage(key, button) {
+    if (!window.confirm('Remove this image?')) return true;
+    button.disabled = true;
+    guard(api('/api/admin/settings/' + encodeURIComponent(key), {
+      method: 'PUT',
+      body: JSON.stringify({ value: '' })
+    }).then(function (result) {
+      toast(result.message);
+      return loadSettings();
+    }).then(function () { button.disabled = false; }));
+    return true;
+  }
+
+  // Handle file input for base64 image conversion
   app.addEventListener('change', function (event) {
     var input = event.target;
     if (!input.matches('input[type="file"][data-key]')) return;
@@ -230,27 +252,49 @@ export const scriptSettings = `  var CATEGORY_ORDER = ['general', 'appearance', 
     var file = input.files[0];
     if (!file) return;
 
-    var formData = new FormData();
-    formData.append('file', file);
-    formData.append('key', key);
+    var allowedTypes = ['image/png', 'image/jpeg', 'image/svg+xml', 'image/webp', 'image/x-icon'];
+    if (!allowedTypes.includes(file.type)) {
+      toast('File type not allowed. Use PNG, JPEG, SVG, WebP, or ICO.', true);
+      input.value = '';
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast('File too large. Maximum size is 5MB.', true);
+      input.value = '';
+      return;
+    }
 
-    var preview = document.querySelector('.file-preview[data-key="' + esc(key) + '"]');
-    if (preview) preview.textContent = 'Uploading...';
-
-    api('/api/admin/settings/upload', {
-      method: 'POST',
-      body: formData
-    }).then(function (result) {
-      if (result.ok) {
-        toast('Uploaded ' + file.name);
-        if (preview) preview.innerHTML = '<img src="/assets/' + esc(result.assetKey) + '" alt="preview" style="max-height:60px">';
-        return loadSettings();
-      } else {
-        toast(result.message, true);
-        if (preview) preview.textContent = 'Upload failed';
+    var reader = new FileReader();
+    reader.onload = function (e) {
+      var base64 = e.target.result;
+      // Store the base64 in a hidden input for the save
+      var hiddenInput = document.getElementById('setting-' + key);
+      if (!hiddenInput) {
+        hiddenInput = document.createElement('input');
+        hiddenInput.type = 'hidden';
+        hiddenInput.id = 'setting-' + key;
+        hiddenInput.setAttribute('data-key', key);
+        input.parentNode.appendChild(hiddenInput);
       }
-    }).catch(function () {
-      toast('Upload failed', true);
-      if (preview) preview.textContent = 'Upload failed';
-    });
+      hiddenInput.value = base64;
+
+      // Update preview
+      var preview = document.querySelector('.file-preview[data-key="' + esc(key) + '"]');
+      if (preview) preview.innerHTML = '<img src="' + esc(base64) + '" alt="preview" style="max-height:60px;margin-top:4px">';
+
+      // Show remove button
+      var removeBtn = input.parentNode.querySelector('[data-action="clear-image"]');
+      if (!removeBtn) {
+        removeBtn = document.createElement('button');
+        removeBtn.type = 'button';
+        removeBtn.className = 'secondary';
+        removeBtn.setAttribute('data-action', 'clear-image');
+        removeBtn.setAttribute('data-key', key);
+        removeBtn.textContent = 'Remove';
+        input.parentNode.appendChild(removeBtn);
+      }
+
+      toast('Image loaded. Click Save to store.');
+    };
+    reader.readAsDataURL(file);
   });`;

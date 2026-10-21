@@ -10,7 +10,6 @@ import {
   getSettingDefault as getSharedSettingDefault,
   isSettingPublic,
   isSettingSecret,
-  isSettingR2Upload,
   type SettingSchema,
   type SettingCategory,
 } from '../../shared/settings';
@@ -110,8 +109,11 @@ export function validateSettingValue(key: string, value: string): SettingValidat
       }
       return { ok: true, value };
     }
-    case 'image': {
-      // Image validation happens on upload; here we just accept the R2 key
+    case 'image_base64': {
+      // Validate base64 image data (allow empty for removal)
+      if (value && !/^data:image\/(png|jpeg|svg\+xml|webp|x-icon);base64,/.test(value)) {
+        return { ok: false, error: `${schema.label} must be a valid base64 data URI (data:image/...;base64,...) or empty.` };
+      }
       return { ok: true, value };
     }
     case 'string':
@@ -169,8 +171,4 @@ export function isSettingPublicApi(key: string): boolean {
 
 export function isSettingSecretApi(key: string): boolean {
   return isSettingSecret(key);
-}
-
-export function isSettingR2UploadApi(key: string): boolean {
-  return isSettingR2Upload(key);
 }

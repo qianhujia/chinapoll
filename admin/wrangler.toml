@@ -21,11 +21,6 @@ database_id = "local"
 migrations_dir = "../migrations"
 migrations_table = "migrations"
 
-# R2 bucket for storing logos, favicons, and other uploaded assets.
-[[r2_buckets]]
-binding = "R2"
-bucket_name = "chinapoll-assets-local"
-
 # Production environment targeted by the deploy workflow with `--env production`.
 #
 # The D1 binding is declared by database *name* only: wrangler resolves the real
@@ -43,10 +38,6 @@ binding = "DB"
 database_name = "chinapoll"
 migrations_dir = "../migrations"
 migrations_table = "migrations"
-
-[[env.production.r2_buckets]]
-binding = "R2"
-bucket_name = "chinapoll-assets"
 
 # vars and durable_objects are not inherited from the top level, so they are
 # repeated here. The Durable Object migration list is per environment.

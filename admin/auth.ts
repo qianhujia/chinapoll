@@ -25,8 +25,6 @@ export interface AdminEnv {
   RATE_LIMITER: DurableObjectNamespace;
   /** Bound PasswordHasher Durable Object used for all admin password hashing. */
   PASSWORD_HASHER: DurableObjectNamespace;
-  /** R2 bucket for storing logos, favicons, and other uploaded assets. */
-  R2: R2Bucket;
   /** Public Turnstile site key rendered by the login form. */
   TURNSTILE_SITE_KEY?: string;
   /** Private Turnstile key used to verify login tokens. Turnstile is enabled only
