@@ -166,7 +166,8 @@ export const scriptSettings = `  var CATEGORY_ORDER = ['general', 'appearance', 
     var panel = document.querySelector('.tab-panel[data-tab="' + esc(category) + '"]');
     if (!panel) return true;
 
-    var inputs = panel.querySelectorAll('[data-key]');
+    // Get all inputs except file inputs (hidden inputs for images store the base64)
+    var inputs = panel.querySelectorAll('[data-key]:not([type="file"])');
     var updates = {};
     inputs.forEach(function (input) {
       var key = input.getAttribute('data-key');
@@ -174,9 +175,6 @@ export const scriptSettings = `  var CATEGORY_ORDER = ['general', 'appearance', 
       var value;
       if (input.type === 'checkbox') {
         value = input.checked ? 'true' : 'false';
-      } else if (input.type === 'file') {
-        // File inputs for images are handled separately via base64 conversion
-        return;
       } else {
         value = input.value;
       }
@@ -283,7 +281,7 @@ export const scriptSettings = `  var CATEGORY_ORDER = ['general', 'appearance', 
 
       // Update preview
       var preview = document.querySelector('.file-preview[data-key="' + esc(key) + '"]');
-      if (preview) preview.innerHTML = '<img src="' + esc(base64) + '" alt="preview" style="max-height:60px;margin-top:4px">';
+      if (preview) preview.innerHTML = '<img src="' + esc(base64) + '" alt="preview" class="image-preview">';
 
       // Show remove button
       var removeBtn = input.parentNode.querySelector('[data-action="clear-image"]');

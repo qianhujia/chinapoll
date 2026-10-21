@@ -71,4 +71,5 @@ tr:hover td{background:rgba(255,255,255,.02);}
 .row-priority{box-shadow:inset 3px 0 0 var(--err);}
 .card-link{text-decoration:none;color:inherit;}
 .card-link.alert{border-color:var(--err);}
+.image-preview{max-height:60px;margin-top:4px;}
 @media(max-width:720px){.setting-row{grid-template-columns:1fr;}.layout{flex-direction:column;}.sidebar{width:auto;height:auto;position:static;flex-direction:row;flex-wrap:wrap;align-items:center;gap:8px;}.sidebar .brand{width:100%;margin-bottom:6px;}.sidebar .nav{flex-direction:row;flex-wrap:wrap;flex:0 0 auto;width:100%;}.sidebar .footer{border-top:none;padding-top:0;flex-direction:row;flex-wrap:wrap;width:100%;}.sidebar .who{width:100%;}}`;
