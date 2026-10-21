@@ -5,7 +5,7 @@ are run from the repository root.
 
 ## Deployments
 
-1. Apply D1 migrations: `npx wrangler d1 migrations apply chinapoll --remote`.
+1. Apply D1 migrations: `npx wrangler d1 migrations apply chinapoll --env production --remote`.
    `migrations/0001_initial.sql` holds the entire schema in a single consolidated
    file, most recently consolidated on **2026-10-18** (an earlier consolidation was
    done on 2026-10-11) because nothing had been deployed yet. All migration SQL
@@ -29,13 +29,18 @@ are run from the repository root.
 Neither `wrangler.toml` file commits a production database UUID. The `[env.production]`
 environment declares the D1 binding by database name only (variable `DB` ->
 `chinapoll`), so wrangler resolves the real UUID through the API when it deploys and
-when it applies migrations (`npx wrangler d1 migrations apply chinapoll --remote`).
+when it applies migrations (`npx wrangler d1 migrations apply chinapoll --env production --remote`).
+The `--env production` flag is required: without it wrangler resolves the database
+against the top-level local binding (`chinapoll-local`) and fails with
+`Couldn't find a D1 DB with the name or binding 'chinapoll'`.
 Both Workers bind the same database, so they share one schema.
 
 Both Workers also have a Deploy to Cloudflare button (see README.md) for deployments
 driven from the dashboard instead of the CLI. Set the public deploy command to
 `npm run deploy` and the admin one to `npm run admin:worker:deploy:remote`; both apply
-the migrations by database name and then deploy `--env production`.
+the migrations by database name with `--env production` and then deploy the
+`[env.production]` Worker. Set each project's build command to `npm run build` so that
+`dist/web` exists before the public Worker is deployed.
 
 ## Uptime monitoring
 

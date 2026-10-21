@@ -6,8 +6,10 @@ A local-first privacy-focused polling app designed around the Cloudflare + D1 ar
 
 The button clones this repository into your GitHub account and deploys the public
 Worker, which serves both the SPA and `/api/*`, together with a provisioned D1
-database. Choose the deploy command `npm run deploy` on the setup page: it applies
-the D1 migrations and then deploys the `[env.production]` Worker. Set the
+database. Choose the build command `npm run build` and the deploy command
+`npm run deploy` on the setup page. It applies
+the D1 migrations with `--env production` and then deploys the `[env.production]`
+Worker. Set the
 `SERVER_HMAC_KEY` secret to 64 random hex characters (`openssl rand -hex 32`). The
 production D1 binding is declared by database name only (`[env.production]` ->
 `DB` -> `chinapoll`), so no account UUID is committed to the repository; wrangler
@@ -270,7 +272,8 @@ On its setup page, name the Worker (for example `chinapoll-admin-worker`), bind 
 **same D1 database as the public Worker** (choose the existing database rather than
 creating another one, so both Workers share one schema), and set the deploy command to
 `npm run admin:worker:deploy:remote`. That command applies the D1 migrations by
-database name (`npx wrangler d1 migrations apply chinapoll --remote`) and then runs
+database name (`npx wrangler d1 migrations apply chinapoll --env production --remote`) and
+then runs
 `npx wrangler deploy --config admin/wrangler.toml --env production`. No secrets are
 needed; the optional vars are `TURNSTILE_SITE_KEY`, `ADMIN_ORIGIN`, and
 `PUBLIC_SITE_ORIGIN`. The admin Worker imports `shared/*` and points its D1

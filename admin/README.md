@@ -214,7 +214,7 @@ npm run admin:worker:deploy
 `admin:worker:deploy` deploys `[env.production]`, which declares the D1 binding by
 database name only (`DB` -> `chinapoll`), so no database UUID is committed. Wrangler
 resolves the real UUID at deploy time; apply the shared schema with
-`npx wrangler d1 migrations apply chinapoll --remote`.
+`npx wrangler d1 migrations apply chinapoll --env production --remote`.
 
 Or deploy from the repository root with the admin Deploy to Cloudflare button in
 `README.md`: name the second Worker application (for example
