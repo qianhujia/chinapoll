@@ -23,14 +23,14 @@ export const scriptReports = `  function renderReports() {
           if (state.publicSiteOrigin) {
             title = '<a href="' + esc(state.publicSiteOrigin) + '/poll/' + esc(item.pollId) + '" target="_blank" rel="noopener">' + title + '</a>';
           }
-          var priorityBadge = item.priority ? ' <span class="badge" style="background:#7f1d1d;border-color:#7f1d1d;color:#fee2e2">priority</span>' : '';
+          var priorityBadge = item.priority ? ' <span class="badge priority">priority</span>' : '';
           var reasons = item.reasons.filter(function (entry) { return entry.count > 0; })
             .map(function (entry) { return esc(entry.reason) + ' (' + esc(entry.count) + ')'; })
             .join(', ') || '<span class="muted">none</span>';
           var notes = item.notes.length
             ? '<div class="small muted">' + item.notes.map(function (note) { return esc(note); }).join('<br>') + '</div>'
             : '';
-          return '<tr' + (item.priority ? ' style="box-shadow:inset 3px 0 0 var(--err)"' : '') + '>' +
+          return '<tr' + (item.priority ? ' class="row-priority"' : '') + '>' +
             '<td>' + esc(item.pollId) + '</td>' +
             '<td>' + title + priorityBadge + '</td>' +
             '<td class="small">' + esc(item.openCount) + ' / ' + esc(item.totalCount) + '</td>' +

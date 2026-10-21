@@ -65,8 +65,8 @@ export const scriptPolls = `  function statusOptions(selected, includeAll, inclu
             '<td><span class="badge ' + esc(item.status) + '">' + esc(item.status) + '</span></td>' +
             '<td class="small">' + esc(item.ballots) + '</td>' +
             '<td class="small">' + esc(item.views) + '</td>' +
-            '<td style="min-width:160px">' + categorySelect + '</td>' +
-            '<td style="min-width:150px">' + selector + '</td></tr>';
+            '<td class="min-w-160">' + categorySelect + '</td>' +
+            '<td class="min-w-150">' + selector + '</td></tr>';
         }).join('')
       : '<tr><td colspan="6"><div class="empty">No polls match this filter.</div></td></tr>';
 

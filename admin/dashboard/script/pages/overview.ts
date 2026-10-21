@@ -36,15 +36,15 @@ export const scriptOverview = `  function statCard(value, label) {
       (isSuperAdmin() ? statCard(o.auditEntries, 'Audit entries') : '') +
       statCard(o.settings, 'Settings rows') +
       '</section>' +
-      '<section class="card" style="margin-top:18px"><h2>Latest submissions</h2>' + recent + '</section>' +
-      '<section class="card" style="margin-top:18px"><h2>Audit publishing</h2>' + publishSection(o) + '</section>';
+      '<section class="card mt-18"><h2>Latest submissions</h2>' + recent + '</section>' +
+      '<section class="card mt-18"><h2>Audit publishing</h2>' + publishSection(o) + '</section>';
   }
 
   // Publish status plus the last five runs. The heading is highlighted when the
   // most recent run failed; the timestamp is the last completed run.
   function publishSection(o) {
     var status = o.publishError
-      ? '<p style="color:var(--err)">The most recent publish run failed.</p>'
+      ? '<p class="text-err">The most recent publish run failed.</p>'
       : '<p class="small muted">Last publish: ' + esc(formatDate(o.lastPublishAt)) + '</p>';
     var runs = o.publishRuns && o.publishRuns.length
       ? '<table><thead><tr><th>Started</th><th>Finished</th><th>Polls</th><th>Result</th></tr></thead><tbody>' +
@@ -52,7 +52,7 @@ export const scriptOverview = `  function statCard(value, label) {
           return '<tr><td class="small">' + esc(formatDate(run.startedAt)) + '</td>' +
             '<td class="small">' + esc(formatDate(run.finishedAt)) + '</td>' +
             '<td>' + esc(run.pollsUpdated) + '</td>' +
-            '<td class="small"' + (run.error ? ' style="color:var(--err)"' : '') + '>' +
+            '<td class="small' + (run.error ? ' text-err' : '') + '">' +
             esc(run.error ? 'failed: ' + run.error : 'ok') + '</td></tr>';
         }).join('') + '</tbody></table>'
       : '<div class="empty">No publish runs recorded.</div>';
@@ -62,8 +62,8 @@ export const scriptOverview = `  function statCard(value, label) {
   // Open-report count card. It links to the Reports tab and is highlighted when
   // there is anything waiting for moderation.
   function reportsCard(count) {
-    var style = 'text-decoration:none;color:inherit' + (count > 0 ? ';border-color:var(--err)' : '');
-    return '<a class="card stat" href="/reports" data-action="tab" data-view="reports" style="' + style + '">' +
+    var cls = 'card stat card-link' + (count > 0 ? ' alert' : '');
+    return '<a class="' + cls + '" href="/reports" data-action="tab" data-view="reports">' +
       '<div class="value">' + esc(count) + '</div><div class="label">Open reports</div></a>';
   }
 

@@ -34,11 +34,11 @@ export const scriptAuth = `  function waitForTurnstile(callback) {
     var turnstile = state.turnstile || { enabled: false, siteKey: '' };
     var turnstileField = turnstile.enabled ? '<div class="turnstile" id="turnstile-slot"></div>' : '';
     app.innerHTML = '<form class="login" id="login-form">' +
-      '<h1>ChinaPoll <span style="color:var(--accent)">Admin</span></h1>' +
+      '<h1>ChinaPoll <span class="accent">Admin</span></h1>' +
       '<p>Sign in with your admin username and password.</p>' +
       '<label for="login-username">Username</label>' +
       '<input id="login-username" autocomplete="username" autofocus>' +
-      '<label for="login-password" style="margin-top:12px">Password</label>' +
+      '<label for="login-password" class="mt-12">Password</label>' +
       '<input id="login-password" type="password" autocomplete="current-password">' +
       turnstileField +
       '<button class="primary" type="submit">Sign in</button>' +
@@ -77,7 +77,7 @@ export const scriptAuth = `  function waitForTurnstile(callback) {
       '<p>No admin users exist yet. Create the first account; it becomes the super admin.</p>' +
       '<label for="setup-username">Username</label>' +
       '<input id="setup-username" autocomplete="username" autofocus>' +
-      '<label for="setup-password" style="margin-top:12px">Password (min 12 characters)</label>' +
+      '<label for="setup-password" class="mt-12">Password (min 12 characters)</label>' +
       '<input id="setup-password" type="password" autocomplete="new-password">' +
       '<button class="primary" type="submit">Create admin</button>' +
       '<div class="error" id="setup-error">' + esc(message || '') + '</div>' +

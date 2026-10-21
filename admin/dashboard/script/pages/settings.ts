@@ -44,11 +44,11 @@ export const scriptSettings = `  // Keys that belong to the "Public audit reposi
       '<button class="primary" data-action="publish-run">Publish now</button>' +
       '</div>' +
       publishRows + '</section>' +
-      '<section class="card" style="margin-top:18px"><h2>Application settings</h2>' +
+      '<section class="card mt-18"><h2>Application settings</h2>' +
       '<p class="small muted">Values are validated with the same rules the public Worker API enforces.</p>' +
       '<div class="toolbar"><button data-action="initialize-settings">Insert missing defaults</button></div>' +
       genericRows + '</section>' +
-      '<section class="card" style="margin-top:18px"><h2>Poll categories</h2>' +
+      '<section class="card mt-18"><h2>Poll categories</h2>' +
       '<p class="small muted">Categories order the public home page chip row and the submit form dropdown. Add and edit them in the Categories tab, or start from the suggested set.</p>' +
       '<div class="toolbar"><button data-action="insert-suggested-categories">Insert suggested categories</button></div>' +
       '</section>';

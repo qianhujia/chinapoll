@@ -24,7 +24,7 @@ export const scriptCategories = `  function categoryOptions(selectedId) {
             '<td class="small muted">' + esc(item.slug) + '</td>' +
             '<td class="small">' + esc(item.polls) + '</td>' +
             '<td><input type="checkbox" data-cat-enabled data-id="' + esc(item.id) + '"' + (item.enabled ? ' checked' : '') + '></td>' +
-            '<td><input type="number" data-cat-position data-id="' + esc(item.id) + '" value="' + esc(item.position) + '" min="0" style="width:80px"></td>' +
+            '<td><input type="number" data-cat-position data-id="' + esc(item.id) + '" value="' + esc(item.position) + '" min="0" class="w-80"></td>' +
             '<td><div class="toolbar">' +
             '<button class="primary" data-action="save-category" data-id="' + esc(item.id) + '">Save</button>' +
             '<button data-action="delete-category" data-id="' + esc(item.id) + '">Delete</button>' +
