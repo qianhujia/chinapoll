@@ -18,14 +18,26 @@ export const scriptAuth = `  function waitForTurnstile(callback) {
     waitForTurnstile(function (turnstile) {
       if (!document.getElementById('turnstile-slot')) return;
       try {
-        turnstile.render(slot, {
+        var widgetId = turnstile.render(slot, {
           sitekey: siteKey,
           callback: onToken,
           'error-callback': function () { onToken(''); },
           'expired-callback': function () { onToken(''); }
         });
+        state.turnstileWidgetId = widgetId;
       } catch (error) {
         // The widget fails closed; the server still requires a valid token.
+      }
+    });
+  }
+
+  function resetTurnstileWidget() {
+    var turnstile = state.turnstile || { enabled: false, siteKey: '' };
+    if (!turnstile.enabled) return;
+    waitForTurnstile(function (turnstile) {
+      var widgetId = state.turnstileWidgetId;
+      if (widgetId !== undefined) {
+        turnstile.reset(widgetId);
       }
     });
   }
@@ -67,7 +79,11 @@ export const scriptAuth = `  function waitForTurnstile(callback) {
       if (turnstile.enabled) payload.turnstileToken = turnstileToken;
       api('/api/admin/session', { method: 'POST', body: JSON.stringify(payload) })
         .then(function () { boot(); })
-        .catch(function (error) { errorBox.textContent = error.message; });
+        .catch(function (error) {
+          errorBox.textContent = error.message;
+          resetTurnstileWidget();
+          turnstileToken = '';
+        });
     });
   }
 

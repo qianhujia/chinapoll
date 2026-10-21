@@ -6,6 +6,7 @@ export const scriptCore = `  var app = document.getElementById('app');
     user: null,
     session: null,
     turnstile: { enabled: false, siteKey: '' },
+    turnstileWidgetId: undefined,
     publicSiteOrigin: '',
     overview: null,
     polls: null,
