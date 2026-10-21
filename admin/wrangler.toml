@@ -31,6 +31,7 @@ migrations_table = "migrations"
 # button creates.
 [env.production]
 name = "chinapoll-admin-worker"
+workers_dev = false
 
 [[env.production.d1_databases]]
 binding = "DB"
