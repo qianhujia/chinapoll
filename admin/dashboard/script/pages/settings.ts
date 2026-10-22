@@ -40,7 +40,7 @@ export const scriptSettings = `  var CATEGORY_ORDER = ['general', 'appearance', 
       (item.description ? '<div class="small muted desc">' + esc(item.description) + '</div>' : '') +
       '</div>' +
       '<div>' + inputHtml + '</div>' +
-      '<div class="setting-status" data-status-key="' + esc(item.key) + '">' + (item.isSet ? ('last updated ' + esc(formatDate(item.updatedAt))) : 'not set in database') + '</div>' +
+      '<div class="setting-status" data-status-key="' + esc(item.key) + '">' + (item.isSet ? ('last updated ' + esc(formatDate(item.updatedAt))) : '') + '</div>' +
       '</div>';
   }
 
@@ -51,7 +51,7 @@ export const scriptSettings = `  var CATEGORY_ORDER = ['general', 'appearance', 
     var isActive = state.settings.activeTab === category ? ' active' : '';
     return '<div class="tab-panel' + isActive + '" data-tab="' + esc(category) + '">' +
       '<div class="setting-list">' + rows + '</div>' +
-      '<div class="toolbar"><button class="primary" data-action="save-category" data-category="' + esc(category) + '">Save ' + esc(settings.label) + '</button></div>' +
+      '<div class="toolbar"><button class="primary" data-action="save-settings-category" data-category="' + esc(category) + '">Save ' + esc(settings.label) + '</button></div>' +
       '</div>';
   }
 
@@ -115,7 +115,7 @@ export const scriptSettings = `  var CATEGORY_ORDER = ['general', 'appearance', 
       renderSettings();
       return true;
     }
-    if (action === 'save-category') {
+    if (action === 'save-settings-category') {
       var category = target.getAttribute('data-category');
       return saveCategory(category, target);
     }

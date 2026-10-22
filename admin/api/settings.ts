@@ -185,7 +185,14 @@ async function bulkUpdateSettings(request: Request, env: AdminEnv, actor: AdminA
       continue;
     }
 
-    const validation = validateSettingValue(key, String(rawValue));
+    // If value is empty, use the default value (auto-initialize missing settings)
+    let valueToValidate = String(rawValue);
+    if (valueToValidate === '') {
+      const defaultVal = getSettingDefaultApi(key);
+      valueToValidate = defaultVal !== undefined ? String(defaultVal) : '';
+    }
+
+    const validation = validateSettingValue(key, valueToValidate);
     if (!validation.ok) {
       results.push({ key, ok: false, error: validation.error });
       continue;
@@ -230,7 +237,14 @@ async function updateSetting(key: string, request: Request, env: AdminEnv, actor
     return Response.json({ message: 'a "value" field is required' }, { status: 400 });
   }
 
-  const validation = validateSettingValue(key, String(rawValue));
+  // If value is empty, use the default value (auto-initialize missing settings)
+  let valueToValidate = String(rawValue);
+  if (valueToValidate === '') {
+    const defaultVal = getSettingDefaultApi(key);
+    valueToValidate = defaultVal !== undefined ? String(defaultVal) : '';
+  }
+
+  const validation = validateSettingValue(key, valueToValidate);
   if (!validation.ok) {
     return Response.json({ message: validation.error }, { status: 422 });
   }
