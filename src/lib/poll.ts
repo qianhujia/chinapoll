@@ -189,7 +189,7 @@ export async function getStats(pollId: number): Promise<PollResults & {
   return fetchJson(`/api/stats/${pollId}`);
 }
 
-export async function getPolls(page: number, pageSize: number, query = '', category = ''): Promise<{
+export async function getPolls(page: number, pageSize: number, query = '', topic = ''): Promise<{
   polls: PollWithStats[];
   page: number;
   pageSize: number;
@@ -200,7 +200,7 @@ export async function getPolls(page: number, pageSize: number, query = '', categ
 }> {
   const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
   if (query) params.set('q', query);
-  if (category) params.set('category', category);
+  if (topic) params.set('topic', topic);
   return fetchJson(`/api/polls?${params}`);
 }
 

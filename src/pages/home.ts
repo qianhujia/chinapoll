@@ -54,10 +54,10 @@ export function renderPollRow({ poll, stats, views }: Awaited<ReturnType<typeof 
   `;
 }
 
-export async function mountHome(app: HTMLElement, page: number, bindNavigation: () => void, settings?: Record<string, any>): Promise<void> {
+export async function mountHome(app: HTMLElement, page: number, bindNavigation: () => void, settings?: Record<string, any>, topicSlug?: string): Promise<void> {
   const pollsPerPage = getPollsPerPage();
   const searchQuery = getQueryValue('q');
-  const categoryFilter = getQueryValue('category');
+  const categoryFilter = topicSlug ?? getQueryValue('category');
   let pollStats: Awaited<ReturnType<typeof getPolls>>['polls'];
   let topics: Awaited<ReturnType<typeof getTopics>> | null = null;
   let openPolls: number;
@@ -112,7 +112,7 @@ export async function mountHome(app: HTMLElement, page: number, bindNavigation: 
   const chipRow = !topics || topics.topics.length === 0 ? '' : `
         <nav class="flex flex-wrap items-center gap-2" data-topic-chips>
           <a class="${chipClass(categoryFilter === '')}" href="/" data-route="/">${t('categoryAll')} <span class="tabular-nums text-xs">${topics.total}</span></a>
-          ${topics.topics.map((topic) => `<a class="${chipClass(categoryFilter === topic.slug)}" href="/?category=${encodeURIComponent(topic.slug)}" data-route="/?category=${encodeURIComponent(topic.slug)}">${escapeHtml(topic.names[localeCode] ?? topic.name)} <span class="tabular-nums text-xs">${topic.count}</span></a>`).join('')}
+          ${topics.topics.map((topic) => `<a class="${chipClass(categoryFilter === topic.slug)}" href="/topic/${encodeURIComponent(topic.slug)}" data-route="/topic/${encodeURIComponent(topic.slug)}">${escapeHtml(topic.names[localeCode] ?? topic.name)} <span class="tabular-nums text-xs">${topic.count}</span></a>`).join('')}
         </nav>`;
 
   app.innerHTML = `

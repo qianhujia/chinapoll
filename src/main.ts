@@ -99,6 +99,12 @@ async function render() {
     return;
   }
 
+  if (route.startsWith('/topic/')) {
+    const topicSlug = route.split('/').pop() ?? '';
+    await mountHome(app!, getQueryPage('page'), bindNavigation, getPublicSettings(), topicSlug);
+    return;
+  }
+
   if (route.startsWith('/vote/')) {
     const legacyRoute = route.replace(/^\/vote\//, '/poll/');
     window.history.replaceState({}, '', legacyRoute);
