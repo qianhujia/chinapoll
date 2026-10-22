@@ -82,7 +82,7 @@ export async function handleCategoriesRequest(
 
 async function listCategories(env: AdminEnv): Promise<Response> {
   const result = await env.DB.prepare(
-    `SELECT c.id, c.slug, c.name, c.position, c.enabled,
+    `SELECT c.id, c.slug, c.name, c.description, c.position, c.enabled,
             (SELECT COUNT(*) FROM polls p WHERE p.category_id = c.id) AS polls
      FROM categories c
      ORDER BY c.position ASC, c.id ASC`
