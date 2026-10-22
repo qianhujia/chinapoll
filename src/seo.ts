@@ -179,6 +179,16 @@ export function getSeoForRoute(route: string, settings: { site_name: string; sit
           canonical: `${origin}/poll/${pollId}`
         };
       }
+      if (route.startsWith('/topic/')) {
+        const topicSlug = route.split('/').pop();
+        return {
+          ...base,
+          title: `${topicSlug} - ${settings.site_name}`,
+          description: `Browse polls about ${topicSlug} on ${settings.site_name}.`,
+          ogType: 'website',
+          canonical: `${origin}/topic/${topicSlug}`
+        };
+      }
       // Unknown route
       return {
         ...base,

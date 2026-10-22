@@ -102,7 +102,8 @@ export async function mountHome(app: HTMLElement, page: number, bindNavigation: 
     ? 'border border-white/60 text-white hover:bg-white/10'
     : 'border border-border bg-panel text-ink hover:border-primary hover:text-primary';
   const openPollsCount = openPolls;
-  const showHero = currentPage === 1 && searchQuery === '';
+  // Show hero only on the first page with no search query and no topic filter.
+  const showHero = currentPage === 1 && searchQuery === '' && categoryFilter === '';
 
   // The topic chip row lists every enabled topic with the number of open
   // polls it holds; "All" is selected when no topic is filtered.
@@ -162,10 +163,10 @@ export async function mountHome(app: HTMLElement, page: number, bindNavigation: 
     : pollStats.map(renderPollRow).join('')}
         </section>
         ${renderPagination(currentPage, totalPages, (targetPage) => {
-    // The category filter and the search survive paging.
+    // The topic filter and the search survive paging.
     const params = new URLSearchParams();
     if (searchQuery) params.set('q', searchQuery);
-    if (categoryFilter) params.set('category', categoryFilter);
+    if (categoryFilter) params.set('topic', categoryFilter);
     params.set('page', String(targetPage));
     return `/?${params}`;
   })}
