@@ -1,7 +1,7 @@
 // Dashboard shell, navigation, and event wiring.
 
 export const scriptShell = `  function renderShell() {
-    var items = ['overview', 'polls', 'categories', 'reports', 'comments', 'users', 'admins'];
+    var items = ['overview', 'polls', 'topics', 'reports', 'comments', 'users', 'admins'];
     if (isSuperAdmin()) items.push('audit');
     items.push('settings');
     var nav = items.map(function (item) {
@@ -28,7 +28,7 @@ export const scriptShell = `  function renderShell() {
   function loadCurrent() {
     if (state.view === 'overview') return loadOverview();
     if (state.view === 'polls') return loadPolls();
-    if (state.view === 'categories') return loadCategories();
+    if (state.view === 'topics') return loadTopics();
     if (state.view === 'reports') return loadReports();
     if (state.view === 'comments') return loadComments();
     if (state.view === 'users') return loadUsers();
@@ -41,7 +41,7 @@ export const scriptShell = `  function renderShell() {
     if (!document.getElementById('view')) renderShell();
     if (state.view === 'overview') renderOverview();
     else if (state.view === 'polls') renderPolls();
-    else if (state.view === 'categories') renderCategories();
+    else if (state.view === 'topics') renderTopics();
     else if (state.view === 'reports') renderReports();
     else if (state.view === 'comments') renderComments();
     else if (state.view === 'users') renderUsers();
@@ -64,7 +64,7 @@ export const scriptShell = `  function renderShell() {
       state.overview = null; state.polls = null;
       state.comments = null; state.admins = null; state.audit = null; state.settings = null;
       state.reports = null;
-      state.categories = null;
+      state.topics = null;
       showView();
       guard(loadCurrent());
       return;
@@ -79,7 +79,7 @@ export const scriptShell = `  function renderShell() {
     }
     if (handleReportsAction(action, target)) return;
     if (handlePollsAction(action, target)) return;
-    if (handleCategoriesAction(action, target)) return;
+    if (handleTopicsAction(action, target)) return;
     if (handleSettingsAction(action, target)) return;
     if (handleCommentsAction(action, target)) return;
     if (handleUsersAction(action, target)) return;
@@ -119,7 +119,7 @@ export const scriptShell = `  function renderShell() {
       state.overview = null; state.polls = null;
       state.comments = null; state.admins = null; state.audit = null; state.settings = null;
       state.reports = null;
-      state.categories = null;
+      state.topics = null;
       showResolvedView();
     }).catch(function (error) {
       renderLogin(error && error.message ? error.message : 'Unable to reach the admin API.');

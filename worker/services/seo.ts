@@ -1,11 +1,11 @@
 // Server-side SEO metadata injection for the public Worker.
 //
-// The SPA shell (index.html) is served for all non-API routes. This module
-// extracts the base HTML from the assets binding, injects route-specific
-// <head> metadata (title, description, canonical, Open Graph, Twitter, JSON-LD),
-// and returns the modified document.
+// The document shell (index.html) is served for all non-API routes. This module
+// builds route-specific <head> metadata (title, description, canonical, Open
+// Graph, Twitter, robots, JSON-LD) and the public Worker injects it into the
+// document (see withSeoMetadata in ../index).
 
-import type { Env } from '../index';
+import { escapeHtml, serializeJsonLd } from './html';
 
 export interface SeoContext {
   title: string;
@@ -14,7 +14,8 @@ export interface SeoContext {
   ogType?: 'website' | 'article';
   ogImage?: string;
   twitterCard?: 'summary' | 'summary_large_image';
-  jsonLd?: Record<string, unknown>;
+  /** One or more JSON-LD documents, each emitted in its own script block. */
+  jsonLd?: Record<string, unknown> | Record<string, unknown>[];
   robots?: string;
 }
 
@@ -36,13 +37,17 @@ const DEFAULT_SEO: SeoContext = {
 
 const OG_IMAGE_URL = 'https://chinapoll.org/og-image.png';
 
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, '&')
-    .replace(/</g, '<')
-    .replace(/>/g, '>')
-    .replace(/"/g, '"')
-    .replace(/'/g, '&apos;');
+// Maps the site's default locale to an Open Graph locale tag.
+function ogLocale(defaultLocale: string): string {
+  const value = (defaultLocale ?? 'en').toLowerCase();
+  if (value.startsWith('zh-tw') || value.startsWith('zh_hant')) return 'zh_TW';
+  if (value.startsWith('zh')) return 'zh_CN';
+  return 'en_US';
+}
+
+function toJsonLdList(jsonLd: SeoContext['jsonLd']): Record<string, unknown>[] {
+  if (!jsonLd) return [];
+  return Array.isArray(jsonLd) ? jsonLd : [jsonLd];
 }
 
 export function buildMetaTags(seo: SeoContext, settings: PublicSettingsSeo, origin: string): string {
@@ -54,11 +59,14 @@ export function buildMetaTags(seo: SeoContext, settings: PublicSettingsSeo, orig
 
   const tags: string[] = [
     `<meta name="description" content="${description}" />`,
+    `<meta name="application-name" content="${siteName}" />`,
     `<meta property="og:type" content="${seo.ogType ?? 'website'}" />`,
     `<meta property="og:site_name" content="${siteName}" />`,
+    `<meta property="og:locale" content="${ogLocale(settings.default_locale)}" />`,
     `<meta property="og:title" content="${title}" />`,
     `<meta property="og:description" content="${description}" />`,
     `<meta property="og:image" content="${ogImage}" />`,
+    `<meta property="og:image:alt" content="${title}" />`,
     `<meta property="og:url" content="${canonical}" />`,
     `<meta name="twitter:card" content="${seo.twitterCard ?? 'summary_large_image'}" />`,
     `<meta name="twitter:title" content="${title}" />`,
@@ -68,16 +76,21 @@ export function buildMetaTags(seo: SeoContext, settings: PublicSettingsSeo, orig
     `<meta name="robots" content="${seo.robots ?? 'index, follow'}" />`
   ];
 
-  if (seo.jsonLd) {
-    tags.push(`<script type="application/ld+json">${JSON.stringify(seo.jsonLd)}</script>`);
+  for (const document of toJsonLdList(seo.jsonLd)) {
+    tags.push(`<script type="application/ld+json">${serializeJsonLd(document)}</script>`);
   }
 
   return tags.join('\n    ');
 }
 
-export function injectSeoIntoHtml(html: string, metaTags: string): string {
-  // Replace the closing </head> tag with our meta tags followed by </head>
-  return html.replace('</head>', `${metaTags}\n  </head>`);
+
+export function injectSeoIntoHtml(html: string, metaTags: string, title: string): string {
+  // The static shell ships a placeholder <title> and <meta name="description">.
+  // Replace the title and drop the placeholder description so the document ends
+  // up with exactly one of each instead of two conflicting tags.
+  const withTitle = html.replace(/<title>[\s\S]*?<\/title>/i, `<title>${escapeHtml(title)}</title>`);
+  const withoutPlaceholder = withTitle.replace(/[ \t]*<meta name="description"[^>]*>\s*/i, '');
+  return withoutPlaceholder.replace('</head>', `${metaTags}\n  </head>`);
 }
 
 export function buildSeoContext(
@@ -105,6 +118,63 @@ export function buildSeoContext(
   return base;
 }
 
+// The site-level structured data: the WebSite plus the search action that lets a
+// search engine offer the on-site poll search straight from its results page.
+export function buildWebsiteJsonLd(settings: PublicSettingsSeo, origin: string): Record<string, unknown> {
+  return {
+    '@context': 'https://schema.org',
+    '@type': 'WebSite',
+    name: settings.site_name,
+    description: settings.site_slogan,
+    url: `${origin}/`,
+    potentialAction: {
+      '@type': 'SearchAction',
+      target: {
+        '@type': 'EntryPoint',
+        urlTemplate: `${origin}/?q={search_term_string}`
+      },
+      'query-input': 'required name=search_term_string'
+    }
+  };
+}
+
+// The ordered list of polls shown on a listing page, so a crawler sees the same
+// items and their order the visitor sees.
+export function buildPollListJsonLd(
+  polls: ReadonlyArray<{ id: number; title: string }>,
+  settings: PublicSettingsSeo,
+  origin: string
+): Record<string, unknown> {
+  return {
+    '@context': 'https://schema.org',
+    '@type': 'ItemList',
+    name: `Polls on ${settings.site_name}`,
+    numberOfItems: polls.length,
+    itemListElement: polls.map((poll, index) => ({
+      '@type': 'ListItem',
+      position: index + 1,
+      url: `${origin}/poll/${poll.id}`,
+      name: poll.title
+    }))
+  };
+}
+
+// The trail from the home page to the current page.
+export function buildBreadcrumbJsonLd(
+  trail: ReadonlyArray<{ name: string; url: string }>
+): Record<string, unknown> {
+  return {
+    '@context': 'https://schema.org',
+    '@type': 'BreadcrumbList',
+    itemListElement: trail.map((entry, index) => ({
+      '@type': 'ListItem',
+      position: index + 1,
+      name: entry.name,
+      item: entry.url
+    }))
+  };
+}
+
 export function getPollSeoContext(
   poll: { id: number; title: string; description: string | null; status: string },
   settings: PublicSettingsSeo,
@@ -115,28 +185,31 @@ export function getPollSeoContext(
     ? poll.description.slice(0, 160)
     : `Vote on "${poll.title}" - ${settings.site_slogan}`;
 
-  const jsonLd = {
-    '@context': 'https://schema.org',
-    '@type': 'Dataset',
-    name: poll.title,
-    description: poll.description ?? `A poll on ${settings.site_name}.`,
-    url: pollUrl,
-    publisher: {
-      '@type': 'Organization',
-      name: settings.site_name,
-      url: origin
-    },
-    datePublished: new Date().toISOString(),
-    keywords: ['poll', 'voting', 'public opinion', 'anonymous']
-  };
-
   return buildSeoContext(`/poll/${poll.id}`, settings, origin, {
     title: `${poll.title} - ${settings.site_name}`,
     description,
     canonical: pollUrl,
     ogType: 'article',
     ogImage: '/og-image.png',
-    jsonLd
+    jsonLd: [
+      {
+        '@context': 'https://schema.org',
+        '@type': 'Dataset',
+        name: poll.title,
+        description: poll.description ?? `A poll on ${settings.site_name}.`,
+        url: pollUrl,
+        publisher: {
+          '@type': 'Organization',
+          name: settings.site_name,
+          url: origin
+        },
+        keywords: ['poll', 'voting', 'public opinion', 'anonymous']
+      },
+      buildBreadcrumbJsonLd([
+        { name: settings.site_name, url: `${origin}/` },
+        { name: poll.title, url: pollUrl }
+      ])
+    ]
   });
 }
 
@@ -144,7 +217,8 @@ export function getHomeSeoContext(settings: PublicSettingsSeo, origin: string): 
   return buildSeoContext('/', settings, origin, {
     title: `${settings.site_name} - ${settings.site_slogan}`,
     description: settings.site_slogan,
-    ogType: 'website'
+    ogType: 'website',
+    jsonLd: buildWebsiteJsonLd(settings, origin)
   });
 }
 
@@ -152,7 +226,8 @@ export function getPollsListSeoContext(settings: PublicSettingsSeo, origin: stri
   return buildSeoContext('/polls', settings, origin, {
     title: `All Polls - ${settings.site_name}`,
     description: `Browse all open polls on ${settings.site_name}. ${settings.site_slogan}`,
-    ogType: 'website'
+    ogType: 'website',
+    jsonLd: buildWebsiteJsonLd(settings, origin)
   });
 }
 

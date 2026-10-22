@@ -16,7 +16,7 @@ export const scriptCore = `  var app = document.getElementById('app');
     admins: null,
     audit: null,
     settings: null,
-    categories: null,
+    topics: null,
     pollStatus: 'all',
     pollQuery: '',
     // Poll ids whose option editor is expanded in the Polls tab.
@@ -51,8 +51,10 @@ export const scriptCore = `  var app = document.getElementById('app');
 
   // Each dashboard view has a dedicated URL. The overview is also reachable at
   // "/overview" as an alias of "/".
-  var VIEW_PATHS = { overview: '/', polls: '/polls', categories: '/categories', reports: '/reports', comments: '/comments', users: '/users', admins: '/admins', audit: '/audit', settings: '/settings' };
-  var PATH_VIEWS = { '/': 'overview', '/overview': 'overview', '/polls': 'polls', '/categories': 'categories', '/reports': 'reports', '/comments': 'comments', '/users': 'users', '/admins': 'admins', '/audit': 'audit', '/settings': 'settings' };
+  // \"/categories\" is kept as a legacy alias so bookmarks created before the
+  // topics rename still resolve; it normalizes to \"/topics\".
+  var VIEW_PATHS = { overview: '/', polls: '/polls', topics: '/topics', reports: '/reports', comments: '/comments', users: '/users', admins: '/admins', audit: '/audit', settings: '/settings' };
+  var PATH_VIEWS = { '/': 'overview', '/overview': 'overview', '/polls': 'polls', '/topics': 'topics', '/categories': 'topics', '/reports': 'reports', '/comments': 'comments', '/users': 'users', '/admins': 'admins', '/audit': 'audit', '/settings': 'settings' };
 
   function viewFromPath(pathname) {
     var path = pathname || '/';

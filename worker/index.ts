@@ -30,8 +30,11 @@ import { runMaintenanceTasks } from './services/maintenance';
 import { publishHealth } from './services/publisher';
 import { isValidServerKey, serverHmacKey } from './services/ip';
 import {
+  buildBreadcrumbJsonLd,
   buildMetaTags,
+  buildPollListJsonLd,
   buildSeoContext,
+  buildWebsiteJsonLd,
   getHomeSeoContext,
   getPollsListSeoContext,
   getAboutSeoContext,
@@ -41,8 +44,20 @@ import {
   getNotFoundSeoContext,
   getPollSeoContext,
   injectSeoIntoHtml,
-  type PublicSettingsSeo
+  type SeoContext
 } from './services/seo';
+import {
+  applyHtmlLang,
+  injectAppBody,
+  loadHomeSsrData,
+  loadPollSsrData,
+  renderAboutBody,
+  renderHomeBody,
+  renderPollBody,
+  serverTranslate,
+  type HomeSsrData
+} from './services/ssr';
+import { getPollStatusLabel, PollMode, PollStatus } from './enums';
 
 export interface Env {
   DB: D1Database;
@@ -122,99 +137,184 @@ function buildSha(env: Env): string {
    });
  }
 
-// Injects route-specific SEO metadata into the HTML document.
-  async function withSeoMetadata(
-    response: Response,
-    request: Request,
-    settings: PublicSettingsSeo,
-    origin: string,
-    env: Env
-  ): Promise<Response> {
-    console.log('[DEBUG] withSeoMetadata:', new URL(request.url).pathname);
-    if (!(response.headers.get('content-type') ?? '').includes('text/html')) {
-      console.log('[DEBUG] not html, skipping');
-      return response;
-    }
+// Server-renders the public page: route-specific <head> metadata plus a
+// crawlable body for the routes search engines index. The client bundle
+// re-renders the same container when it boots. `status` is the HTTP status the
+// document carries, so an unknown path answers 404 instead of 200.
+interface PublicPage {
+  seo: SeoContext;
+  body: string;
+  status: number;
+}
 
-    const url = new URL(request.url);
-    const pathname = url.pathname;
-    let seoContext;
+function readPageParam(search: URLSearchParams): number {
+  const page = Number(search.get('page') ?? '1');
+  return Number.isSafeInteger(page) && page > 0 ? page : 1;
+}
 
-    // Match routes and build appropriate SEO context
-    if (pathname === '/' || pathname === '/index.html') {
-      seoContext = getHomeSeoContext(settings, origin);
-    } else if (pathname === '/polls' || pathname.startsWith('/polls?') || pathname.startsWith('/polls/')) {
-      seoContext = getPollsListSeoContext(settings, origin);
-    } else if (pathname === '/about') {
-      seoContext = getAboutSeoContext(settings, origin);
-    } else if (pathname === '/submit') {
-      seoContext = getSubmitSeoContext(settings, origin);
-    } else if (pathname === '/login' || pathname === '/register' || pathname === '/reset') {
-      seoContext = getAuthSeoContext(pathname, settings, origin);
-    } else if (pathname === '/account' || pathname.startsWith('/account/')) {
-      seoContext = getAccountSeoContext(settings, origin);
-    } else if (pathname.startsWith('/poll/')) {
-      const pollId = Number(pathname.split('/').pop());
-      if (Number.isSafeInteger(pollId) && pollId > 0) {
-        try {
-          const poll = await env.DB.prepare(
-            `SELECT id, title, description, status FROM polls WHERE id = ? AND mode IN (?, ?) AND status IN (?, ?, ?)`
-          ).bind(pollId, 1, 2, 1, 2, 3).first<{ id: number; title: string; description: string | null; status: number }>();
-          if (poll) {
-            const { getPollStatusLabel } = await import('./enums.js');
-            seoContext = getPollSeoContext(
-              { ...poll, status: getPollStatusLabel(poll.status) },
-              settings,
-              origin
-            );
-          }
-        } catch {
-          // Fall through to generic page SEO
-        }
-      }
-    } else if (pathname.startsWith('/topic/')) {
-      const topicSlug = pathname.split('/').pop();
-      if (topicSlug) {
-        try {
-          const topic = await env.DB.prepare(
-            `SELECT id, slug, name, description FROM topics WHERE slug = ? AND enabled = 1`
-          ).bind(topicSlug).first<{ id: number; slug: string; name: string; description: string | null }>();
-          if (topic) {
-            seoContext = buildSeoContext(`/topic/${topic.slug}`, settings, origin, {
-              title: `${topic.name} - ${settings.site_name}`,
-              description: topic.description ? topic.description.slice(0, 160) : `Browse polls about ${topic.name} on ${settings.site_name}.`,
-              canonical: `${origin}/topic/${topic.slug}`,
-              ogType: 'website'
-            });
-          }
-        } catch {
-          // Fall through to generic page SEO
-        }
-      }
-    }
+async function buildPublicPage(
+  pathname: string,
+  search: URLSearchParams,
+  settings: PublicSettings,
+  origin: string,
+  env: Env
+): Promise<PublicPage> {
+  const t = serverTranslate;
+  const page = readPageParam(search);
+  const query = (search.get('q') ?? '').trim().slice(0, 100);
 
-    if (!seoContext) {
-      // Check if it's a known SPA route (valid client-side routes)
-      const knownRoutes = ['/', '/about', '/submit', '/login', '/register', '/reset', '/account', '/polls'];
-      const isKnownRoute = knownRoutes.some(r => pathname === r || pathname.startsWith(r + '/') || pathname.startsWith(r + '?'));
-      if (!isKnownRoute && !pathname.startsWith('/poll/') && !pathname.startsWith('/vote/') && !pathname.startsWith('/topic/')) {
-        seoContext = getNotFoundSeoContext(settings, origin);
-      }
-    }
-
-    if (seoContext) {
-      const html = await response.text();
-      const metaTags = buildMetaTags(seoContext, settings, origin);
-      const withMeta = injectSeoIntoHtml(html, metaTags);
-      return new Response(withMeta, {
-        status: response.status,
-        statusText: response.statusText,
-        headers: response.headers
+  if (pathname === '/' || pathname === '/index.html' || pathname === '/polls') {
+    const activeTopic = (search.get('topic') ?? search.get('category') ?? '').trim();
+    let data: HomeSsrData | null = null;
+    try {
+      data = await loadHomeSsrData(env.DB, {
+        pageSize: settings.polls_per_page,
+        page,
+        query,
+        topicSlug: activeTopic
       });
+    } catch (error) {
+      console.error('ssr poll list failed', error);
     }
+    const polls = data?.polls ?? [];
+    const base = pathname === '/polls'
+      ? getPollsListSeoContext(settings, origin)
+      : getHomeSeoContext(settings, origin);
+    return {
+      seo: {
+        ...base,
+        jsonLd: [buildWebsiteJsonLd(settings, origin), buildPollListJsonLd(polls, settings, origin)]
+      },
+      body: renderHomeBody({
+        settings,
+        topics: data?.topics ?? [],
+        topicTotal: data?.topicTotal ?? 0,
+        polls,
+        page: data?.page ?? page,
+        totalPages: data?.totalPages ?? 1,
+        query,
+        activeTopic
+      }, t),
+      status: 200
+    };
+  }
+  if (pathname.startsWith('/topic/')) {
+    const topicSlug = pathname.slice('/topic/'.length);
+    if (!/^[a-z0-9-]{2,40}$/.test(topicSlug)) {
+      return { seo: getNotFoundSeoContext(settings, origin), body: '', status: 404 };
+    }
+    let data: HomeSsrData | null = null;
+    try {
+      data = await loadHomeSsrData(env.DB, {
+        pageSize: settings.polls_per_page,
+        page,
+        query: '',
+        topicSlug
+      });
+    } catch (error) {
+      console.error('ssr topic failed', error);
+    }
+    const polls = data?.polls ?? [];
+    const name = data?.topics.find((topic) => topic.slug === topicSlug)?.name ?? topicSlug;
+    const topicUrl = `${origin}/topic/${topicSlug}`;
+    return {
+      seo: buildSeoContext(`/topic/${topicSlug}`, settings, origin, {
+        title: `${name} - ${settings.site_name}`,
+        description: `Browse polls about ${name} on ${settings.site_name}.`,
+        canonical: topicUrl,
+        ogType: 'website',
+        jsonLd: [
+          buildBreadcrumbJsonLd([
+            { name: settings.site_name, url: `${origin}/` },
+            { name, url: topicUrl }
+          ]),
+          buildPollListJsonLd(polls, settings, origin)
+        ]
+      }),
+      body: renderHomeBody({
+        settings,
+        topics: data?.topics ?? [],
+        topicTotal: data?.topicTotal ?? 0,
+        polls,
+        page: data?.page ?? page,
+        totalPages: data?.totalPages ?? 1,
+        query: '',
+        activeTopic: topicSlug
+      }, t),
+      status: 200
+    };
+  }
 
+  if (pathname.startsWith('/poll/') || pathname.startsWith('/vote/')) {
+    const pollId = Number(pathname.slice(pathname.indexOf('/', 1) + 1));
+    if (Number.isSafeInteger(pollId) && pollId > 0) {
+      let poll: Awaited<ReturnType<typeof loadPollSsrData>> = null;
+      try {
+        poll = await loadPollSsrData(env.DB, pollId);
+      } catch (error) {
+        console.error('ssr poll failed', error);
+      }
+      if (poll) {
+        return {
+          seo: getPollSeoContext(
+            { id: poll.id, title: poll.title, description: poll.description, status: getPollStatusLabel(poll.status) },
+            settings,
+            origin
+          ),
+          body: renderPollBody(poll, settings, t),
+          status: 200
+        };
+      }
+    }
+    return { seo: getNotFoundSeoContext(settings, origin), body: '', status: 404 };
+  }
+
+  if (pathname === '/about') {
+    return { seo: getAboutSeoContext(settings, origin), body: renderAboutBody(settings, t), status: 200 };
+  }
+
+  if (pathname === '/submit') {
+    return { seo: getSubmitSeoContext(settings, origin), body: '', status: 200 };
+  }
+
+  if (pathname === '/login' || pathname === '/register' || pathname === '/reset') {
+    return { seo: getAuthSeoContext(pathname, settings, origin), body: '', status: 200 };
+  }
+
+  if (pathname === '/account' || pathname.startsWith('/account/')) {
+    return { seo: getAccountSeoContext(settings, origin), body: '', status: 200 };
+  }
+
+  // An unknown path still gets the client-rendered not-found view, but the
+  // document answers 404 so crawlers do not index it.
+  return { seo: getNotFoundSeoContext(settings, origin), body: '', status: 404 };
+}
+
+// Applies the page's metadata and server-rendered body to the document shell
+// returned by the assets binding. The shell keeps its original cache headers;
+// only the status may change (a not-found page answers 404).
+async function withSeoMetadata(
+  response: Response,
+  request: Request,
+  settings: PublicSettings,
+  origin: string,
+  env: Env
+): Promise<Response> {
+  if (!(response.headers.get('content-type') ?? '').includes('text/html')) {
     return response;
   }
+
+  const url = new URL(request.url);
+  const page = await buildPublicPage(url.pathname, url.searchParams, settings, origin, env);
+  const metaTags = buildMetaTags(page.seo, settings, origin);
+  const shell = applyHtmlLang(await response.text(), settings.default_locale);
+  const html = injectAppBody(injectSeoIntoHtml(shell, metaTags, page.seo.title), page.body);
+
+  return new Response(html, {
+    status: page.status,
+    headers: response.headers
+  });
+}
 
 // Settings are cached per isolate for a short window so every request does not
 // re-read them. A change therefore takes up to 30 seconds to apply.
@@ -300,30 +400,48 @@ Sitemap: ${origin}/sitemap.xml
   }
 
   if (url.pathname === '/sitemap.xml') {
-    // Fetch open polls for the sitemap
-    const { PollStatus, PollMode } = await import('./enums.js');
+    const today = new Date().toISOString().split('T')[0];
+
+    // Open polls and the enabled topic pages are the two dynamic groups.
     const pollResult = await env.DB.prepare(
       `SELECT id, updated_at FROM polls
        WHERE status = ? AND mode IN (?, ?)
        ORDER BY updated_at DESC LIMIT 5000`
     ).bind(PollStatus.Open, PollMode.Deadline, PollMode.Evergreen).all<{ id: number; updated_at: number }>();
 
+    const topicResult = await env.DB.prepare(
+      'SELECT slug FROM topics WHERE enabled = 1 ORDER BY position ASC, id ASC LIMIT 500'
+    ).all<{ slug: string }>();
+
     const polls = (pollResult.results ?? []).map(row => ({
       url: `${origin}/poll/${row.id}`,
-      lastmod: new Date(row.updated_at * 1000).toISOString().split('T')[0]
+      lastmod: new Date(row.updated_at * 1000).toISOString().split('T')[0],
+      changefreq: 'weekly',
+      priority: '0.7'
+    }));
+
+    const topics = (topicResult.results ?? []).map(row => ({
+      url: `${origin}/topic/${row.slug}`,
+      lastmod: today,
+      changefreq: 'daily',
+      priority: '0.6'
     }));
 
     const staticUrls = [
-      { url: origin, lastmod: new Date().toISOString().split('T')[0], changefreq: 'daily', priority: 1.0 },
-      { url: `${origin}/about`, lastmod: new Date().toISOString().split('T')[0], changefreq: 'monthly', priority: 0.8 },
-      { url: `${origin}/submit`, lastmod: new Date().toISOString().split('T')[0], changefreq: 'monthly', priority: 0.6 },
-      { url: `${origin}/polls`, lastmod: new Date().toISOString().split('T')[0], changefreq: 'daily', priority: 0.9 }
+      { url: `${origin}/`, lastmod: today, changefreq: 'daily', priority: '1.0' },
+      { url: `${origin}/polls`, lastmod: today, changefreq: 'daily', priority: '0.9' },
+      { url: `${origin}/about`, lastmod: today, changefreq: 'monthly', priority: '0.8' },
+      { url: `${origin}/submit`, lastmod: today, changefreq: 'monthly', priority: '0.6' }
     ];
+
+    const entry = (u: { url: string; lastmod: string; changefreq: string; priority: string }): string =>
+      `  <url><loc>${u.url}</loc><lastmod>${u.lastmod}</lastmod><changefreq>${u.changefreq}</changefreq><priority>${u.priority}</priority></url>`;
 
     const sitemap = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-${staticUrls.map(u => `  <url><loc>${u.url}</loc><lastmod>${u.lastmod}</lastmod><changefreq>${u.changefreq}</changefreq><priority>${u.priority}</priority></url>`).join('\n')}
-${polls.map(p => `  <url><loc>${p.url}</loc><lastmod>${p.lastmod}</lastmod><changefreq>weekly</changefreq><priority>0.7</priority></url>`).join('\n')}
+${staticUrls.map(entry).join('\n')}
+${topics.map(entry).join('\n')}
+${polls.map(entry).join('\n')}
 </urlset>`;
 
     return withSecurityHeaders(new Response(sitemap, {
@@ -393,15 +511,10 @@ ${polls.map(p => `  <url><loc>${p.url}</loc><lastmod>${p.lastmod}</lastmod><chan
   // is served from the assets binding; the HTML document receives the CSP.
   // With `run_worker_first`, static assets still come from the assets layer.
   const { settings } = await loadSettings(env);
-  const publicSettings: PublicSettingsSeo = {
-    site_name: settings.site_name,
-    site_slogan: settings.site_slogan,
-    default_locale: settings.default_locale
-  };
 
   const assetsResponse = await env.ASSETS.fetch(request);
   const withCsp = withHtmlCsp(assetsResponse);
-  const withSeo = await withSeoMetadata(withCsp, request, publicSettings, origin, env);
+  const withSeo = await withSeoMetadata(withCsp, request, settings, origin, env);
   
   const isHtml = (withSeo.headers.get('content-type') ?? '').includes('text/html');
   const isApi = url.pathname.startsWith('/api/');

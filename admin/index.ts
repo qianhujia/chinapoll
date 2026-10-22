@@ -43,6 +43,8 @@ const DASHBOARD_PATHS = new Set([
   '/index.html',
   '/overview',
   '/polls',
+  '/topics',
+  // Legacy alias for the topics view, kept so old bookmarks keep working.
   '/categories',
   '/reports',
   '/comments',

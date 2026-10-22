@@ -2,8 +2,10 @@
 //
 // This module provides functions to update document.title and meta tags
 // when navigating between routes without a full page reload. The server
-// injects the initial meta tags, and this keeps them in sync during
-// client-side navigation.
+// renders the initial metadata and body, and this keeps the metadata in sync
+// during client-side navigation.
+
+import { getPublicSettings } from './config';
 
 export interface SeoData {
   title: string;
@@ -28,13 +30,12 @@ const DEFAULT_SEO: SeoData = {
 
 let currentSeo: SeoData = { ...DEFAULT_SEO };
 
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, '&')
-    .replace(/</g, '<')
-    .replace(/>/g, '>')
-    .replace(/"/g, '"')
-    .replace(/'/g, '&apos;');
+// Maps the site's default locale to an Open Graph locale tag.
+function ogLocale(defaultLocale: string): string {
+  const value = (defaultLocale ?? 'en').toLowerCase();
+  if (value.startsWith('zh-tw') || value.startsWith('zh_hant')) return 'zh_TW';
+  if (value.startsWith('zh')) return 'zh_CN';
+  return 'en_US';
 }
 
 function setMetaTag(name: string, content: string, isProperty = false): void {
@@ -69,18 +70,25 @@ function setJsonLd(jsonLd: Record<string, unknown> | undefined): void {
 }
 
 export function updateSeo(seo: Partial<SeoData>): void {
+  // The DOM escapes attribute and text values on write, so raw values are set
+  // here; pre-escaping them would double-encode an ampersand or quote.
+  const { site_name: siteName, default_locale: defaultLocale } = getPublicSettings();
   currentSeo = { ...currentSeo, ...seo };
 
-  document.title = escapeHtml(currentSeo.title);
-  setMetaTag('description', escapeHtml(currentSeo.description));
+  document.title = currentSeo.title;
+  setMetaTag('description', currentSeo.description);
+  setMetaTag('application-name', siteName);
   setMetaTag('og:type', currentSeo.ogType ?? 'website', true);
-  setMetaTag('og:title', escapeHtml(currentSeo.title), true);
-  setMetaTag('og:description', escapeHtml(currentSeo.description), true);
+  setMetaTag('og:site_name', siteName, true);
+  setMetaTag('og:locale', ogLocale(defaultLocale), true);
+  setMetaTag('og:title', currentSeo.title, true);
+  setMetaTag('og:description', currentSeo.description, true);
   setMetaTag('og:image', currentSeo.ogImage ?? '/og-image.png', true);
-  setMetaTag('og:url', escapeHtml(currentSeo.canonical), true);
+  setMetaTag('og:image:alt', currentSeo.title, true);
+  setMetaTag('og:url', currentSeo.canonical, true);
   setMetaTag('twitter:card', currentSeo.twitterCard ?? 'summary_large_image');
-  setMetaTag('twitter:title', escapeHtml(currentSeo.title));
-  setMetaTag('twitter:description', escapeHtml(currentSeo.description));
+  setMetaTag('twitter:title', currentSeo.title);
+  setMetaTag('twitter:description', currentSeo.description);
   setMetaTag('twitter:image', currentSeo.ogImage ?? '/og-image.png');
   setLinkTag('canonical', currentSeo.canonical);
   setMetaTag('robots', currentSeo.robots ?? 'index, follow');

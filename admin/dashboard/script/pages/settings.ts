@@ -87,9 +87,9 @@ export const scriptSettings = `  var CATEGORY_ORDER = ['general', 'appearance', 
       '</div>' +
       renderPublishSection(data) +
       '</section>' +
-      '<section class="card mt-18"><h2>Poll categories</h2>' +
-      '<p class="small muted">Categories order the public home page chip row and the submit form dropdown. Add and edit them in the Categories tab, or start from the suggested set.</p>' +
-      '<div class="toolbar"><button data-action="insert-suggested-categories">Insert suggested categories</button></div>' +
+      '<section class="card mt-18"><h2>Poll topics</h2>' +
+      '<p class="small muted">Topics order the public home page chip row and the submit form dropdown. Add and edit them in the Topics tab, or start from the suggested set.</p>' +
+      '<div class="toolbar"><button data-action="insert-suggested-topics">Insert suggested topics</button></div>' +
       '</section>';
   }
 
@@ -150,12 +150,12 @@ export const scriptSettings = `  var CATEGORY_ORDER = ['general', 'appearance', 
       }).then(function () { target.disabled = false; }));
       return true;
     }
-    if (action === 'insert-suggested-categories') {
-      if (!window.confirm('Insert the suggested categories (politics, economy, education, environment, health, technology, culture, society, other)?')) return true;
+    if (action === 'insert-suggested-topics') {
+      if (!window.confirm('Insert the suggested topics (politics, economy, education, environment, health, technology, culture, society, other)?')) return true;
       target.disabled = true;
-      guard(api('/api/admin/categories/suggested', { method: 'POST' }).then(function (result) {
+      guard(api('/api/admin/topics/suggested', { method: 'POST' }).then(function (result) {
         toast(result.message);
-        state.categories = null;
+        state.topics = null;
       }).then(function () { target.disabled = false; }));
       return true;
     }

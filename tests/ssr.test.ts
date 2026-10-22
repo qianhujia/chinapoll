@@ -1,0 +1,146 @@
+import { describe, expect, it } from 'vitest';
+import { PollMode } from '../worker/enums';
+import {
+  applyHtmlLang,
+  injectAppBody,
+  renderAboutBody,
+  renderHomeBody,
+  renderPollBody,
+  serverTranslate,
+  type SsrPollCard,
+  type SsrPollDetail,
+  type SsrSettings
+} from '../worker/services/ssr';
+import { escapeHtml, serializeJsonLd } from '../worker/services/html';
+
+const settings: SsrSettings = {
+  site_name: 'ChinaPoll',
+  site_slogan: 'Public opinion made visible',
+  default_locale: 'en',
+  hero_title: 'Continuous polls',
+  hero_subtitle: 'Sign in to submit a poll.',
+  data_repository_url: 'https://example.com/data',
+  polls_per_page: 15
+};
+
+const poll: SsrPollCard = {
+  id: 12,
+  title: 'Should the city build more bike lanes?',
+  mode: PollMode.Evergreen,
+  pollType: 2,
+  optionCount: 3,
+  topic: { slug: 'politics', name: 'Politics' }
+};
+
+describe('server-side escaping', () => {
+  it('escapes markup and quotes', () => {
+    expect(escapeHtml('<a href="x">&\'</a>')).toBe('&lt;a href=&quot;x&quot;&gt;&amp;&#39;&lt;/a&gt;');
+  });
+
+  it('neutralises a closing script tag in JSON-LD', () => {
+    expect(serializeJsonLd({ name: '</script><script>alert(1)</script>' }))
+      .not.toContain('</script>');
+  });
+});
+
+describe('document shell helpers', () => {
+  it('replaces the empty SPA mount point with the rendered body', () => {
+    const shell = '<html><body><div id="app"></div><script></script></body></html>';
+    expect(injectAppBody(shell, '<p>hello</p>')).toContain('<div id="app"><p>hello</p></div>');
+  });
+
+  it('leaves a shell without the mount point unchanged', () => {
+    const shell = '<html><body><div id="root"></div></body></html>';
+    expect(injectAppBody(shell, '<p>hello</p>')).toBe(shell);
+  });
+
+  it('sets the document language from the default locale', () => {
+    expect(applyHtmlLang('<html lang="en">', 'zh-CN')).toContain('<html lang="zh-CN"');
+    expect(applyHtmlLang('<html lang="en">', 'zh-TW')).toContain('<html lang="zh-TW"');
+    expect(applyHtmlLang('<html lang="en">', 'fr')).toContain('<html lang="en"');
+  });
+});
+
+describe('server-side poll list', () => {
+  it('renders crawlable poll links, topics, and navigation', () => {
+    const html = renderHomeBody({
+      settings,
+      topics: [{ slug: 'politics', name: 'Politics', count: 4 }],
+      topicTotal: 9,
+      polls: [poll],
+      page: 1,
+      totalPages: 2,
+      query: '',
+      activeTopic: ''
+    });
+
+    expect(html).toContain('href="/poll/12" data-route="/poll/12"');
+    expect(html).toContain('Should the city build more bike lanes?');
+    expect(html).toContain('href="/topic/politics"');
+    expect(html).toContain('href="/about"');
+    expect(html).toContain('page=2');
+  });
+
+  it('shows the empty message when no poll matches', () => {
+    const html = renderHomeBody({
+      settings,
+      topics: [],
+      topicTotal: 0,
+      polls: [],
+      page: 1,
+      totalPages: 1,
+      query: '',
+      activeTopic: ''
+    });
+
+    expect(html).toContain(serverTranslate('noPolls'));
+  });
+
+  it('escapes a hostile poll title', () => {
+    const html = renderHomeBody({
+      settings,
+      topics: [],
+      topicTotal: 0,
+      polls: [{ ...poll, title: '<img src=x onerror=alert(1)>' }],
+      page: 1,
+      totalPages: 1,
+      query: '',
+      activeTopic: ''
+    });
+
+    expect(html).not.toContain('<img src=x');
+    expect(html).toContain('&lt;img src=x');
+  });
+});
+
+describe('server-side poll page', () => {
+  it('renders the title, description, and option labels', () => {
+    const detail: SsrPollDetail = {
+      ...poll,
+      description: 'A short summary.',
+      status: 1,
+      options: [{ label: 'Yes' }, { label: 'No' }]
+    };
+
+    const html = renderPollBody(detail, settings);
+    expect(html).toContain('Should the city build more bike lanes?');
+    expect(html).toContain('A short summary.');
+    expect(html).toContain('Yes');
+    expect(html).toContain('No');
+  });
+});
+
+describe('server-side about page', () => {
+  it('renders the about copy', () => {
+    const html = renderAboutBody(settings);
+    expect(html).toContain(serverTranslate('aboutTitle'));
+    expect(html).toContain(serverTranslate('aboutPointThree'));
+  });
+});
+
+describe('server translator', () => {
+  it('uses the SPA dictionary and falls back to the key', () => {
+    expect(serverTranslate('vote')).toBe('Vote');
+    expect(serverTranslate('a-key-that-does-not-exist')).toBe('a-key-that-does-not-exist');
+  });
+});

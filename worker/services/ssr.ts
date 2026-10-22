@@ -1,0 +1,460 @@
+// Server-side rendering for the public Worker.
+//
+// The single-page app mounts into the empty `<div id="app">` in the document
+// shell. This module fills that element with crawlable HTML for the routes
+// search engines care about (the poll list, a poll page, and the about page), so
+// the very first response already contains the site's headings, poll titles,
+// internal links, and copy instead of relying on the client bundle. The client
+// bundle re-renders the same container when it boots, so this is a fast,
+// indexable first paint rather than a second source of truth.
+//
+// Every interpolated value is escaped (see ./html). The markup deliberately
+// reuses the SPA's utility classes so the server-rendered paint and the client
+// paint look alike.
+
+import { PollMode, PollStatus, PollType } from '../enums';
+import { localizedTopicName, type TopicLocale } from '../../shared/categories';
+import en from '../../public/i18n/en.json';
+import { escapeHtml } from './html';
+
+export type Translate = (key: string) => string;
+
+const DICTIONARY: Record<string, string> = en;
+
+// English labels for the server-rendered markup, matching the SPA dictionary.
+// A missing key falls back to the key itself, exactly like the client.
+export const serverTranslate: Translate = (key) => DICTIONARY[key] ?? key;
+
+export interface SsrSettings {
+  site_name: string;
+  site_slogan: string;
+  default_locale: string;
+  hero_title: string;
+  hero_subtitle: string;
+  data_repository_url: string;
+  polls_per_page: number;
+}
+
+export interface SsrTopic {
+  slug: string;
+  name: string;
+  count: number;
+}
+
+export interface SsrPollCard {
+  id: number;
+  title: string;
+  mode: PollMode;
+  pollType: number;
+  optionCount: number;
+  topic: { slug: string; name: string } | null;
+}
+
+export interface SsrPollDetail extends SsrPollCard {
+  description: string | null;
+  status: PollStatus;
+  options: ReadonlyArray<{ label: string }>;
+}
+
+// The document shell contains this empty container; it is the SPA mount point.
+const APP_PLACEHOLDER = /<div id="app">\s*<\/div>/;
+
+// Replaces the empty SPA mount point with server-rendered markup. A shell that
+// does not contain the expected container is returned unchanged.
+export function injectAppBody(html: string, body: string): string {
+  if (!body || !APP_PLACEHOLDER.test(html)) return html;
+  return html.replace(APP_PLACEHOLDER, `<div id="app">${body}</div>`);
+}
+
+// Sets the document language to the site's default locale so crawlers and
+// assistive technology see the right lang attribute before the client runs.
+export function applyHtmlLang(html: string, defaultLocale: string): string {
+  const short = (defaultLocale ?? 'en').toLowerCase();
+  const lang = short.startsWith('zh-tw') || short.startsWith('zh_hant')
+    ? 'zh-TW'
+    : short.startsWith('zh')
+      ? 'zh-CN'
+      : 'en';
+  return html.replace(/<html lang="[^"]*"/, `<html lang="${lang}"`);
+}
+
+function displayName(topic: { slug: string; name: string }, settings: SsrSettings): string {
+  const locale = (settings.default_locale ?? 'en') as TopicLocale;
+  return localizedTopicName(topic.slug, topic.name, locale);
+}
+
+function modeLabel(mode: PollMode, t: Translate): string {
+  return mode === PollMode.Deadline ? t('deadline') : t('evergreen');
+}
+
+function pollTypeLabel(pollType: number, t: Translate): string {
+  if (pollType === PollType.Verdict) return t('pollTypeVerdict');
+  if (pollType === PollType.MultiChoice) return t('pollTypeMultiChoice');
+  return t('pollTypeSingleChoice');
+}
+
+function badge(label: string): string {
+  return `<span class="shrink-0 rounded-full bg-[#f1f3f5] px-[9px] py-[3px] text-xs leading-[1.5] font-light whitespace-nowrap text-muted">${escapeHtml(label)}</span>`;
+}
+
+function topicBadge(topic: { slug: string; name: string }, settings: SsrSettings): string {
+  const href = `/topic/${topic.slug}`;
+  return `<a class="shrink-0 rounded-full bg-[#eef3fb] px-2 py-0.5 text-xs text-muted no-underline hover:text-primary" href="${escapeHtml(href)}" data-route="${escapeHtml(href)}" data-poll-topic>${escapeHtml(displayName(topic, settings))}</a>`;
+}
+
+function renderHeader(settings: SsrSettings, t: Translate, activeRoute: string): string {
+  const links = [
+    { route: '/', label: t('home') },
+    { route: '/about', label: t('about') },
+    { route: '/submit', label: t('propose') }
+  ];
+
+  const nav = links.map(({ route, label }) => `
+          <a class="py-1 text-muted no-underline hover:text-primary ${activeRoute === route ? 'font-bold text-primary' : ''}" href="${route}" data-route="${route}">${escapeHtml(label)}</a>`).join('');
+
+  return `    <header class="flex items-center justify-between gap-4 py-4 pb-5 max-[700px]:flex-wrap max-[700px]:gap-3">
+      <div class="flex flex-wrap items-center gap-x-7 gap-y-2 max-[700px]:gap-x-5">
+        <a class="text-3xl font-extrabold leading-none text-primary hover:underline" href="/" data-route="/" aria-label="${escapeHtml(t('homeLinkLabel'))}">${escapeHtml(settings.site_name)}</a>
+        <nav class="flex flex-wrap items-center gap-x-6 gap-y-2 max-[700px]:gap-x-5" aria-label="${escapeHtml(t('home'))}">${nav}
+        </nav>
+      </div>
+    </header>`;
+}
+
+function renderFooter(settings: SsrSettings, t: Translate): string {
+  const dataUrl = settings.data_repository_url;
+  return `    <footer class="mt-9 flex flex-wrap items-center justify-center gap-3 text-center text-[0.9rem] text-muted">
+      <span>${escapeHtml(settings.site_name)}</span>
+      ${dataUrl ? `<a class="text-primary hover:underline" href="${escapeHtml(dataUrl)}" rel="noopener noreferrer">${escapeHtml(t('dataLink'))}</a>` : ''}
+    </footer>`;
+}
+
+function renderTopicChips(
+  topics: ReadonlyArray<SsrTopic>,
+  total: number,
+  activeTopic: string,
+  settings: SsrSettings,
+  t: Translate
+): string {
+  if (topics.length === 0) return '';
+
+  const chip = (href: string, label: string, count: number, active: boolean): string => `
+        <a class="rounded-full border px-3 py-1.5 text-sm no-underline hover:border-primary hover:text-primary ${active ? 'border-primary font-bold text-primary' : 'border-border bg-panel text-ink'}" href="${escapeHtml(href)}" data-route="${escapeHtml(href)}">${escapeHtml(label)} <span class="tabular-nums text-xs">${count}</span></a>`;
+
+  const items = topics.map((topic) => chip(
+    `/topic/${topic.slug}`,
+    displayName(topic, settings),
+    topic.count,
+    activeTopic === topic.slug
+  )).join('');
+
+  return `      <nav class="flex flex-wrap items-center gap-2" aria-label="${escapeHtml(t('categoryLabel'))}">${chip('/', t('categoryAll'), total, !activeTopic)}${items}
+      </nav>`;
+}
+
+function renderPollRow(poll: SsrPollCard, settings: SsrSettings, t: Translate): string {
+  const href = `/poll/${poll.id}`;
+  const topic = poll.topic ? topicBadge(poll.topic, settings) : '';
+  const typeLabel = poll.optionCount > 0
+    ? `${pollTypeLabel(poll.pollType, t)} · ${poll.optionCount} ${t('options')}`
+    : pollTypeLabel(poll.pollType, t);
+  return `
+        <article class="grid grid-cols-[minmax(0,1fr)_minmax(190px,240px)] items-center gap-x-8 border-b border-border py-[22px] max-[700px]:grid-cols-1 max-[700px]:gap-y-3" data-poll-row="${poll.id}">
+          <div class="col-start-1 flex flex-wrap items-center gap-2">
+            <span class="shrink-0 font-bold tabular-nums text-muted">#${poll.id}</span>
+            <h2 class="m-0 flex-[1_1_auto] text-[1.15rem] leading-[1.5]"><a class="text-inherit no-underline hover:text-primary hover:underline" href="${href}" data-route="${href}">${escapeHtml(poll.title)}</a></h2>
+            ${badge(modeLabel(poll.mode, t))}
+            ${badge(typeLabel)}
+            ${topic}
+          </div>
+          <div class="col-start-2 row-start-1 flex items-center justify-center gap-5 max-[700px]:col-start-1">
+            <a class="shrink-0 whitespace-nowrap rounded-full border border-border bg-panel px-3 py-1.5 text-xs text-ink no-underline hover:border-primary hover:text-primary" href="${href}" data-route="${href}">${escapeHtml(t('vote'))}</a>
+          </div>
+        </article>`;
+}
+
+function renderPagination(page: number, totalPages: number, getPageUrl: (page: number) => string, t: Translate): string {
+  if (totalPages <= 1) return '';
+
+  return `
+      <nav class="mt-5 flex items-center justify-center gap-4" aria-label="${escapeHtml(t('pagination'))}">
+        ${page === 1
+          ? `<span class="rounded-full px-4 py-2.5 text-muted" aria-disabled="true">${escapeHtml(t('previousPage'))}</span>`
+          : `<a class="rounded-full px-4 py-2.5 text-ink no-underline hover:bg-primary-soft" href="${escapeHtml(getPageUrl(page - 1))}" data-route="${escapeHtml(getPageUrl(page - 1))}">${escapeHtml(t('previousPage'))}</a>`}
+        <span>${escapeHtml(t('pageOf'))} ${page} / ${totalPages}</span>
+        ${page === totalPages
+          ? `<span class="rounded-full px-4 py-2.5 text-muted" aria-disabled="true">${escapeHtml(t('nextPage'))}</span>`
+          : `<a class="rounded-full px-4 py-2.5 text-ink no-underline hover:bg-primary-soft" href="${escapeHtml(getPageUrl(page + 1))}" data-route="${escapeHtml(getPageUrl(page + 1))}">${escapeHtml(t('nextPage'))}</a>`}
+      </nav>`;
+}
+
+export interface HomeBodyInput {
+  settings: SsrSettings;
+  topics: ReadonlyArray<SsrTopic>;
+  topicTotal: number;
+  polls: ReadonlyArray<SsrPollCard>;
+  page: number;
+  totalPages: number;
+  query: string;
+  activeTopic: string;
+}
+
+// The home page, the polls list, and a topic page share one server-rendered
+// shape: header, hero, topic chips, the poll list, and paging.
+export function renderHomeBody(input: HomeBodyInput, t: Translate = serverTranslate): string {
+  const { settings, topics, topicTotal, polls, page, totalPages, query, activeTopic } = input;
+
+  const list = polls.length
+    ? polls.map((poll) => renderPollRow(poll, settings, t)).join('')
+    : `
+          <p class="py-6 text-center text-muted">${escapeHtml(query ? t('searchNoResults') : t('noPolls'))}</p>`;
+
+  const searchNote = query
+    ? `
+        <div class="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-panel px-4 py-3 text-sm">
+          <span class="text-muted">${escapeHtml(t('searchResultsFor'))}: <strong class="text-ink">${escapeHtml(query)}</strong></span>
+          <a class="text-primary hover:underline" href="/" data-route="/">${escapeHtml(t('searchClear'))}</a>
+        </div>`
+    : '';
+
+  const getPageUrl = (target: number): string => {
+    const params = new URLSearchParams();
+    if (query) params.set('q', query);
+    if (activeTopic) params.set('topic', activeTopic);
+    params.set('page', String(target));
+    return `/?${params.toString()}`;
+  };
+
+  return `    <div class="mx-auto max-w-[var(--page-width)] px-5 pt-6">
+${renderHeader(settings, t, '/')}
+    </div>
+
+    <section class="px-5 pt-10 pb-12 max-[700px]:pt-6 max-[700px]:pb-8">
+      <div class="mx-auto flex max-w-[var(--page-width)] flex-col items-center text-center">
+        <h1 class="m-0 max-w-[22ch] text-[clamp(1.875rem,4vw,2.75rem)] leading-[1.15] font-extrabold tracking-[-0.02em] text-balance max-[700px]:max-w-none">${escapeHtml(settings.hero_title || settings.site_slogan)}</h1>
+        <p class="m-0 mt-4 max-w-2xl text-[clamp(0.95rem,1.8vw,1.1rem)] leading-[1.5] text-muted">${escapeHtml(settings.hero_subtitle || settings.site_slogan)}</p>
+      </div>
+    </section>
+
+    <div class="mx-auto max-w-[var(--page-width)] px-5 pt-6 pb-16">
+      <main class="grid gap-5">${searchNote}
+${renderTopicChips(topics, topicTotal, activeTopic, settings, t)}
+        <section class="border-t border-border">${list}
+        </section>
+${renderPagination(page, totalPages, getPageUrl, t)}
+      </main>
+
+${renderFooter(settings, t)}
+    </div>`;
+}
+
+// A single poll page: title, description, badges, and the option labels. The
+// interactive ballot and results are added by the client bundle.
+export function renderPollBody(poll: SsrPollDetail, settings: SsrSettings, t: Translate = serverTranslate): string {
+  const topic = poll.topic ? topicBadge(poll.topic, settings) : '';
+  const options = poll.options.length
+    ? `
+          <ul class="m-0 grid list-none gap-2 p-0">${poll.options.map((option) => `
+            <li class="rounded-[14px] border border-border bg-[#f9fbff] px-3.5 py-2.5">${escapeHtml(option.label)}</li>`).join('')}
+          </ul>`
+    : '';
+
+  return `    <div class="mx-auto max-w-[var(--page-width)] px-5 pt-6 pb-16">
+${renderHeader(settings, t, '/')}
+      <main class="grid gap-5">
+        <article class="rounded-[22px] border border-border bg-panel p-6 shadow-card">
+          <div class="flex flex-wrap items-center justify-center gap-2 text-center">
+            <span class="shrink-0 font-bold tabular-nums text-muted">#${poll.id}</span>
+            ${badge(modeLabel(poll.mode, t))}
+            ${badge(pollTypeLabel(poll.pollType, t))}
+            ${topic}
+          </div>
+          <h1 class="mt-3 mb-2 text-center text-2xl font-bold">${escapeHtml(poll.title)}</h1>
+          ${poll.description ? `<p class="mx-auto mb-0 max-w-2xl text-center text-muted">${escapeHtml(poll.description)}</p>` : ''}
+          <h2 class="mt-6 mb-2 text-lg font-bold">${escapeHtml(t('optionsLabel'))}</h2>
+${options}
+        </article>
+      </main>
+
+${renderFooter(settings, t)}
+    </div>`;
+}
+
+// The static about page, so its copy is part of the first response.
+export function renderAboutBody(settings: SsrSettings, t: Translate = serverTranslate): string {
+  const points = ['aboutPointOne', 'aboutPointTwo', 'aboutPointThree']
+    .map((key) => `
+            <li>${escapeHtml(t(key))}</li>`).join('');
+
+  return `    <div class="mx-auto max-w-[var(--page-width)] px-5 pt-6 pb-16">
+${renderHeader(settings, t, '/about')}
+      <main class="grid gap-5">
+        <section class="rounded-[22px] border border-border bg-panel p-6 shadow-card">
+          <h1 class="mb-3 text-2xl font-bold">${escapeHtml(t('aboutTitle'))}</h1>
+          <p class="text-muted">${escapeHtml(t('aboutBody'))}</p>
+          <ul class="list-disc space-y-2 pl-6">${points}
+          </ul>
+          <p class="mt-4 mb-0 text-sm text-muted">${escapeHtml(t('aiPrivacyNote'))}</p>
+        </section>
+      </main>
+
+${renderFooter(settings, t)}
+    </div>`;
+}
+
+// --- Data loading -----------------------------------------------------------
+
+interface HomePollRow {
+  id: number;
+  title: string;
+  mode: number;
+  poll_type: number;
+  option_count: number;
+  topic_slug: string | null;
+  topic_name: string | null;
+}
+
+interface PollDetailRow extends HomePollRow {
+  description: string | null;
+  status: number;
+}
+
+// Escapes the LIKE wildcards so a search term is matched literally.
+function escapeLike(query: string): string {
+  return query.replace(/[\\%_]/g, (character) => `\\${character}`);
+}
+
+export interface HomeSsrData {
+  polls: SsrPollCard[];
+  page: number;
+  totalPages: number;
+  topics: SsrTopic[];
+  topicTotal: number;
+}
+
+// The poll list for the home, polls, and topic routes. It mirrors the ordering
+// and filters of GET /api/polls so the server-rendered first paint matches what
+// the client fetches a moment later: open polls, newest first, optional search
+// and topic filter, one page at a time.
+export async function loadHomeSsrData(
+  db: D1Database,
+  options: { pageSize: number; page: number; query: string; topicSlug: string }
+): Promise<HomeSsrData> {
+  const { pageSize, query, topicSlug } = options;
+  const searchClause = query
+    ? " AND (title LIKE ? ESCAPE '\\' OR description LIKE ? ESCAPE '\\')"
+    : '';
+  const searchBinds = query ? [`%${escapeLike(query)}%`, `%${escapeLike(query)}%`] : [];
+  const topicClause = topicSlug
+    ? ' AND topic_id = (SELECT id FROM topics WHERE slug = ? AND enabled = 1)'
+    : '';
+  const topicBinds = topicSlug ? [topicSlug] : [];
+
+  const countRow = await db.prepare(
+    `SELECT COUNT(*) AS total FROM polls WHERE status = ? AND mode IN (?, ?)${searchClause}${topicClause}`
+  ).bind(PollStatus.Open, PollMode.Deadline, PollMode.Evergreen, ...searchBinds, ...topicBinds)
+    .first<{ total: number }>();
+
+  const total = Number(countRow?.total ?? 0);
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const page = Math.min(Math.max(1, options.page), totalPages);
+  const offset = (page - 1) * pageSize;
+
+  const rows = await db.prepare(
+    `WITH page AS (
+       SELECT id FROM polls
+       WHERE status = ? AND mode IN (?, ?)${searchClause}${topicClause}
+       ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?
+     )
+     SELECT i.id, i.title, i.mode, i.poll_type,
+       (SELECT COUNT(*) FROM poll_options o WHERE o.poll_id = i.id) AS option_count,
+       t.slug AS topic_slug, t.name AS topic_name
+     FROM page JOIN polls i ON i.id = page.id
+     LEFT JOIN topics t ON t.id = i.topic_id
+     ORDER BY i.created_at DESC, i.id DESC`
+  ).bind(
+    PollStatus.Open, PollMode.Deadline, PollMode.Evergreen,
+    ...searchBinds, ...topicBinds, pageSize, offset
+  ).all<HomePollRow>();
+
+  const { topics, total: topicTotal } = await loadSsrTopics(db);
+
+  const polls: SsrPollCard[] = (rows.results ?? []).map((row) => ({
+    id: Number(row.id),
+    title: row.title,
+    mode: Number(row.mode) as PollMode,
+    pollType: Number(row.poll_type ?? PollType.SingleChoice),
+    optionCount: Number(row.option_count ?? 0),
+    topic: row.topic_slug && row.topic_name
+      ? { slug: row.topic_slug, name: row.topic_name }
+      : null
+  }));
+
+  return { polls, page, totalPages, topics, topicTotal };
+}
+
+// The enabled topics with their open-poll counts, used for the chip row. This
+// mirrors GET /api/topics.
+export async function loadSsrTopics(db: D1Database): Promise<{ topics: SsrTopic[]; total: number }> {
+  const rows = await db.prepare(
+    `SELECT t.slug, t.name,
+       (SELECT COUNT(*) FROM polls p
+        WHERE p.topic_id = t.id AND p.status = ? AND p.mode IN (?, ?)) AS count
+     FROM topics t
+     WHERE t.enabled = 1
+     ORDER BY t.position ASC, t.id ASC`
+  ).bind(PollStatus.Open, PollMode.Deadline, PollMode.Evergreen)
+    .all<{ slug: string; name: string; count: number }>();
+
+  const totalRow = await db.prepare(
+    'SELECT COUNT(*) AS total FROM polls WHERE status = ? AND mode IN (?, ?)'
+  ).bind(PollStatus.Open, PollMode.Deadline, PollMode.Evergreen).first<{ total: number }>();
+
+  return {
+    topics: (rows.results ?? []).map((row) => ({
+      slug: row.slug,
+      name: row.name,
+      count: Number(row.count ?? 0)
+    })),
+    total: Number(totalRow?.total ?? 0)
+  };
+}
+
+// One poll with its option labels for the server-rendered poll page. Returns
+// null for an id that is not a public poll, so the caller can fall back to the
+// client-rendered not-found state.
+export async function loadPollSsrData(db: D1Database, pollId: number): Promise<SsrPollDetail | null> {
+  const row = await db.prepare(
+    `SELECT p.id, p.title, p.description, p.mode, p.poll_type, p.status,
+            t.slug AS topic_slug, t.name AS topic_name,
+            (SELECT COUNT(*) FROM poll_options o WHERE o.poll_id = p.id) AS option_count
+     FROM polls p
+     LEFT JOIN topics t ON t.id = p.topic_id
+     WHERE p.id = ? AND p.mode IN (?, ?) AND p.status IN (?, ?, ?)`
+  ).bind(
+    pollId,
+    PollMode.Deadline, PollMode.Evergreen,
+    PollStatus.Open, PollStatus.Closed, PollStatus.Archived
+  ).first<PollDetailRow>();
+
+  if (!row) return null;
+
+  const optionRows = await db.prepare(
+    'SELECT label FROM poll_options WHERE poll_id = ? ORDER BY position ASC, id ASC'
+  ).bind(pollId).all<{ label: string }>();
+
+  return {
+    id: Number(row.id),
+    title: row.title,
+    description: row.description,
+    mode: Number(row.mode) as PollMode,
+    pollType: Number(row.poll_type ?? PollType.SingleChoice),
+    optionCount: Number(row.option_count ?? 0),
+    status: Number(row.status) as PollStatus,
+    topic: row.topic_slug && row.topic_name
+      ? { slug: row.topic_slug, name: row.topic_name }
+      : null,
+    options: (optionRows.results ?? []).map((option) => ({ label: option.label }))
+  };
+}
+
