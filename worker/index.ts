@@ -172,13 +172,32 @@ function buildSha(env: Env): string {
           // Fall through to generic page SEO
         }
       }
+    } else if (pathname.startsWith('/topic/')) {
+      const topicSlug = pathname.split('/').pop();
+      if (topicSlug) {
+        try {
+          const topic = await env.DB.prepare(
+            `SELECT id, slug, name, description FROM topics WHERE slug = ? AND enabled = 1`
+          ).bind(topicSlug).first<{ id: number; slug: string; name: string; description: string | null }>();
+          if (topic) {
+            seoContext = buildSeoContext(`/topic/${topic.slug}`, settings, origin, {
+              title: `${topic.name} - ${settings.site_name}`,
+              description: topic.description ? topic.description.slice(0, 160) : `Browse polls about ${topic.name} on ${settings.site_name}.`,
+              canonical: `${origin}/topic/${topic.slug}`,
+              ogType: 'website'
+            });
+          }
+        } catch {
+          // Fall through to generic page SEO
+        }
+      }
     }
 
     if (!seoContext) {
       // Check if it's a known SPA route (valid client-side routes)
       const knownRoutes = ['/', '/about', '/submit', '/login', '/register', '/reset', '/account', '/polls'];
       const isKnownRoute = knownRoutes.some(r => pathname === r || pathname.startsWith(r + '/') || pathname.startsWith(r + '?'));
-      if (!isKnownRoute && !pathname.startsWith('/poll/') && !pathname.startsWith('/vote/')) {
+      if (!isKnownRoute && !pathname.startsWith('/poll/') && !pathname.startsWith('/vote/') && !pathname.startsWith('/topic/')) {
         seoContext = getNotFoundSeoContext(settings, origin);
       }
     }
