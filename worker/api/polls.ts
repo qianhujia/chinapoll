@@ -15,7 +15,7 @@ import {
   type PollOption
 } from '../services/options.js';
 import { loadViewCounts, publicViews } from './views';
-import { CATEGORY_SLUG_PATTERN } from '../../shared/categories';
+import { TOPIC_SLUG_PATTERN } from '../../shared/categories';
 
 const MAX_PAGE_SIZE = 100;
 const MAX_QUERY_LENGTH = 100;
@@ -36,8 +36,8 @@ interface PollRow {
   end_at: number | null;
   status: PollStatus;
   ballots: number;
-  category_slug: string | null;
-  category_name: string | null;
+  topic_slug: string | null;
+  topic_name: string | null;
 }
 
 // Builds the LIKE parameters and the WHERE fragment for a title/description
@@ -78,24 +78,24 @@ export async function handlePollsRequest(request: Request, url: URL, env: Handle
   const search = buildSearch(query);
   const searchBinds = search.pattern ? [search.pattern, search.pattern] : [];
 
-  // An optional category filter. A slug that does not name an enabled category
+  // An optional topic filter. A slug that does not name an enabled topic
   // matches nothing, so the listing is simply empty.
-  const categorySlug = (url.searchParams.get('category') ?? '').trim();
-  if (categorySlug && !CATEGORY_SLUG_PATTERN.test(categorySlug)) {
-    return Response.json({ message: 'invalid category' }, { status: 400 });
+  const topicSlug = (url.searchParams.get('topic') ?? '').trim();
+  if (topicSlug && !TOPIC_SLUG_PATTERN.test(topicSlug)) {
+    return Response.json({ message: 'invalid topic' }, { status: 400 });
   }
-  const categoryClause = categorySlug
-    ? ' AND category_id = (SELECT id FROM categories WHERE slug = ? AND enabled = 1)'
+  const topicClause = topicSlug
+    ? ' AND topic_id = (SELECT id FROM topics WHERE slug = ? AND enabled = 1)'
     : '';
-  const categoryBinds = categorySlug ? [categorySlug] : [];
+  const topicBinds = topicSlug ? [topicSlug] : [];
 
   const countResult = await env.DB.prepare(
     `SELECT COUNT(*) AS total
      FROM polls
-     WHERE status = ? AND mode IN (?, ?)${search.clause}${categoryClause}`
+     WHERE status = ? AND mode IN (?, ?)${search.clause}${topicClause}`
   ).bind(
     PollStatus.Open, PollMode.Deadline, PollMode.Evergreen,
-    ...searchBinds, ...categoryBinds
+    ...searchBinds, ...topicBinds
   ).first<{ total: number }>();
 
   const allPollsResult = await env.DB.prepare(
@@ -120,19 +120,19 @@ export async function handlePollsRequest(request: Request, url: URL, env: Handle
   const result = await env.DB.prepare(
     `WITH page AS (
        SELECT id FROM polls
-       WHERE status = ? AND mode IN (?, ?)${search.clause}${categoryClause}
+       WHERE status = ? AND mode IN (?, ?)${search.clause}${topicClause}
        ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?
      )
      SELECT i.id, i.title, i.description, i.mode, i.poll_type, i.start_at, i.end_at, i.status,
-       c.slug AS category_slug, c.name AS category_name,
+       t.slug AS topic_slug, t.name AS topic_name,
        (SELECT COUNT(*) FROM votes b WHERE b.poll_id = i.id) AS ballots
      FROM page
      JOIN polls i ON i.id = page.id
-     LEFT JOIN categories c ON c.id = i.category_id
+     LEFT JOIN topics t ON t.id = i.topic_id
      ORDER BY i.created_at DESC, i.id DESC`
   ).bind(
     PollStatus.Open, PollMode.Deadline, PollMode.Evergreen,
-    ...searchBinds, ...categoryBinds,
+    ...searchBinds, ...topicBinds,
     pageSize, offset
   ).all<PollRow>();
 
@@ -168,8 +168,8 @@ export async function handlePollsRequest(request: Request, url: URL, env: Handle
         start_at: toIsoDate(row.start_at),
         end_at: toIsoDate(row.end_at),
         status: getPollStatusLabel(row.status),
-        category: row.category_slug && row.category_name
-          ? { slug: row.category_slug, name: row.category_name }
+        topic: row.topic_slug && row.topic_name
+          ? { slug: row.topic_slug, name: row.topic_name }
           : null
       },
       stats: {
@@ -244,9 +244,9 @@ async function getPoll(pollIdText: string, env: HandlerEnv): Promise<Response> {
 
   const poll = await env.DB.prepare(
     `SELECT p.id, p.title, p.description, p.mode, p.poll_type, p.start_at, p.end_at,
-            p.duration_seconds, p.status, c.slug AS category_slug, c.name AS category_name
+            p.duration_seconds, p.status, t.slug AS topic_slug, t.name AS topic_name
      FROM polls p
-     LEFT JOIN categories c ON c.id = p.category_id
+     LEFT JOIN topics t ON t.id = p.topic_id
      WHERE p.id = ? AND p.mode IN (?, ?) AND p.status IN (?, ?, ?)`
   ).bind(
     pollId,
@@ -262,8 +262,8 @@ async function getPoll(pollIdText: string, env: HandlerEnv): Promise<Response> {
     end_at: number | null;
     duration_seconds: number | null;
     status: PollStatus;
-    category_slug: string | null;
-    category_name: string | null;
+    topic_slug: string | null;
+    topic_name: string | null;
   }>();
 
   if (!poll) {
@@ -278,12 +278,12 @@ async function getPoll(pollIdText: string, env: HandlerEnv): Promise<Response> {
   const options = await getOptionsForPolls(env, [{ id: pollId, poll_type: poll.poll_type }]);
   const pollOptions = options.get(pollId) ?? [];
 
-  const { category_slug: categorySlugValue, category_name: categoryNameValue, ...pollFields } = poll;
+  const { topic_slug: topicSlugValue, topic_name: topicNameValue, ...pollFields } = poll;
 
   return Response.json({ poll: {
     ...pollFields,
-    category: categorySlugValue && categoryNameValue
-      ? { slug: categorySlugValue, name: categoryNameValue }
+    topic: topicSlugValue && topicNameValue
+      ? { slug: topicSlugValue, name: topicNameValue }
       : null,
     mode: getPollModeLabel(poll.mode),
     pollType: pollTypeLabel(Number(poll.poll_type ?? PollType.SingleChoice)),

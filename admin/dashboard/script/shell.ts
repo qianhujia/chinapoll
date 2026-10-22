@@ -91,7 +91,7 @@ export const scriptShell = `  function renderShell() {
     var target = event.target;
     if (!target || !target.getAttribute) return;
     var action = target.getAttribute('data-action');
-    if (action === 'poll-status' || action === 'poll-category') {
+    if (action === 'poll-status' || action === 'poll-topic') {
       handlePollsChange(target);
     }
   });

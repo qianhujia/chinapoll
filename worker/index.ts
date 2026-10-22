@@ -13,7 +13,7 @@ import { handleStatsRequest } from './api/stats';
 import { handleVoteRequest, handleVoteStatusRequest } from './api/vote';
 import { handleCommentsRequest } from './api/comments';
 import { handlePollsRequest } from './api/polls';
-import { handleCategoriesRequest } from './api/categories';
+import { handleTopicsRequest } from './api/categories';
 import { handleReportRequest } from './api/reports';
 import { handleViewRequest } from './api/views';
 import { handleSnapshotRequest } from './api/snapshots';
@@ -324,8 +324,8 @@ ${polls.map(p => `  <url><loc>${p.url}</loc><lastmod>${p.lastmod}</lastmod><chan
     if (url.pathname === '/api/settings/public') {
       return handlePublicSettingsRequest(request, env);
     }
-    if (url.pathname === '/api/categories') {
-      return handleCategoriesRequest(request, envWithSettings);
+    if (url.pathname === '/api/topics') {
+      return handleTopicsRequest(request, envWithSettings);
     }
     if (url.pathname.startsWith('/api/stats/')) {
       return handleStatsRequest(request, url, envWithSettings);

@@ -42,11 +42,11 @@
 --   * Public comment identifiers are random (`comments.public_id`) so the global
 --     insertion order is not revealed.
 
--- Poll categories. The admin creates them; the slug is a stable identifier used
--- by the public `category=<slug>` filter. There is no seed data (repository rule),
--- but the admin Settings tab can insert a suggested set. A category is deleted
--- with `ON DELETE SET NULL` on its polls, so those polls become uncategorised.
-CREATE TABLE IF NOT EXISTS categories (
+-- Poll topics. The admin creates them; the slug is a stable identifier used
+-- by the public `topic=<slug>` filter. There is no seed data (repository rule),
+-- but the admin Settings tab can insert a suggested set. A topic is deleted
+-- with `ON DELETE SET NULL` on its polls, so those polls become untopicalized.
+CREATE TABLE IF NOT EXISTS topics (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   slug TEXT NOT NULL UNIQUE CHECK (slug GLOB '[a-z0-9-]*' AND length(slug) BETWEEN 2 AND 40),
   name TEXT NOT NULL,
@@ -72,14 +72,14 @@ CREATE TABLE IF NOT EXISTS polls (
   updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
   poll_type INTEGER NOT NULL DEFAULT 2 CHECK (poll_type IN (1, 2, 3)),
   duration_seconds INTEGER,
-  category_id INTEGER REFERENCES categories(id) ON DELETE SET NULL
+  topic_id INTEGER REFERENCES topics(id) ON DELETE SET NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_polls_status_created
   ON polls(status, created_at DESC, id DESC);
 
-CREATE INDEX IF NOT EXISTS idx_polls_category_status
-  ON polls(category_id, status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_polls_topic_status
+  ON polls(topic_id, status, created_at DESC);
 
 -- Options of a choice poll, ordered by `position`. A verdict poll keeps its three
 -- verdict labels here like any other poll and needs no separate table.

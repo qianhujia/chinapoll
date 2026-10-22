@@ -32,6 +32,14 @@ export const scriptPolls = `  function statusOptions(selected, includeAll, inclu
       '<span class="small muted">Editable while the poll is pending with no ballots. The count column is read-only.</span></div></div>';
   }
 
+  function topicOptions(selectedId) {
+    var items = state.topics ? state.topics.topics : [];
+    return items.map(function (item) {
+      return '<option value="' + esc(item.id) + '"' + (Number(selectedId) === item.id ? ' selected' : '') + '>' +
+        esc(item.name) + (item.enabled ? '' : ' (disabled)') + '</option>';
+    }).join('');
+  }
+
   function renderPolls() {
     var view = document.getElementById('view');
     var data = state.polls;
@@ -50,8 +58,8 @@ export const scriptPolls = `  function statusOptions(selected, includeAll, inclu
       ? data.polls.map(function (item) {
           var selector = '<select class="poll-status-select" data-action="poll-status" data-id="' + item.id + '">' +
             statusOptions(item.status, false, true) + '</select>';
-          var categorySelect = '<select class="poll-category-select" data-action="poll-category" data-id="' + item.id + '">' +
-            '<option value="">(no category)</option>' + categoryOptions(item.categoryId) + '</select>';
+          var topicSelect = '<select class="poll-topic-select" data-action="poll-topic" data-id="' + item.id + '">' +
+            '<option value="">(no topic)</option>' + topicOptions(item.topicId) + '</select>';
           var expanded = state.expandedPolls.indexOf(item.id) !== -1;
           var titleCell = '<strong>' + esc(item.title || '(no title)') + '</strong>' +
             '<div class="small muted">' + esc(item.mode) + ' · ' + esc(item.pollType) + '</div>' + optionSummary(item);
@@ -65,13 +73,13 @@ export const scriptPolls = `  function statusOptions(selected, includeAll, inclu
             '<td><span class="badge ' + esc(item.status) + '">' + esc(item.status) + '</span></td>' +
             '<td class="small">' + esc(item.ballots) + '</td>' +
             '<td class="small">' + esc(item.views) + '</td>' +
-            '<td class="min-w-160">' + categorySelect + '</td>' +
+            '<td class="min-w-160">' + topicSelect + '</td>' +
             '<td class="min-w-150">' + selector + '</td></tr>';
         }).join('')
       : '<tr><td colspan="6"><div class="empty">No polls match this filter.</div></td></tr>';
 
     view.innerHTML = '<section class="card"><h2>Polls</h2>' + toolbar +
-      '<table><thead><tr><th>ID</th><th>Title</th><th>Status</th><th>Ballots</th><th>Views</th><th>Category</th><th>Change status</th></tr></thead>' +
+      '<table><thead><tr><th>ID</th><th>Title</th><th>Status</th><th>Ballots</th><th>Views</th><th>Topic</th><th>Change status</th></tr></thead>' +
       '<tbody>' + rows + '</tbody></table>' +
       '<div class="pager">' +
       '<span>Page ' + esc(data.page) + ' of ' + esc(data.totalPages) + ' · ' + esc(data.total) + ' total</span>' +
@@ -83,10 +91,10 @@ export const scriptPolls = `  function statusOptions(selected, includeAll, inclu
   function loadPolls() {
     var path = '/api/admin/polls?status=' + encodeURIComponent(state.pollStatus) +
       '&page=' + state.pollPage + '&q=' + encodeURIComponent(state.pollQuery);
-    // The category selector needs the category list alongside the page.
-    return Promise.all([api(path), api('/api/admin/categories')]).then(function (results) {
+    // The topic selector needs the topic list alongside the page.
+    return Promise.all([api(path), api('/api/admin/topics')]).then(function (results) {
       state.polls = results[0];
-      state.categories = results[1];
+      state.topics = results[1];
       if (state.view === 'polls') renderPolls();
     });
   }
@@ -148,10 +156,10 @@ export const scriptPolls = `  function statusOptions(selected, includeAll, inclu
   }
   function handlePollsChange(target) {
     var id = target.getAttribute('data-id');
-    if (target.getAttribute('data-action') === 'poll-category') {
-      guard(api('/api/admin/polls/' + id + '/category', {
+    if (target.getAttribute('data-action') === 'poll-topic') {
+      guard(api('/api/admin/polls/' + id + '/topic', {
         method: 'PUT',
-        body: JSON.stringify({ categoryId: target.value === '' ? null : Number(target.value) })
+        body: JSON.stringify({ topicId: target.value === '' ? null : Number(target.value) })
       }).then(function (result) {
         toast(result.message);
         return loadPolls();

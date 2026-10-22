@@ -267,8 +267,8 @@ export async function suggestPollOptions(
 export interface CategoriseInput {
   title: string;
   description?: string;
-  /** The enabled categories the model may choose from. */
-  categories: ReadonlyArray<{ slug: string; names: { en: string } }>;
+  /** The enabled topics the model may choose from. */
+  topics: ReadonlyArray<{ slug: string; names: { en: string } }>;
 }
 
 // Asks the model for exactly one enabled slug, or `none`. The answer is validated
@@ -279,8 +279,8 @@ export async function categorisePoll(
   model: string,
   input: CategoriseInput
 ): Promise<AiResult<string | null>> {
-  const enabled = new Set(input.categories.map((category) => category.slug));
-  const listing = input.categories.map((category) => `- ${category.slug}: ${category.names.en}`).join('\n');
+  const enabled = new Set(input.topics.map((topic) => topic.slug));
+  const listing = input.topics.map((topic) => `- ${topic.slug}: ${topic.names.en}`).join('\n');
   const messages = [
     { role: 'system', content: CATEGORISE_SYSTEM_PROMPT },
     {
@@ -288,7 +288,7 @@ export async function categorisePoll(
       content: [
         `Poll title: ${input.title}`,
         input.description ? `Poll description: ${input.description}` : '',
-        'Choose exactly one category for this poll from this list:',
+        'Choose exactly one topic for this poll from this list:',
         listing,
         'If none of them fits, answer with "none".',
         'Return JSON: {"slug": "<one-slug-or-none>"}.'

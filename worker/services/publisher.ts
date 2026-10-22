@@ -157,26 +157,26 @@ async function readPublishSettings(env: PublisherEnv): Promise<PublishSettings> 
 }
 
 // Lists the polls the publisher tracks: every open poll plus every poll that
-// closed within the retention window. Each entry carries the poll's category slug
+// closed within the retention window. Each entry carries the poll's topic slug
 // for the published `index.json`; the slug is metadata and is not part of the
 // hashed snapshot chain, which covers counts only.
 async function listTrackedPolls(
   env: PublisherEnv,
   now: number
-): Promise<Array<{ id: number; categorySlug: string | null }>> {
+): Promise<Array<{ id: number; topicSlug: string | null }>> {
   const cutoff = now - CLOSED_DAYS * 24 * 60 * 60;
   const result = await env.DB.prepare(
-    `SELECT p.id, c.slug AS category_slug
+    `SELECT p.id, t.slug AS topic_slug
      FROM polls p
-     LEFT JOIN categories c ON c.id = p.category_id
+     LEFT JOIN topics t ON t.id = p.topic_id
      WHERE p.status = ? OR (p.closed_at IS NOT NULL AND p.closed_at >= ?)
      ORDER BY p.id ASC`
-  ).bind(PollStatus.Open, cutoff).all<{ id: number; category_slug: string | null }>();
+  ).bind(PollStatus.Open, cutoff).all<{ id: number; topic_slug: string | null }>();
   const byId = new Map<number, string | null>();
-  for (const row of result.results ?? []) byId.set(Number(row.id), row.category_slug ?? null);
+  for (const row of result.results ?? []) byId.set(Number(row.id), row.topic_slug ?? null);
   return [...byId.entries()]
     .sort((left, right) => left[0] - right[0])
-    .map(([id, categorySlug]) => ({ id, categorySlug }));
+    .map(([id, topicSlug]) => ({ id, topicSlug }));
 }
 
 // Reads the publish cursor of every poll that has been published at least once.
@@ -499,7 +499,7 @@ async function publishOnce(
     path: pathFor('index.json'),
     content: JSON.stringify({
       generatedAt: new Date().toISOString(),
-      polls: tracked.map((entry) => ({ id: entry.id, categorySlug: entry.categorySlug }))
+      polls: tracked.map((entry) => ({ id: entry.id, topicSlug: entry.topicSlug }))
     }, null, 2)
   });
 

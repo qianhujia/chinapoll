@@ -1,20 +1,20 @@
-// Admin poll-category management: list, create, rename, reorder, enable, delete,
+// Admin poll-topic management: list, create, rename, reorder, enable, delete,
 // and insert the suggested set. Both admin roles may use every action. Deleting a
-// category leaves its polls in place and uncategorised (the column's
+// topic leaves its polls in place and untopicalized (the column's
 // `ON DELETE SET NULL`).
 
 import type { AdminActor, AdminEnv } from '../auth';
 import { logAudit } from '../lib/audit';
 import { noStoreJson, readJsonBody, readString } from '../../shared/http';
 import {
-  CATEGORY_SLUG_PATTERN,
-  MAX_CATEGORY_NAME_LENGTH,
-  SUGGESTED_CATEGORIES
+  TOPIC_SLUG_PATTERN,
+  MAX_TOPIC_NAME_LENGTH,
+  SUGGESTED_TOPICS
 } from '../../shared/categories';
 
 const MAX_POSITION = 10_000;
 
-interface CategoryRow {
+interface TopicRow {
   id: number;
   slug: string;
   name: string;
@@ -24,7 +24,7 @@ interface CategoryRow {
   polls: number;
 }
 
-function publicCategory(row: CategoryRow): {
+function publicTopic(row: TopicRow): {
   id: number;
   slug: string;
   name: string;
@@ -50,60 +50,60 @@ function readBoolean(value: unknown): boolean | null {
   return null;
 }
 
-export async function handleCategoriesRequest(
+export async function handleTopicsRequest(
   request: Request,
   url: URL,
   env: AdminEnv,
   actor: AdminActor
 ): Promise<Response> {
-  if (url.pathname === '/api/admin/categories') {
-    if (request.method === 'GET') return listCategories(env);
-    if (request.method === 'POST') return createCategory(request, env, actor);
+  if (url.pathname === '/api/admin/topics') {
+    if (request.method === 'GET') return listTopics(env);
+    if (request.method === 'POST') return createTopic(request, env, actor);
     return Response.json({ message: 'method not allowed' }, { status: 405 });
   }
 
-  if (url.pathname === '/api/admin/categories/suggested') {
+  if (url.pathname === '/api/admin/topics/suggested') {
     if (request.method !== 'POST') {
       return Response.json({ message: 'method not allowed' }, { status: 405 });
     }
-    return insertSuggestedCategories(env, actor);
+    return insertSuggestedTopics(env, actor);
   }
 
-  const idMatch = url.pathname.match(/^\/api\/admin\/categories\/(\d+)$/);
+  const idMatch = url.pathname.match(/^\/api\/admin\/topics\/(\d+)$/);
   if (idMatch) {
-    const categoryId = Number(idMatch[1]);
-    if (request.method === 'PUT') return updateCategory(categoryId, request, env, actor);
-    if (request.method === 'DELETE') return deleteCategory(categoryId, env, actor);
+    const topicId = Number(idMatch[1]);
+    if (request.method === 'PUT') return updateTopic(topicId, request, env, actor);
+    if (request.method === 'DELETE') return deleteTopic(topicId, env, actor);
     return Response.json({ message: 'method not allowed' }, { status: 405 });
   }
 
   return Response.json({ message: 'not found' }, { status: 404 });
 }
 
-async function listCategories(env: AdminEnv): Promise<Response> {
+async function listTopics(env: AdminEnv): Promise<Response> {
   const result = await env.DB.prepare(
-    `SELECT c.id, c.slug, c.name, c.description, c.position, c.enabled,
-            (SELECT COUNT(*) FROM polls p WHERE p.category_id = c.id) AS polls
-     FROM categories c
-     ORDER BY c.position ASC, c.id ASC`
-  ).all<CategoryRow>();
+    `SELECT t.id, t.slug, t.name, t.description, t.position, t.enabled,
+            (SELECT COUNT(*) FROM polls p WHERE p.topic_id = t.id) AS polls
+     FROM topics t
+     ORDER BY t.position ASC, t.id ASC`
+  ).all<TopicRow>();
 
-  return noStoreJson({ categories: (result.results ?? []).map(publicCategory) });
+  return noStoreJson({ topics: (result.results ?? []).map(publicTopic) });
 }
 
-async function createCategory(request: Request, env: AdminEnv, actor: AdminActor): Promise<Response> {
+async function createTopic(request: Request, env: AdminEnv, actor: AdminActor): Promise<Response> {
   const body = await readJsonBody(request);
   if (!body) return noStoreJson({ message: 'invalid JSON' }, 400);
 
   const slug = readString(body, 'slug').trim().toLowerCase();
-  if (!CATEGORY_SLUG_PATTERN.test(slug)) {
+  if (!TOPIC_SLUG_PATTERN.test(slug)) {
     return noStoreJson({
       message: 'slug must be 2 to 40 characters from a-z, 0-9, and hyphen'
     }, 422);
   }
   const name = readString(body, 'name').trim();
-  if (!name || name.length > MAX_CATEGORY_NAME_LENGTH) {
-    return noStoreJson({ message: `name must contain 1 to ${MAX_CATEGORY_NAME_LENGTH} characters` }, 422);
+  if (!name || name.length > MAX_TOPIC_NAME_LENGTH) {
+    return noStoreJson({ message: `name must contain 1 to ${MAX_TOPIC_NAME_LENGTH} characters` }, 422);
   }
   const description = body.description !== undefined ? readString(body, 'description').trim() : '';
   if (description && description.length > 500) {
@@ -113,13 +113,13 @@ async function createCategory(request: Request, env: AdminEnv, actor: AdminActor
   const enabledValue = body.enabled === undefined ? true : readBoolean(body.enabled);
   if (enabledValue === null) return noStoreJson({ message: 'enabled must be true or false' }, 422);
 
-  const existing = await env.DB.prepare('SELECT id FROM categories WHERE slug = ?')
+  const existing = await env.DB.prepare('SELECT id FROM topics WHERE slug = ?')
     .bind(slug).first<{ id: number }>();
-  if (existing) return noStoreJson({ message: `category "${slug}" already exists` }, 409);
+  if (existing) return noStoreJson({ message: `topic "${slug}" already exists` }, 409);
 
   let position: number;
   if (body.position === undefined || body.position === null) {
-    const last = await env.DB.prepare('SELECT COALESCE(MAX(position), 0) AS position FROM categories')
+    const last = await env.DB.prepare('SELECT COALESCE(MAX(position), 0) AS position FROM topics')
       .first<{ position: number }>();
     position = Number(last?.position ?? 0) + 1;
   } else {
@@ -130,41 +130,41 @@ async function createCategory(request: Request, env: AdminEnv, actor: AdminActor
   }
 
   const result = await env.DB.prepare(
-    'INSERT INTO categories (slug, name, description, position, enabled) VALUES (?, ?, ?, ?, ?)'
+    'INSERT INTO topics (slug, name, description, position, enabled) VALUES (?, ?, ?, ?, ?)'
   ).bind(slug, name, description || null, position, enabledValue ? 1 : 0).run();
-  const categoryId = Number(result.meta.last_row_id);
+  const topicId = Number(result.meta.last_row_id);
 
   await logAudit(env, {
-    actor, action: 'category.create', targetType: 'category', targetId: categoryId,
+    actor, action: 'topic.create', targetType: 'topic', targetId: topicId,
     details: { slug, name, description, position, enabled: enabledValue }
   });
 
   return noStoreJson({
     ok: true,
-    category: { id: categoryId, slug, name, description, position, enabled: enabledValue, polls: 0 },
-    message: `Created category "${slug}".`
+    topic: { id: topicId, slug, name, description, position, enabled: enabledValue, polls: 0 },
+    message: `Created topic "${slug}".`
   }, 201);
 }
 
-// Renames, reorders, and enables or disables a category. The slug is deliberately
-// not editable: it is the public `category=<slug>` identifier.
-async function updateCategory(
-  categoryId: number,
+// Renames, reorders, and enables or disables a topic. The slug is deliberately
+// not editable: it is the public `topic=<slug>` identifier.
+async function updateTopic(
+  topicId: number,
   request: Request,
   env: AdminEnv,
   actor: AdminActor
 ): Promise<Response> {
-  if (!Number.isSafeInteger(categoryId) || categoryId < 1) {
-    return noStoreJson({ message: 'invalid category ID' }, 400);
+  if (!Number.isSafeInteger(topicId) || topicId < 1) {
+    return noStoreJson({ message: 'invalid topic ID' }, 400);
   }
 
   const body = await readJsonBody(request);
   if (!body) return noStoreJson({ message: 'invalid JSON' }, 400);
 
   const existing = await env.DB.prepare(
-    'SELECT id, slug, name, description, position, enabled FROM categories WHERE id = ?'
-  ).bind(categoryId).first<{ id: number; slug: string; name: string; description: string | null; position: number; enabled: number }>();
-  if (!existing) return noStoreJson({ message: `category ${categoryId} was not found` }, 404);
+    'SELECT id, slug, name, description, position, enabled FROM topics WHERE id = ?'
+  ).bind(topicId).first<{ id: number; slug: string; name: string; description: string | null; position: number; enabled: number }>();
+  if (!existing) return noStoreJson({ message: `topic ${topicId} was not found` }, 404);
 
   const updates: string[] = [];
   const binds: unknown[] = [];
@@ -172,8 +172,8 @@ async function updateCategory(
 
   if (body.name !== undefined) {
     const name = readString(body, 'name').trim();
-    if (!name || name.length > MAX_CATEGORY_NAME_LENGTH) {
-      return noStoreJson({ message: `name must contain 1 to ${MAX_CATEGORY_NAME_LENGTH} characters` }, 422);
+    if (!name || name.length > MAX_TOPIC_NAME_LENGTH) {
+      return noStoreJson({ message: `name must contain 1 to ${MAX_TOPIC_NAME_LENGTH} characters` }, 422);
     }
     updates.push('name = ?');
     binds.push(name);
@@ -212,11 +212,11 @@ async function updateCategory(
     return noStoreJson({ message: 'no supported field was provided (name, position, enabled)' }, 422);
   }
 
-  await env.DB.prepare(`UPDATE categories SET ${updates.join(', ')} WHERE id = ?`)
-    .bind(...binds, categoryId).run();
+  await env.DB.prepare(`UPDATE topics SET ${updates.join(', ')} WHERE id = ?`)
+    .bind(...binds, topicId).run();
 
   await logAudit(env, {
-    actor, action: 'category.update', targetType: 'category', targetId: categoryId,
+    actor, action: 'topic.update', targetType: 'topic', targetId: topicId,
     details: {
       previous: { name: existing.name, description: existing.description, position: Number(existing.position), enabled: Number(existing.enabled) === 1 },
       ...changes
@@ -224,72 +224,71 @@ async function updateCategory(
   });
 
   const updated = await env.DB.prepare(
-    `SELECT c.id, c.slug, c.name, c.position, c.enabled,
-            (SELECT COUNT(*) FROM polls p WHERE p.category_id = c.id) AS polls
-     FROM categories c WHERE c.id = ?`
-  ).bind(categoryId).first<CategoryRow>();
+    `SELECT t.id, t.slug, t.name, t.position, t.enabled,
+            (SELECT COUNT(*) FROM polls p WHERE p.topic_id = t.id) AS polls
+     FROM topics t WHERE t.id = ?`
+  ).bind(topicId).first<TopicRow>();
 
   return noStoreJson({
     ok: true,
-    category: updated ? publicCategory(updated) : null,
-    message: `Updated category "${existing.slug}".`
+    topic: updated ? publicTopic(updated) : null,
+    message: `Updated topic "${existing.slug}".`
   });
 }
 
-async function deleteCategory(categoryId: number, env: AdminEnv, actor: AdminActor): Promise<Response> {
-  if (!Number.isSafeInteger(categoryId) || categoryId < 1) {
-    return noStoreJson({ message: 'invalid category ID' }, 400);
+async function deleteTopic(topicId: number, env: AdminEnv, actor: AdminActor): Promise<Response> {
+  if (!Number.isSafeInteger(topicId) || topicId < 1) {
+    return noStoreJson({ message: 'invalid topic ID' }, 400);
   }
 
   const existing = await env.DB.prepare(
-    `SELECT c.id, c.slug, c.name, c.description,
-            (SELECT COUNT(*) FROM polls p WHERE p.category_id = c.id) AS polls
-     FROM categories c WHERE c.id = ?`
-  ).bind(categoryId).first<{ id: number; slug: string; name: string; description: string | null; polls: number }>();
-  if (!existing) return noStoreJson({ message: `category ${categoryId} was not found` }, 404);
+    `SELECT t.id, t.slug, t.name, t.description,
+            (SELECT COUNT(*) FROM polls p WHERE p.topic_id = t.id) AS polls
+     FROM topics t WHERE t.id = ?`
+  ).bind(topicId).first<{ id: number; slug: string; name: string; description: string | null; polls: number }>();
+  if (!existing) return noStoreJson({ message: `topic ${topicId} was not found` }, 404);
 
-  // The polls are kept; the foreign key sets their `category_id` to NULL.
-  await env.DB.prepare('DELETE FROM categories WHERE id = ?').bind(categoryId).run();
+  // The polls are kept; the foreign key sets their `topic_id` to NULL.
+  await env.DB.prepare('DELETE FROM topics WHERE id = ?').bind(topicId).run();
 
   await logAudit(env, {
-    actor, action: 'category.delete', targetType: 'category', targetId: categoryId,
-    details: { slug: existing.slug, name: existing.name, description: existing.description, uncategorised: Number(existing.polls ?? 0) }
+    actor, action: 'topic.delete', targetType: 'topic', targetId: topicId,
+    details: { slug: existing.slug, name: existing.name, description: existing.description, untopicalized: Number(existing.polls ?? 0) }
   });
 
   return noStoreJson({
     ok: true,
-    uncategorised: Number(existing.polls ?? 0),
-    message: `Deleted category "${existing.slug}".`
+    untopicalized: Number(existing.polls ?? 0),
+    message: `Deleted topic "${existing.slug}".`
   });
 }
 
-// Inserts the suggested categories, skipping any slug that already exists.
-async function insertSuggestedCategories(env: AdminEnv, actor: AdminActor): Promise<Response> {
-  const last = await env.DB.prepare('SELECT COALESCE(MAX(position), 0) AS position FROM categories')
+// Inserts the suggested topics, skipping any slug that already exists.
+async function insertSuggestedTopics(env: AdminEnv, actor: AdminActor): Promise<Response> {
+  const last = await env.DB.prepare('SELECT COALESCE(MAX(position), 0) AS position FROM topics')
     .first<{ position: number }>();
   let position = Number(last?.position ?? 0);
 
   const statements: D1PreparedStatement[] = [];
-  for (const category of SUGGESTED_CATEGORIES) {
+  for (const topic of SUGGESTED_TOPICS) {
     position += 1;
     statements.push(env.DB.prepare(
-      'INSERT OR IGNORE INTO categories (slug, name, description, position, enabled) VALUES (?, ?, ?, ?, 1)'
-    ).bind(category.slug, category.names.en, '', position));
+      'INSERT OR IGNORE INTO topics (slug, name, description, position, enabled) VALUES (?, ?, ?, ?, 1)'
+    ).bind(topic.slug, topic.names.en, '', position));
   }
   const results = await env.DB.batch(statements);
   const inserted = results.reduce((total, result) => total + Number(result.meta.changes ?? 0), 0);
 
   await logAudit(env, {
-    actor, action: 'category.suggested', targetType: 'category',
-    details: { inserted, offered: SUGGESTED_CATEGORIES.length }
+    actor, action: 'topic.suggested', targetType: 'topic',
+    details: { inserted, offered: SUGGESTED_TOPICS.length }
   });
 
   return noStoreJson({
     ok: true,
     inserted,
     message: inserted === 0
-      ? 'The suggested categories already exist.'
-      : `Inserted ${inserted} suggested categor${inserted === 1 ? 'y' : 'ies'}.`
+      ? 'The suggested topics already exist.'
+      : `Inserted ${inserted} suggested topic${inserted === 1 ? '' : 's'}.`
   }, 201);
 }
-

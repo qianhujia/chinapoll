@@ -1,9 +1,9 @@
-// Poll categories: the public listing and filter, admin CRUD, the suggested set,
-// the proposal category, and the AI categoriser.
+// Poll topics: the public listing and filter, admin CRUD, the suggested set,
+// the proposal topic, and the AI categoriser.
 
 import { beforeAll, describe, expect, it } from 'vitest';
 import { env, SELF } from 'cloudflare:test';
-import { handleCategoriesRequest as adminCategories } from '../../admin/api/categories';
+import { handleTopicsRequest as adminTopics } from '../../admin/api/categories';
 import { handlePollsRequest as adminPolls } from '../../admin/api/polls';
 import { handleAiRequest } from '../../worker/api/ai';
 import { handleProposalRequest } from '../../worker/api/proposal';
@@ -35,25 +35,25 @@ function adminRequest(path: string, method: string, body?: unknown): Request {
   });
 }
 
-async function adminCategoriesCall(path: string, method: string, body?: unknown): Promise<Response> {
+async function adminTopicsCall(path: string, method: string, body?: unknown): Promise<Response> {
   const request = adminRequest(path, method, body);
-  return adminCategories(request, new URL(request.url), env, ACTOR);
+  return adminTopics(request, new URL(request.url), env, ACTOR);
 }
 
-async function createCategory(slug: string, name: string): Promise<number> {
-  const response = await adminCategoriesCall('/api/admin/categories', 'POST', { slug, name });
+async function createTopic(slug: string, name: string): Promise<number> {
+  const response = await adminTopicsCall('/api/admin/topics', 'POST', { slug, name });
   expect(response.status).toBe(201);
   return lastId();
 }
 
-async function categoryId(slug: string): Promise<number | null> {
-  const row = await env.DB.prepare('SELECT id FROM categories WHERE slug = ?')
+async function topicId(slug: string): Promise<number | null> {
+  const row = await env.DB.prepare('SELECT id FROM topics WHERE slug = ?')
     .bind(slug).first<{ id: number }>();
   return row ? Number(row.id) : null;
 }
 
-async function assignCategory(pollId: number, category: number | null): Promise<void> {
-  await env.DB.prepare('UPDATE polls SET category_id = ? WHERE id = ?').bind(category, pollId).run();
+async function assignTopic(pollId: number, topic: number | null): Promise<void> {
+  await env.DB.prepare('UPDATE polls SET topic_id = ? WHERE id = ?').bind(topic, pollId).run();
 }
 
 async function register(username: string): Promise<string> {
@@ -73,10 +73,11 @@ function aiEnv(extra: Record<string, unknown> = {}): HandlerEnv {
     // The gate settings are pinned here, not taken from the defaults, so a fresh
     // account can submit and use the categoriser.
     user_poll_delay_hours: 0,
-    proposal_rate_limit: '100/d',
+    proposal_rate_limit: '200/d',
     ai_enable: true,
     ai_model: 'test-model',
     ai_rate_limit: '1000/h',
+    ai_auto_topic: true,
     ...extra
   } as unknown as HandlerEnv;
 }
@@ -93,134 +94,134 @@ function proposalRequest(cookie: string, body: Record<string, unknown>): Request
   });
 }
 
-describe('poll categories', () => {
-  it('lists enabled categories with the three names, counts, and the open total', async () => {
-    const id = await createCategory('politics', 'Politics');
+describe('poll topics', () => {
+  it('lists enabled topics with the three names, counts, and the open total', async () => {
+    const id = await createTopic('politics', 'Politics');
     const pollId = await seedPoll({ title: 'A politics poll' });
-    await assignCategory(pollId, id);
+    await assignTopic(pollId, id);
 
-    const body = await (await SELF.fetch(`${ORIGIN}/api/categories`)).json() as any;
-    const entry = body.categories.find((category: any) => category.slug === 'politics');
+    const body = await (await SELF.fetch(`${ORIGIN}/api/topics`)).json() as any;
+    const entry = body.topics.find((topic: any) => topic.slug === 'politics');
     expect(entry.names).toEqual({ en: 'Politics', 'zh-CN': '政治', 'zh-TW': '政治' });
     expect(entry.count).toBeGreaterThanOrEqual(1);
     expect(typeof body.total).toBe('number');
   });
 
-  it('filters the public listing by category slug', async () => {
-    const id = await createCategory('economy', 'Economy');
+  it('filters the public listing by topic slug', async () => {
+    const id = await createTopic('economy', 'Economy');
     const matched = await seedPoll({ title: 'Economy poll' });
-    const other = await seedPoll({ title: 'Uncategorised poll' });
-    await assignCategory(matched, id);
-    await assignCategory(other, null);
+    const other = await seedPoll({ title: 'Untopicalized poll' });
+    await assignTopic(matched, id);
+    await assignTopic(other, null);
 
-    const body = await (await SELF.fetch(`${ORIGIN}/api/polls?category=economy&pageSize=100`)).json() as any;
+    const body = await (await SELF.fetch(`${ORIGIN}/api/polls?topic=economy&pageSize=100`)).json() as any;
     const ids = body.polls.map((entry: any) => entry.poll.id);
     expect(ids).toContain(matched);
     expect(ids).not.toContain(other);
-    expect(body.polls.every((entry: any) => entry.poll.category?.slug === 'economy')).toBe(true);
+    expect(body.polls.every((entry: any) => entry.poll.topic?.slug === 'economy')).toBe(true);
   });
 
-  it('renames, disables, and deletes a category, leaving its polls uncategorised', async () => {
-    const id = await createCategory('health', 'Health');
+  it('renames, disables, and deletes a topic, leaving its polls untopicalized', async () => {
+    const id = await createTopic('health', 'Health');
     const pollId = await seedPoll({ title: 'Health poll' });
-    await assignCategory(pollId, id);
+    await assignTopic(pollId, id);
 
-    const updated = await adminCategoriesCall(`/api/admin/categories/${id}`, 'PUT', {
+    const updated = await adminTopicsCall(`/api/admin/topics/${id}`, 'PUT', {
       name: 'Public health', enabled: false, position: 7
     });
     expect(updated.status).toBe(200);
-    expect((await updated.json() as any).category).toMatchObject({
+    expect((await updated.json() as any).topic).toMatchObject({
       name: 'Public health', enabled: false, position: 7
     });
 
-    // A disabled category is gone from the public list.
-    const listed = await (await SELF.fetch(`${ORIGIN}/api/categories`)).json() as any;
-    expect(listed.categories.some((category: any) => category.slug === 'health')).toBe(false);
+    // A disabled topic is gone from the public list.
+    const listed = await (await SELF.fetch(`${ORIGIN}/api/topics`)).json() as any;
+    expect(listed.topics.some((topic: any) => topic.slug === 'health')).toBe(false);
 
-    expect((await adminCategoriesCall(`/api/admin/categories/${id}`, 'DELETE')).status).toBe(200);
-    const row = await env.DB.prepare('SELECT category_id FROM polls WHERE id = ?')
-      .bind(pollId).first<{ category_id: number | null }>();
-    expect(row?.category_id).toBeNull();
+    expect((await adminTopicsCall(`/api/admin/topics/${id}`, 'DELETE')).status).toBe(200);
+    const row = await env.DB.prepare('SELECT topic_id FROM polls WHERE id = ?')
+      .bind(pollId).first<{ topic_id: number | null }>();
+    expect(row?.topic_id).toBeNull();
   });
 
-  it('inserts the suggested categories once', async () => {
-    const first = await adminCategoriesCall('/api/admin/categories/suggested', 'POST');
+  it('inserts the suggested topics once', async () => {
+    const first = await adminTopicsCall('/api/admin/topics/suggested', 'POST');
     expect(first.status).toBe(201);
     // The earlier tests already created a few of the suggested slugs.
     const inserted = (await first.json() as any).inserted as number;
     expect(inserted).toBeGreaterThanOrEqual(1);
     expect(inserted).toBeLessThanOrEqual(9);
 
-    const again = await adminCategoriesCall('/api/admin/categories/suggested', 'POST');
+    const again = await adminTopicsCall('/api/admin/topics/suggested', 'POST');
     expect((await again.json() as any).inserted).toBe(0);
 
-    const total = await env.DB.prepare('SELECT COUNT(*) AS total FROM categories').first<{ total: number }>();
+    const total = await env.DB.prepare('SELECT COUNT(*) AS total FROM topics').first<{ total: number }>();
     expect(Number(total?.total ?? 0)).toBeGreaterThanOrEqual(9);
-    expect(await categoryId('society')).not.toBeNull();
+    expect(await topicId('society')).not.toBeNull();
   });
 
-  it('assigns a category to a poll and records it in the audit log', async () => {
-    const id = await categoryId('other');
+  it('assigns a topic to a poll and records it in the audit log', async () => {
+    const id = await topicId('other');
     expect(id).not.toBeNull();
     const pollId = await seedPoll({ title: 'Assignable poll' });
 
-    const request = adminRequest(`/api/admin/polls/${pollId}/category`, 'PUT', { categoryId: id });
+    const request = adminRequest(`/api/admin/polls/${pollId}/topic`, 'PUT', { topicId: id });
     const response = await adminPolls(request, new URL(request.url), env, ACTOR);
     expect(response.status).toBe(200);
 
     const audit = await env.DB.prepare(
-      "SELECT COUNT(*) AS total FROM admin_audit_log WHERE action = 'poll.category'"
+      "SELECT COUNT(*) AS total FROM admin_audit_log WHERE action = 'poll.topic'"
     ).first<{ total: number }>();
     expect(Number(audit?.total ?? 0)).toBeGreaterThanOrEqual(1);
   });
 
-  it('stores the submitter category, rejects an unknown slug, and auto-categorises otherwise', async () => {
-    const politics = await categoryId('politics');
-    const society = await categoryId('society');
+  it('stores the submitter topic, rejects an unknown slug, and auto-topics otherwise', async () => {
+    const politics = await topicId('politics');
+    const society = await topicId('society');
 
     // The submitter's explicit choice is stored.
-    const chosen = await register('category-chooser');
+    const chosen = await register('topic-chooser');
     const explicit = await handleProposalRequest(proposalRequest(chosen, {
-      title: 'A categorised proposal',
+      title: 'A topicalized proposal',
       pollType: 'single_choice',
       duration: 'none',
-      category: 'politics',
+      topic: 'politics',
       options: ['First option', 'Second option']
     }), aiEnv());
     expect(explicit.status).toBe(201);
     const explicitId = Number((await explicit.json() as any).pollId);
-    const explicitRow = await env.DB.prepare('SELECT category_id FROM polls WHERE id = ?')
-      .bind(explicitId).first<{ category_id: number | null }>();
-    expect(explicitRow?.category_id).toBe(politics);
+    const explicitRow = await env.DB.prepare('SELECT topic_id FROM polls WHERE id = ?')
+      .bind(explicitId).first<{ topic_id: number | null }>();
+    expect(explicitRow?.topic_id).toBe(politics);
 
     // An unknown slug is refused.
     const rejected = await handleProposalRequest(proposalRequest(chosen, {
-      title: 'An unknown category proposal',
+      title: 'An unknown topic proposal',
       pollType: 'single_choice',
       duration: 'none',
-      category: 'no-such-category',
+      topic: 'no-such-topic',
       options: ['First option', 'Second option']
     }), aiEnv());
     expect(rejected.status).toBe(400);
 
-    // With auto-categorising on and no choice, the model's slug is stored.
+    // With auto-topic on and no choice, the model's slug is stored.
     stubAi({ slug: 'society' });
-    const auto = await register('category-auto');
+    const auto = await register('topic-auto');
     const autoResponse = await handleProposalRequest(proposalRequest(auto, {
-      title: 'An auto categorised proposal',
+      title: 'An auto topicalized proposal',
       pollType: 'single_choice',
       duration: 'none',
       options: ['First option', 'Second option']
-    }), aiEnv({ ai_auto_categorise: true }));
+    }), aiEnv({ ai_auto_topic: true }));
     expect(autoResponse.status).toBe(201);
     const autoId = Number((await autoResponse.json() as any).pollId);
-    const autoRow = await env.DB.prepare('SELECT category_id FROM polls WHERE id = ?')
-      .bind(autoId).first<{ category_id: number | null }>();
-    expect(autoRow?.category_id).toBe(society);
+    const autoRow = await env.DB.prepare('SELECT topic_id FROM polls WHERE id = ?')
+      .bind(autoId).first<{ topic_id: number | null }>();
+    expect(autoRow?.topic_id).toBe(society);
   });
 
   it('validates the AI categoriser answer against the enabled list', async () => {
-    const cookie = await register('category-ai');
+    const cookie = await register('topic-ai');
 
     stubAi({ slug: 'politics' });
     const known = new Request(`${ORIGIN}/api/ai/categorise`, {
@@ -232,7 +233,7 @@ describe('poll categories', () => {
       .toMatchObject({ ok: true, slug: 'politics' });
 
     // Anything that is not an enabled slug becomes "none".
-    stubAi({ slug: 'not-a-category' });
+    stubAi({ slug: 'not-a-topic' });
     const unknown = new Request(`${ORIGIN}/api/ai/categorise`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', origin: ORIGIN, cookie },
@@ -242,4 +243,3 @@ describe('poll categories', () => {
       .toMatchObject({ ok: true, slug: 'none' });
   });
 });
-

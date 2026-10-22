@@ -32,9 +32,9 @@ interface AdminPollRow {
   views: number;
   created_at: number;
   updated_at: number;
-  category_id: number | null;
-  category_slug: string | null;
-  category_name: string | null;
+  topic_id: number | null;
+  topic_slug: string | null;
+  topic_name: string | null;
 }
 
 interface AdminOptionCount {
@@ -53,13 +53,13 @@ export async function handlePollsRequest(request: Request, url: URL, env: AdminE
     return updatePollStatus(Number(statusMatch[1]), request, env, actor);
   }
 
-  // Assigns or clears a poll's category.
-  const categoryMatch = url.pathname.match(/^\/api\/admin\/polls\/(\d+)\/category$/);
-  if (categoryMatch) {
+  // Assigns or clears a poll's topic.
+  const topicMatch = url.pathname.match(/^\/api\/admin\/polls\/(\d+)\/topic$/);
+  if (topicMatch) {
     if (request.method !== 'PUT') {
       return Response.json({ message: 'method not allowed' }, { status: 405 });
     }
-    return updatePollCategory(Number(categoryMatch[1]), request, env, actor);
+    return updatePollTopic(Number(topicMatch[1]), request, env, actor);
   }
 
   // Option labels may only be corrected while a poll is still pending.
@@ -121,15 +121,15 @@ async function listPolls(url: URL, env: AdminEnv): Promise<Response> {
        WHERE 1 = 1${statusClause}${searchClause}
        ORDER BY i.created_at DESC, i.id DESC LIMIT ? OFFSET ?
      )
-     SELECT i.id, i.title, i.description, i.mode, i.poll_type, i.duration_seconds,
-            i.start_at, i.end_at, i.status,
-            i.created_at, i.updated_at,
-            i.category_id, c.slug AS category_slug, c.name AS category_name,
-            (SELECT COALESCE(SUM(pv.views), 0) FROM poll_views pv WHERE pv.poll_id = i.id) AS views
-     FROM page
-     JOIN polls i ON i.id = page.id
-     LEFT JOIN categories c ON c.id = i.category_id
-     ORDER BY i.created_at DESC, i.id DESC`
+SELECT i.id, i.title, i.description, i.mode, i.poll_type, i.duration_seconds,
+             i.start_at, i.end_at, i.status,
+             i.created_at, i.updated_at,
+             i.topic_id, t.slug AS topic_slug, t.name AS topic_name,
+             (SELECT COALESCE(SUM(pv.views), 0) FROM poll_views pv WHERE pv.poll_id = i.id) AS views
+      FROM page
+      JOIN polls i ON i.id = page.id
+      LEFT JOIN topics t ON t.id = i.topic_id
+      ORDER BY i.created_at DESC, i.id DESC`
   ).bind(
     ...statusBind, ...(query ? [likePattern] : []),
     pageSize, offset
@@ -162,9 +162,9 @@ async function listPolls(url: URL, env: AdminEnv): Promise<Response> {
         createdAt: toIso(row.created_at),
         updatedAt: toIso(row.updated_at),
         views: Number(row.views),
-        categoryId: row.category_id === null ? null : Number(row.category_id),
-        category: row.category_slug
-          ? { id: Number(row.category_id), slug: row.category_slug, name: row.category_name }
+        topicId: row.topic_id === null ? null : Number(row.topic_id),
+        topic: row.topic_slug
+          ? { id: Number(row.topic_id), slug: row.topic_slug, name: row.topic_name }
           : null,
         ballots: tally.ballots,
         // Each option is shown with its own count.
@@ -187,8 +187,8 @@ async function listPolls(url: URL, env: AdminEnv): Promise<Response> {
   });
 }
 
-// Sets or clears a poll's category. `categoryId: null` (or omitted) clears it.
-async function updatePollCategory(
+// Sets or clears a poll's topic. `topicId: null` (or omitted) clears it.
+async function updatePollTopic(
   pollId: number,
   request: Request,
   env: AdminEnv,
@@ -205,51 +205,51 @@ async function updatePollCategory(
     return Response.json({ message: 'invalid JSON' }, { status: 400 });
   }
   const payload = typeof body === 'object' && body !== null ? body as Record<string, unknown> : {};
-  const raw = payload.categoryId;
+  const raw = payload.topicId;
 
-  let categoryId: number | null;
+  let topicId: number | null;
   if (raw === null || raw === undefined || raw === '') {
-    categoryId = null;
+    topicId = null;
   } else {
-    categoryId = Number(raw);
-    if (!Number.isSafeInteger(categoryId) || categoryId < 1) {
-      return Response.json({ message: 'categoryId must be a positive integer or null' }, { status: 400 });
+    topicId = Number(raw);
+    if (!Number.isSafeInteger(topicId) || topicId < 1) {
+      return Response.json({ message: 'topicId must be a positive integer or null' }, { status: 400 });
     }
   }
 
   const poll = await env.DB.prepare(
-    `SELECT p.id, c.slug AS category_slug
+    `SELECT p.id, t.slug AS topic_slug
      FROM polls p
-     LEFT JOIN categories c ON c.id = p.category_id
+     LEFT JOIN topics t ON t.id = p.topic_id
      WHERE p.id = ?`
-  ).bind(pollId).first<{ id: number; category_slug: string | null }>();
+  ).bind(pollId).first<{ id: number; topic_slug: string | null }>();
   if (!poll) {
     return Response.json({ message: `poll ${pollId} was not found` }, { status: 404 });
   }
 
   let slug: string | null = null;
-  if (categoryId !== null) {
-    const category = await env.DB.prepare('SELECT slug FROM categories WHERE id = ?')
-      .bind(categoryId).first<{ slug: string }>();
-    if (!category) {
-      return Response.json({ message: `category ${categoryId} was not found` }, { status: 422 });
+  if (topicId !== null) {
+    const topic = await env.DB.prepare('SELECT slug FROM topics WHERE id = ?')
+      .bind(topicId).first<{ slug: string }>();
+    if (!topic) {
+      return Response.json({ message: `topic ${topicId} was not found` }, { status: 422 });
     }
-    slug = category.slug;
+    slug = topic.slug;
   }
 
-  await env.DB.prepare('UPDATE polls SET category_id = ?, updated_at = unixepoch() WHERE id = ?')
-    .bind(categoryId, pollId).run();
+  await env.DB.prepare('UPDATE polls SET topic_id = ?, updated_at = unixepoch() WHERE id = ?')
+    .bind(topicId, pollId).run();
 
   await logAudit(env, {
-    actor, action: 'poll.category', targetType: 'poll', targetId: pollId,
-    details: { previous: poll.category_slug ?? null, category: slug }
+    actor, action: 'poll.topic', targetType: 'poll', targetId: pollId,
+    details: { previous: poll.topic_slug ?? null, topic: slug }
   });
 
   return Response.json({
     ok: true,
     pollId,
-    category: categoryId === null || slug === null ? null : { id: categoryId, slug },
-    message: slug ? `Set category to "${slug}" for poll ${pollId}.` : `Cleared the category for poll ${pollId}.`
+    topic: topicId === null || slug === null ? null : { id: topicId, slug },
+    message: slug ? `Set topic to "${slug}" for poll ${pollId}.` : `Cleared the topic for poll ${pollId}.`
   });
 }
 

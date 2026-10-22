@@ -19,8 +19,8 @@ import {
   suggestTitles,
   type AiLocale
 } from '../services/ai';
-import { loadEnabledCategories } from './categories';
-import { categoryNames } from '../../shared/categories';
+import { loadEnabledTopics } from './categories';
+import { topicNames } from '../../shared/categories';
 import { checkRateLimit } from '../services/rateLimit';
 import { enforceSameOrigin } from '../services/csrf';
 import { isTurnstileEnabled, turnstileSecretKey, verifyTurnstile } from '../services/turnstile';
@@ -271,13 +271,13 @@ async function handleCategorise(request: Request, env: HandlerEnv): Promise<Resp
   const input = readCategoryText(context.body);
   if (input instanceof Response) return input;
 
-  const categories = (await loadEnabledCategories(env)).map((category) => ({
-    slug: category.slug,
-    names: categoryNames(category.slug, category.name)
+  const topics = (await loadEnabledTopics(env)).map((topic) => ({
+    slug: topic.slug,
+    names: topicNames(topic.slug, topic.name)
   }));
 
   // Nothing to choose from: answer `none` without spending a model call.
-  if (categories.length === 0) {
+  if (topics.length === 0) {
     return Response.json({ ok: true, slug: 'none' }, {
       headers: { 'cache-control': 'no-store' }
     });
@@ -286,7 +286,7 @@ async function handleCategorise(request: Request, env: HandlerEnv): Promise<Resp
   const result = await categorisePoll(env, context.model, {
     title: input.title,
     description: input.description || undefined,
-    categories
+    topics
   });
   if (!result.ok) return failureResponse(result.reason);
 

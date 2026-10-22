@@ -24,8 +24,8 @@ import {
 } from '../enums';
 import { validatePollOptions, type ParsedOption } from '../services/pollType';
 import { DEFAULT_AI_MODEL, categorisePoll } from '../services/ai';
-import { loadEnabledCategories } from './categories';
-import { CATEGORY_SLUG_PATTERN, categoryNames } from '../../shared/categories';
+import { loadEnabledTopics } from './categories';
+import { TOPIC_SLUG_PATTERN, topicNames } from '../../shared/categories';
 import { checkRateLimit } from '../services/rateLimit';
 import { enforceSameOrigin } from '../services/csrf';
 import { ownerHash } from '../services/owner';
@@ -87,23 +87,23 @@ export async function handleProposalRequest(request: Request, env: HandlerEnv): 
   }
 
   // The submitter's explicit category always wins. Only when none was chosen does
-  // an enabled auto-categoriser fill it in, and a failed suggestion simply leaves
-  // the poll uncategorised.
-  const requestedCategory = typeof body.category === 'string' ? body.category.trim().toLowerCase() : '';
-  let categoryId: number | null = null;
-  if (requestedCategory) {
-    if (!CATEGORY_SLUG_PATTERN.test(requestedCategory)) {
-      return Response.json({ ok: false, message: 'invalid category' }, { status: 400 });
+  // an enabled auto-topic fill it in, and a failed suggestion simply leaves
+  // the poll untopicalized.
+  const requestedTopic = typeof body.topic === 'string' ? body.topic.trim().toLowerCase() : '';
+  let topicId: number | null = null;
+  if (requestedTopic) {
+    if (!TOPIC_SLUG_PATTERN.test(requestedTopic)) {
+      return Response.json({ ok: false, message: 'invalid topic' }, { status: 400 });
     }
-    const categories = await loadEnabledCategories(env);
-    const match = categories.find((category) => category.slug === requestedCategory);
+    const topics = await loadEnabledTopics(env);
+    const match = topics.find((topic) => topic.slug === requestedTopic);
     if (!match) {
-      return Response.json({ ok: false, message: 'unknown category' }, { status: 400 });
+      return Response.json({ ok: false, message: 'unknown topic' }, { status: 400 });
     }
-    categoryId = match.id;
+    topicId = match.id;
   }
-  if (categoryId === null && env.ai_auto_categorise === true && env.ai_enable === true) {
-    categoryId = await suggestCategory(env, title, description);
+  if (topicId === null && env.ai_auto_topic === true && env.ai_enable === true) {
+    topicId = await suggestTopic(env, title, description);
   }
 
   // With auto-approval enabled a submitted poll is published immediately;
@@ -123,7 +123,7 @@ export async function handleProposalRequest(request: Request, env: HandlerEnv): 
   const newPollId = '(SELECT id FROM polls ORDER BY id DESC LIMIT 1)';
   const statements: D1PreparedStatement[] = [
     env.DB.prepare(
-      `INSERT INTO polls (title, description, mode, poll_type, duration_seconds, end_at, status, reviewed_at, category_id)
+      `INSERT INTO polls (title, description, mode, poll_type, duration_seconds, end_at, status, reviewed_at, topic_id)
        VALUES (?, ?, ?, ?, ?, CASE WHEN ? THEN unixepoch() + ? ELSE NULL END, ?, ?, ?)`
     ).bind(
       title,
@@ -135,7 +135,7 @@ export async function handleProposalRequest(request: Request, env: HandlerEnv): 
       endAt ?? 0,
       autoApprove ? PollStatus.Open : PollStatus.Pending,
       autoApprove ? Math.floor(Date.now() / 1000) : null,
-      categoryId
+      topicId
     ),
     ...options.map((option) => env.DB.prepare(
       `INSERT INTO poll_options (poll_id, position, label)
@@ -162,25 +162,25 @@ export async function handleProposalRequest(request: Request, env: HandlerEnv): 
   }, { status: 201 });
 }
 
-// Asks the categoriser for a slug and maps it to an enabled category id. Any
-// failure (model error, no match) leaves the poll uncategorised.
-async function suggestCategory(
+// Asks the categoriser for a slug and maps it to an enabled topic id. Any
+// failure (model error, no match) leaves the poll untopicalized.
+async function suggestTopic(
   env: HandlerEnv,
   title: string,
   description: string | null
 ): Promise<number | null> {
-  const categories = await loadEnabledCategories(env);
-  if (categories.length === 0) return null;
+  const topics = await loadEnabledTopics(env);
+  if (topics.length === 0) return null;
   const result = await categorisePoll(env, env.ai_model?.trim() || DEFAULT_AI_MODEL, {
     title,
     description: description ?? undefined,
-    categories: categories.map((category) => ({
-      slug: category.slug,
-      names: categoryNames(category.slug, category.name)
+    topics: topics.map((topic) => ({
+      slug: topic.slug,
+      names: topicNames(topic.slug, topic.name)
     }))
   });
   if (!result.ok || !result.value) return null;
-  return categories.find((category) => category.slug === result.value)?.id ?? null;
+  return topics.find((topic) => topic.slug === result.value)?.id ?? null;
 }
 
 export interface ProposalInput {

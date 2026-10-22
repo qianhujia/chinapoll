@@ -1,6 +1,6 @@
-import { getCategories, getPolls } from '../lib/poll';
+import { getTopics, getPolls } from '../lib/poll';
 import { getPublicSettings } from '../config';
-import { localizedCategoryName } from '../../shared/categories';
+import { localizedTopicName } from '../../shared/categories';
 import {
   escapeHtml,
   getErrorMessage,
@@ -23,9 +23,9 @@ import {
 export function renderPollRow({ poll, stats, views }: Awaited<ReturnType<typeof getPolls>>['polls'][number]): string {
   const pollType = poll.pollType ?? stats.pollType ?? 'single_choice';
   const locale = (getPublicSettings().default_locale ?? 'en') as 'en' | 'zh-CN' | 'zh-TW';
-  // An uncategorised poll shows nothing.
-  const categoryBadge = poll.category
-    ? `<span class="shrink-0 rounded-full bg-[#eef3fb] px-2 py-0.5 text-xs text-muted" data-poll-category>${escapeHtml(localizedCategoryName(poll.category.slug, poll.category.name, locale))}</span>`
+  // An untopicalized poll shows nothing.
+  const topicBadge = poll.topic
+    ? `<span class="shrink-0 rounded-full bg-[#eef3fb] px-2 py-0.5 text-xs text-muted" data-poll-topic>${escapeHtml(localizedTopicName(poll.topic.slug, poll.topic.name, locale))}</span>`
     : '';
   const resultsHidden = stats.hidden === true;
   // The threshold notice replaces the ballot total, never the link.
@@ -41,7 +41,7 @@ export function renderPollRow({ poll, stats, views }: Awaited<ReturnType<typeof 
           <h2 class="m-0 flex-[1_1_auto] text-[1.15rem] leading-[1.5]"><a class="text-inherit no-underline hover:text-primary hover:underline focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-[3px] focus-visible:outline-primary" href="/poll/${poll.id}" data-route="/poll/${poll.id}">${escapeHtml(poll.title)}</a></h2>
           ${renderModeBadge(poll.mode)}
           ${renderPollTypeBadge(pollType, poll.options?.length ?? 0)}
-          ${categoryBadge}
+          ${topicBadge}
         </div>
       </div>
 
@@ -59,20 +59,20 @@ export async function mountHome(app: HTMLElement, page: number, bindNavigation: 
   const searchQuery = getQueryValue('q');
   const categoryFilter = getQueryValue('category');
   let pollStats: Awaited<ReturnType<typeof getPolls>>['polls'];
-  let categories: Awaited<ReturnType<typeof getCategories>> | null = null;
+  let topics: Awaited<ReturnType<typeof getTopics>> | null = null;
   let openPolls: number;
   let totalPolls: number;
   let totalVotes: number;
   try {
-    const [response, categoryData] = await Promise.all([
+    const [response, topicData] = await Promise.all([
       getPolls(page, pollsPerPage, searchQuery, categoryFilter),
-      getCategories().catch(() => null)
+      getTopics().catch(() => null)
     ]);
     pollStats = response.polls;
     openPolls = response.total;
     totalPolls = response.totalPolls;
     totalVotes = response.totalVotes;
-    categories = categoryData;
+    topics = topicData;
   } catch (error) {
     app.innerHTML = `
       <div class="mx-auto max-w-[var(--page-width)] px-5 pt-6 pb-16">
@@ -104,15 +104,15 @@ export async function mountHome(app: HTMLElement, page: number, bindNavigation: 
   const openPollsCount = openPolls;
   const showHero = currentPage === 1 && searchQuery === '';
 
-  // The category chip row lists every enabled category with the number of open
-  // polls it holds; "All" is selected when no category is filtered.
+  // The topic chip row lists every enabled topic with the number of open
+  // polls it holds; "All" is selected when no topic is filtered.
   const localeCode = (getPublicSettings().default_locale ?? 'en') as 'en' | 'zh-CN' | 'zh-TW';
   const chipClass = (active: boolean) => 'rounded-full border px-3 py-1.5 text-sm no-underline '
     + (active ? 'border-primary bg-primary text-white' : 'border-border bg-panel text-ink hover:border-primary hover:text-primary');
-  const chipRow = !categories || categories.categories.length === 0 ? '' : `
-        <nav class="flex flex-wrap items-center gap-2" data-category-chips>
-          <a class="${chipClass(categoryFilter === '')}" href="/" data-route="/">${t('categoryAll')} <span class="tabular-nums text-xs">${categories.total}</span></a>
-          ${categories.categories.map((category) => `<a class="${chipClass(categoryFilter === category.slug)}" href="/?category=${encodeURIComponent(category.slug)}" data-route="/?category=${encodeURIComponent(category.slug)}">${escapeHtml(category.names[localeCode] ?? category.name)} <span class="tabular-nums text-xs">${category.count}</span></a>`).join('')}
+  const chipRow = !topics || topics.topics.length === 0 ? '' : `
+        <nav class="flex flex-wrap items-center gap-2" data-topic-chips>
+          <a class="${chipClass(categoryFilter === '')}" href="/" data-route="/">${t('categoryAll')} <span class="tabular-nums text-xs">${topics.total}</span></a>
+          ${topics.topics.map((topic) => `<a class="${chipClass(categoryFilter === topic.slug)}" href="/?category=${encodeURIComponent(topic.slug)}" data-route="/?category=${encodeURIComponent(topic.slug)}">${escapeHtml(topic.names[localeCode] ?? topic.name)} <span class="tabular-nums text-xs">${topic.count}</span></a>`).join('')}
         </nav>`;
 
   app.innerHTML = `

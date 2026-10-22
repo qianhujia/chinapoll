@@ -7,7 +7,7 @@
 import {
   MAX_OPTION_LABEL_LENGTH,
   DURATION_LABEL_KEYS,
-  getCategories,
+  getTopics,
   rememberMyPoll,
   submitProposal,
   type PollDuration,
@@ -265,21 +265,21 @@ export function bindProposalForm(app: HTMLElement, bindNavigation: () => void, a
   });
   titleInput?.addEventListener('input', syncAiGates);
 
-  // The category dropdown is filled from the enabled categories. The AI button is
+  // The topic dropdown is filled from the enabled topics. The AI button is
   // only shown when the feature is on, and the tag marks a suggestion the
   // submitter has not changed.
   if (aiEnabled && categoryButton) categoryButton.hidden = false;
-  getCategories().then((result) => {
+  getTopics().then((result) => {
     if (!categorySelect) return;
     const locale = (getPublicSettings().default_locale ?? 'en') as 'en' | 'zh-CN' | 'zh-TW';
-    categoriesWithDescription = result.categories.map((category) => ({
-      slug: category.slug,
-      description: category.description
+    categoriesWithDescription = result.topics.map((topic) => ({
+      slug: topic.slug,
+      description: topic.description
     }));
-    result.categories.forEach((category) => {
+    result.topics.forEach((topic) => {
       const option = document.createElement('option');
-      option.value = category.slug;
-      option.textContent = category.names[locale] ?? category.name;
+      option.value = topic.slug;
+      option.textContent = topic.names[locale] ?? topic.name;
       categorySelect.appendChild(option);
     });
   }).catch(() => {

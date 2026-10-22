@@ -92,7 +92,7 @@ export interface PollResults {
   options: PollOption[] | null;
 }
 
-export interface PollCategoryRef {
+export interface PollTopicRef {
   slug: string;
   name: string;
 }
@@ -107,13 +107,13 @@ export interface PollSummary {
   start_at: string | null;
   end_at?: string | null;
   status: 'open' | 'closed' | 'archived';
-  /** The poll's category, or null/absent when it is uncategorised. */
-  category?: PollCategoryRef | null;
+  /** The poll's topic, or null/absent when it is untopicalized. */
+  topic?: PollTopicRef | null;
 }
 
-// An enabled category from `GET /api/categories`, with its name for each locale
+// An enabled topic from `GET /api/topics`, with its name for each locale
 // and the number of open polls it holds.
-export interface PollCategory {
+export interface PollTopic {
   id: number;
   slug: string;
   name: string;
@@ -204,10 +204,10 @@ export async function getPolls(page: number, pageSize: number, query = '', categ
   return fetchJson(`/api/polls?${params}`);
 }
 
-// The enabled categories and the number of open polls overall, for the home page
+// The enabled topics and the number of open polls overall, for the home page
 // chip row.
-export async function getCategories(): Promise<{ categories: PollCategory[]; total: number }> {
-  return fetchJson('/api/categories');
+export async function getTopics(): Promise<{ topics: PollTopic[]; total: number }> {
+  return fetchJson('/api/topics');
 }
 
 export async function getPoll(pollId: number): Promise<{ poll: PollSummary; views: PollViewCounts | null }> {

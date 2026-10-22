@@ -16,7 +16,7 @@
 import { authenticate, enforceSameOrigin, type AdminEnv } from './auth';
 import { handleAdminsRequest } from './api/admins';
 import { handleAuditRequest } from './api/audit';
-import { handleCategoriesRequest } from './api/categories';
+import { handleTopicsRequest } from './api/categories';
 import { handleCommentsRequest } from './api/comments';
 import { handleOverviewRequest } from './api/overview';
 import { handlePollsRequest } from './api/polls';
@@ -115,8 +115,8 @@ export default {
       if (url.pathname === '/api/admin/polls' || url.pathname.startsWith('/api/admin/polls/')) {
         return handlePollsRequest(request, url, env, actor);
       }
-      if (url.pathname === '/api/admin/categories' || url.pathname.startsWith('/api/admin/categories/')) {
-        return handleCategoriesRequest(request, url, env, actor);
+      if (url.pathname === '/api/admin/topics' || url.pathname.startsWith('/api/admin/topics/')) {
+        return handleTopicsRequest(request, url, env, actor);
       }
       if (url.pathname === '/api/admin/reports' || url.pathname.startsWith('/api/admin/reports/')) {
         return handleReportsRequest(request, url, env, actor);
