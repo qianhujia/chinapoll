@@ -59,7 +59,7 @@ const htmlSecurityHeaders = (nonce: string): Record<string, string> => ({
     "default-src 'none'",
     `style-src 'nonce-${nonce}'`,
     `script-src 'nonce-${nonce}' ${TURNSTILE_ORIGIN}`,
-    `connect-src 'self' ${TURNSTILE_ORIGIN}`,
+    `connect-src 'self' ${TURNSTILE_ORIGIN} data:`,
     `frame-src ${TURNSTILE_ORIGIN}`,
     "img-src 'self' data:",
     "base-uri 'none'",
