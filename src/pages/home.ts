@@ -54,6 +54,95 @@ export function renderPollRow({ poll, stats, views }: Awaited<ReturnType<typeof 
   `;
 }
 
+// Number of topic chips shown before the "More topics" toggle appears. The row
+// stays short so a long list of topics does not push the polls below the fold.
+export const TOPIC_CHIP_LIMIT = 5;
+
+export interface TopicChip {
+  slug: string;
+  label: string;
+  count: number;
+}
+
+export interface TopicChipLabels {
+  all: string;
+  more: string;
+  fewer: string;
+}
+
+function topicChipClass(active: boolean, extra = false): string {
+  return 'rounded-full border px-3 py-1.5 text-sm no-underline '
+    + (active
+      ? 'border-primary bg-primary text-white'
+      : 'border-border bg-panel text-ink hover:border-primary hover:text-primary')
+    + (extra ? ' hidden' : '');
+}
+
+// The topic chip row. At most TOPIC_CHIP_LIMIT topics are shown; the rest stay
+// in the document but hidden until the "More topics" button reveals them. A topic
+// that is currently filtered in is always shown, even when it sorts past the
+// limit, so the active selection is never hidden.
+export function renderTopicChips(
+  topics: ReadonlyArray<TopicChip>,
+  total: number,
+  activeTopic: string,
+  labels: TopicChipLabels
+): string {
+  if (topics.length === 0) return '';
+
+  const chip = (href: string, label: string, count: number, active: boolean, extra = false): string =>
+    `<a class="${topicChipClass(active, extra)}"${extra ? ' data-topic-extra' : ''} href="${href}" data-route="${href}">${escapeHtml(label)} <span class="tabular-nums text-xs">${count}</span></a>`;
+
+  // Keep the filtered topic visible so the row never hides what is selected.
+  const activeIndex = topics.findIndex((topic) => topic.slug === activeTopic);
+  const limit = activeIndex >= TOPIC_CHIP_LIMIT ? activeIndex + 1 : TOPIC_CHIP_LIMIT;
+  const visible = topics.slice(0, limit);
+  const extra = topics.slice(limit);
+
+  const chips = [
+    chip('/', labels.all, total, activeTopic === ''),
+    ...visible.map((topic) => chip(
+      `/topic/${encodeURIComponent(topic.slug)}`,
+      topic.label,
+      topic.count,
+      activeTopic === topic.slug
+    )),
+    ...extra.map((topic) => chip(
+      `/topic/${encodeURIComponent(topic.slug)}`,
+      topic.label,
+      topic.count,
+      false,
+      true
+    ))
+  ].join('');
+
+  // No toggle when every topic already fits on the row.
+  const toggle = extra.length === 0 ? '' : `
+          <button type="button" class="${topicChipClass(false)} cursor-pointer" data-action="toggle-topics" aria-expanded="false" data-more-label="${escapeHtml(labels.more)}" data-fewer-label="${escapeHtml(labels.fewer)}">${escapeHtml(labels.more)}</button>`;
+
+  return `
+        <nav class="flex flex-wrap items-center gap-2" data-topic-chips>${chips}${toggle}
+        </nav>`;
+}
+
+// Wires the "More topics" toggle: it reveals the hidden chips and swaps its own
+// label and aria-expanded state.
+function bindTopicChips(app: HTMLElement): void {
+  const toggle = app.querySelector<HTMLButtonElement>('[data-action="toggle-topics"]');
+  if (!toggle) return;
+
+  toggle.addEventListener('click', () => {
+    const expanded = toggle.getAttribute('aria-expanded') !== 'true';
+    toggle.setAttribute('aria-expanded', String(expanded));
+    toggle.textContent = expanded
+      ? (toggle.dataset.fewerLabel ?? '')
+      : (toggle.dataset.moreLabel ?? '');
+    app.querySelectorAll<HTMLElement>('[data-topic-extra]').forEach((chip) => {
+      chip.classList.toggle('hidden', !expanded);
+    });
+  });
+}
+
 export async function mountHome(app: HTMLElement, page: number, bindNavigation: () => void, settings?: Record<string, any>, topicSlug?: string): Promise<void> {
   const pollsPerPage = getPollsPerPage();
   const searchQuery = getQueryValue('q');
@@ -105,16 +194,20 @@ export async function mountHome(app: HTMLElement, page: number, bindNavigation: 
   // Show hero only on the first page with no search query and no topic filter.
   const showHero = currentPage === 1 && searchQuery === '' && categoryFilter === '';
 
-  // The topic chip row lists every enabled topic with the number of open
-  // polls it holds; "All" is selected when no topic is filtered.
+  // The topic chip row lists the enabled topics with the number of open polls
+  // each holds; "All" is selected when no topic is filtered. Only the first few
+  // chips are shown until the visitor expands the row.
   const localeCode = (getPublicSettings().default_locale ?? 'en') as 'en' | 'zh-CN' | 'zh-TW';
-  const chipClass = (active: boolean) => 'rounded-full border px-3 py-1.5 text-sm no-underline '
-    + (active ? 'border-primary bg-primary text-white' : 'border-border bg-panel text-ink hover:border-primary hover:text-primary');
-  const chipRow = !topics || topics.topics.length === 0 ? '' : `
-        <nav class="flex flex-wrap items-center gap-2" data-topic-chips>
-          <a class="${chipClass(categoryFilter === '')}" href="/" data-route="/">${t('categoryAll')} <span class="tabular-nums text-xs">${topics.total}</span></a>
-          ${topics.topics.map((topic) => `<a class="${chipClass(categoryFilter === topic.slug)}" href="/topic/${encodeURIComponent(topic.slug)}" data-route="/topic/${encodeURIComponent(topic.slug)}">${escapeHtml(topic.names[localeCode] ?? topic.name)} <span class="tabular-nums text-xs">${topic.count}</span></a>`).join('')}
-        </nav>`;
+  const chipRow = renderTopicChips(
+    (topics?.topics ?? []).map((topic) => ({
+      slug: topic.slug,
+      label: topic.names[localeCode] ?? topic.name,
+      count: topic.count
+    })),
+    topics?.total ?? 0,
+    categoryFilter,
+    { all: t('categoryAll'), more: t('moreTopics'), fewer: t('fewerTopics') }
+  );
 
   app.innerHTML = `
     <div class="mx-auto max-w-[var(--page-width)] px-5 pt-6">
@@ -178,4 +271,5 @@ export async function mountHome(app: HTMLElement, page: number, bindNavigation: 
   `;
 
   bindNavigation();
+  bindTopicChips(app);
 }

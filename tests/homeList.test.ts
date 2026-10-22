@@ -1,11 +1,13 @@
-// Frontend poll-list tests.
+// Frontend poll-list and topic-chip tests.
 //
-// `renderPollRow` is pure markup, so it is checked directly: the home page lists
-// every poll the same way and never builds vote controls, which is what keeps a
-// poll in the list indistinguishable from any other.
+// `renderPollRow` and `renderTopicChips` are pure markup, so they are checked
+// directly: the home page lists every poll the same way and never builds vote
+// controls, which is what keeps a poll in the list indistinguishable from any
+// other. The topic chip row shows a few topics at a time and reveals the rest
+// behind a toggle.
 
 import { describe, expect, it } from 'vitest';
-import { renderPollRow } from '../src/pages/home';
+import { renderPollRow, renderTopicChips, TOPIC_CHIP_LIMIT } from '../src/pages/home';
 import type { PollWithStats } from '../src/lib/poll';
 
 // The shared row layout: identity and badges on the left, the ballot total, the
@@ -134,5 +136,56 @@ describe('renderPollRow', () => {
 
     expect(markup).not.toContain('<script>');
     expect(markup).toContain('&lt;script&gt;');
+  });
+});
+
+const CHIP_LABELS = { all: 'All', more: 'More topics', fewer: 'Fewer topics' };
+
+function makeTopics(count: number): { slug: string; label: string; count: number }[] {
+  return Array.from({ length: count }, (_, index) => ({
+    slug: `topic-${index + 1}`,
+    label: `Topic ${index + 1}`,
+    count: index + 1
+  }));
+}
+
+describe('renderTopicChips', () => {
+  it('shows only the limit and hides the rest behind a toggle', () => {
+    const markup = renderTopicChips(makeTopics(8), 20, '', CHIP_LABELS);
+
+    expect(markup).toContain('data-topic-chips');
+    // "All" plus the first five topics are visible on load.
+    expect(markup.match(/data-route="\/topic\/topic-[1-5]"/g)).toHaveLength(TOPIC_CHIP_LIMIT);
+    // The remaining topics stay in the document but hidden.
+    expect(markup.match(/data-topic-extra/g)).toHaveLength(3);
+    expect(markup.match(/ hidden/g)).toHaveLength(3);
+    expect(markup).toContain('data-action="toggle-topics"');
+    expect(markup).toContain('aria-expanded="false"');
+    expect(markup).toContain('>More topics</button>');
+  });
+
+  it('omits the toggle when every topic already fits', () => {
+    const markup = renderTopicChips(makeTopics(TOPIC_CHIP_LIMIT), 5, '', CHIP_LABELS);
+
+    expect(markup).not.toContain('data-action="toggle-topics"');
+    expect(markup).not.toContain('data-topic-extra');
+    expect(markup.match(/data-route="\/topic\//g)).toHaveLength(TOPIC_CHIP_LIMIT);
+  });
+
+  it('keeps the filtered topic visible even when it sorts past the limit', () => {
+    const markup = renderTopicChips(makeTopics(8), 20, 'topic-7', CHIP_LABELS);
+
+    // Topics 1 to 7 are visible so the active chip is never hidden.
+    expect(markup.match(/data-topic-extra/g)).toHaveLength(1);
+    expect(markup).toMatch(/<a class="[^"]*border-primary bg-primary text-white[^"]*" href="\/topic\/topic-7"/);
+  });
+
+  it('marks the "All" chip active when no topic is filtered', () => {
+    const markup = renderTopicChips(makeTopics(3), 7, '', CHIP_LABELS);
+    expect(markup).toMatch(/<a class="[^"]*border-primary bg-primary text-white[^"]*" href="\/"/);
+  });
+
+  it('renders nothing when there are no topics', () => {
+    expect(renderTopicChips([], 0, '', CHIP_LABELS)).toBe('');
   });
 });
