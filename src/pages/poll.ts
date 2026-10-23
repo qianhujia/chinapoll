@@ -111,6 +111,50 @@ export function renderResults(results: PollResults): string {
   `;
 }
 
+// The poll description. It is clamped to two lines by default; when the text
+// overflows that clamp, `bindDescription` reveals a toggle that expands and
+// collapses it. The toggle is rendered hidden so a short description never
+// carries a pointless control.
+export function renderPollDescription(description: string): string {
+  return `
+            <div class="mt-3 grid gap-1" data-poll-description>
+              <p class="m-0 whitespace-pre-wrap text-ink line-clamp-2" data-description-text>${escapeHtml(description)}</p>
+              <button type="button" class="justify-self-start cursor-pointer bg-transparent p-0 text-sm text-primary" data-action="toggle-description" aria-expanded="false" data-expand-label="${escapeHtml(t('descriptionExpand'))}" data-collapse-label="${escapeHtml(t('descriptionCollapse'))}" hidden>${escapeHtml(t('descriptionExpand'))}</button>
+            </div>`;
+}
+
+// Reveals the description toggle only when the text overflows the two-line clamp,
+// then expands and collapses the text on click. The full height is measured with
+// the clamp removed, so a description that already fits stays fully visible and
+// keeps no toggle.
+export function bindDescription(app: HTMLElement): void {
+  const wrap = app.querySelector<HTMLElement>('[data-poll-description]');
+  const text = wrap?.querySelector<HTMLElement>('[data-description-text]');
+  const toggle = wrap?.querySelector<HTMLButtonElement>('[data-action="toggle-description"]');
+  if (!text || !toggle) return;
+
+  const clampedHeight = text.clientHeight;
+  text.classList.remove('line-clamp-2');
+  const fullHeight = text.scrollHeight;
+  text.classList.add('line-clamp-2');
+
+  // A description that already fits within two lines needs no toggle.
+  if (fullHeight <= clampedHeight + 1) {
+    text.classList.remove('line-clamp-2');
+    return;
+  }
+
+  toggle.hidden = false;
+  toggle.addEventListener('click', () => {
+    const expanded = toggle.getAttribute('aria-expanded') !== 'true';
+    toggle.setAttribute('aria-expanded', String(expanded));
+    toggle.textContent = expanded
+      ? (toggle.dataset.collapseLabel ?? '')
+      : (toggle.dataset.expandLabel ?? '');
+    text.classList.toggle('line-clamp-2', !expanded);
+  });
+}
+
 // The three-dot "more actions" menu at the top right of the poll title. It hosts
 // the report entry, which opens the report dialog. A browser that already
 // reported the poll sees the confirmation note in place of the entry.
@@ -320,7 +364,7 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
             ${renderPollMenu(alreadyReported)}
           </div>
 
-          ${poll.description ? `<p class="mt-3 mb-0 whitespace-pre-wrap text-muted">${escapeHtml(poll.description)}</p>` : ''}
+          ${poll.description ? renderPollDescription(poll.description) : ''}
 
           ${choiceInputs}
 
@@ -664,4 +708,5 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
     ?.addEventListener('click', () => { void openReportModal(); });
 
   bindNavigation();
+  bindDescription(app);
 }

@@ -198,6 +198,8 @@
   "categorySuggest": "Suggest category",
   "topicsExpand": "Show more",
   "topicsCollapse": "Collapse",
+  "descriptionExpand": "Read more",
+  "descriptionCollapse": "Show less",
   "moreActions": "More actions",
   "reportLink": "Report",
   "reportTitle": "Why are you reporting this poll?",

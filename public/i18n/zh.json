@@ -198,6 +198,8 @@
   "categorySuggest": "智能推荐分类",
   "topicsExpand": "展开更多",
   "topicsCollapse": "收起",
+  "descriptionExpand": "展开全文",
+  "descriptionCollapse": "收起",
   "moreActions": "更多操作",
   "reportLink": "举报",
   "reportTitle": "你为什么要举报此投票？",
