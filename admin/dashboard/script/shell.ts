@@ -6,7 +6,7 @@ export const scriptShell = `  // The Settings pages are listed under the Setting
     return '<div class="subnav">' + SETTINGS_CATEGORIES.map(function (category) {
       var active = state.settingsCategory === category.id ? ' active' : '';
       return '<a href="' + settingsPath(category.id) + '" data-action="settings-category" data-category="' + category.id + '" class="sub' + active + '">' +
-        esc(category.icon) + ' ' + esc(category.label) + '</a>';
+        esc(category.label) + '</a>';
     }).join('') + '</div>';
   }
 

@@ -3,17 +3,17 @@
 export const scriptCore = `  var app = document.getElementById('app');
 
   // The Settings view is split into one page per category, each with its own URL
-  // (\"/settings/<id>\"). The ids, labels, and icons mirror SETTING_CATEGORIES in
+  // (\"/settings/<id>\"). The ids and labels mirror SETTING_CATEGORIES in
   // shared/settings.ts; the settings API repeats the labels for the page headings.
   var SETTINGS_CATEGORIES = [
-    { id: 'general', label: 'General', icon: '🏠' },
-    { id: 'appearance', label: 'Appearance', icon: '🎨' },
-    { id: 'polls', label: 'Polls & Voting', icon: '📊' },
-    { id: 'auth', label: 'Authentication', icon: '🔐' },
-    { id: 'reports', label: 'Reports & Moderation', icon: '🚩' },
-    { id: 'ai', label: 'AI Features', icon: '🤖' },
-    { id: 'publishing', label: 'Audit Publishing', icon: '📤' },
-    { id: 'advanced', label: 'Advanced', icon: '⚙️' }
+    { id: 'general', label: 'General' },
+    { id: 'appearance', label: 'Appearance' },
+    { id: 'polls', label: 'Polls & Voting' },
+    { id: 'auth', label: 'Authentication' },
+    { id: 'reports', label: 'Reports & Moderation' },
+    { id: 'ai', label: 'AI Features' },
+    { id: 'publishing', label: 'Audit Publishing' },
+    { id: 'advanced', label: 'Advanced' }
   ];
   var DEFAULT_SETTINGS_CATEGORY = SETTINGS_CATEGORIES[0].id;
 

@@ -500,46 +500,38 @@ export const SETTING_SCHEMAS: SettingSchema[] = [
 ];
 
 // Category metadata for UI
-export const SETTING_CATEGORIES: Record<SettingCategory, { label: string; description: string; icon: string }> = {
+export const SETTING_CATEGORIES: Record<SettingCategory, { label: string; description: string }> = {
   general: {
     label: 'General',
     description: 'Basic site identity and defaults.',
-    icon: '🏠',
   },
   appearance: {
     label: 'Appearance',
     description: 'Logo, colors, hero section, and layout.',
-    icon: '🎨',
   },
   polls: {
     label: 'Polls & Voting',
     description: 'Poll display, voting limits, and submission rules.',
-    icon: '📊',
   },
   auth: {
     label: 'Authentication',
     description: 'Account creation, login security, and rate limits.',
-    icon: '🔐',
   },
   reports: {
     label: 'Reports & Moderation',
     description: 'Auto-hide thresholds and report rate limits.',
-    icon: '🚩',
   },
   ai: {
     label: 'AI Features',
     description: 'AI-powered categorization and assistance (requires Workers AI).',
-    icon: '🤖',
   },
   publishing: {
     label: 'Audit Publishing',
     description: 'GitHub-based audit log publishing configuration.',
-    icon: '📤',
   },
   advanced: {
     label: 'Advanced',
     description: 'Site-wide switches and advanced options.',
-    icon: '⚙️',
   },
 };
 

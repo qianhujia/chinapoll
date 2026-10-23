@@ -55,7 +55,6 @@ interface CategoryDetail {
   category: string;
   label: string;
   description: string;
-  icon: string;
   settings: SettingDetail[];
 }
 
@@ -123,7 +122,6 @@ async function listSettings(env: AdminEnv): Promise<Response> {
     category,
     label: SETTING_CATEGORIES[category].label,
     description: SETTING_CATEGORIES[category].description,
-    icon: SETTING_CATEGORIES[category].icon,
     settings: [],
   }));
 
