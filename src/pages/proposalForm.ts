@@ -408,7 +408,7 @@ export function bindProposalForm(app: HTMLElement, bindNavigation: () => void, a
         pollType,
         duration,
         options,
-        category: categorySelect?.value || undefined
+        topic: categorySelect?.value || undefined
       });
       showToast(result.status === 'open'
         ? `${t('proposalPublished')}: ${result.pollId}`

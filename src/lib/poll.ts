@@ -314,8 +314,8 @@ export async function submitProposal(payload: {
   pollType: PollType;
   duration: PollDuration;
   options: Array<{ position: number; label: string }>;
-  /** The slug the submitter chose; omitted when none was selected. */
-  category?: string;
+  /** The topic slug the submitter chose; omitted when none was selected. */
+  topic?: string;
 }): Promise<{ ok: boolean; message: string; pollId: number; status?: 'open' | 'pending' }> {
   return fetchJson('/api/proposal', {
     method: 'POST',
