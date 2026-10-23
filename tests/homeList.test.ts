@@ -139,7 +139,7 @@ describe('renderPollRow', () => {
   });
 });
 
-const CHIP_LABELS = { all: 'All', more: 'More topics', fewer: 'Fewer topics' };
+const CHIP_LABELS = { all: 'All', expand: 'Expand...', collapse: 'Collapse' };
 
 function makeTopics(count: number): { slug: string; label: string; count: number }[] {
   return Array.from({ length: count }, (_, index) => ({
@@ -161,7 +161,13 @@ describe('renderTopicChips', () => {
     expect(markup.match(/ hidden/g)).toHaveLength(3);
     expect(markup).toContain('data-action="toggle-topics"');
     expect(markup).toContain('aria-expanded="false"');
-    expect(markup).toContain('>More topics</button>');
+    expect(markup).toContain('>Expand...</button>');
+    // The toggle reads as text, not as another pill-shaped chip.
+    expect(markup).not.toMatch(/<button[^>]*rounded-full/);
+    expect(markup).toMatch(/<button[^>]*text-primary[^>]*>Expand\.\.\.<\/button>/);
+    // The label swap on expand is carried on the element itself.
+    expect(markup).toContain('data-expand-label="Expand..."');
+    expect(markup).toContain('data-collapse-label="Collapse"');
   });
 
   it('omits the toggle when every topic already fits', () => {

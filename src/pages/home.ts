@@ -54,8 +54,8 @@ export function renderPollRow({ poll, stats, views }: Awaited<ReturnType<typeof 
   `;
 }
 
-// Number of topic chips shown before the "More topics" toggle appears. The row
-// stays short so a long list of topics does not push the polls below the fold.
+// Number of topic chips shown before the expand toggle appears. The row stays
+// short so a long list of topics does not push the polls below the fold.
 export const TOPIC_CHIP_LIMIT = 5;
 
 export interface TopicChip {
@@ -66,8 +66,8 @@ export interface TopicChip {
 
 export interface TopicChipLabels {
   all: string;
-  more: string;
-  fewer: string;
+  expand: string;
+  collapse: string;
 }
 
 function topicChipClass(active: boolean, extra = false): string {
@@ -79,9 +79,9 @@ function topicChipClass(active: boolean, extra = false): string {
 }
 
 // The topic chip row. At most TOPIC_CHIP_LIMIT topics are shown; the rest stay
-// in the document but hidden until the "More topics" button reveals them. A topic
-// that is currently filtered in is always shown, even when it sorts past the
-// limit, so the active selection is never hidden.
+// in the document but hidden until the expand text reveals them. A topic that is
+// currently filtered in is always shown, even when it sorts past the limit, so
+// the active selection is never hidden.
 export function renderTopicChips(
   topics: ReadonlyArray<TopicChip>,
   total: number,
@@ -116,17 +116,19 @@ export function renderTopicChips(
     ))
   ].join('');
 
-  // No toggle when every topic already fits on the row.
+  // No toggle when every topic already fits on the row. The toggle is a real
+  // button so it stays keyboard- and screen-reader-operable, but it is styled as
+  // plain text rather than another chip.
   const toggle = extra.length === 0 ? '' : `
-          <button type="button" class="${topicChipClass(false)} cursor-pointer" data-action="toggle-topics" aria-expanded="false" data-more-label="${escapeHtml(labels.more)}" data-fewer-label="${escapeHtml(labels.fewer)}">${escapeHtml(labels.more)}</button>`;
+          <button type="button" class="cursor-pointer bg-transparent p-0 text-sm text-primary hover:underline" data-action="toggle-topics" aria-expanded="false" data-expand-label="${escapeHtml(labels.expand)}" data-collapse-label="${escapeHtml(labels.collapse)}">${escapeHtml(labels.expand)}</button>`;
 
   return `
         <nav class="flex flex-wrap items-center gap-2" data-topic-chips>${chips}${toggle}
         </nav>`;
 }
 
-// Wires the "More topics" toggle: it reveals the hidden chips and swaps its own
-// label and aria-expanded state.
+// Wires the expand toggle: it reveals the hidden chips and swaps its own label
+// and aria-expanded state.
 function bindTopicChips(app: HTMLElement): void {
   const toggle = app.querySelector<HTMLButtonElement>('[data-action="toggle-topics"]');
   if (!toggle) return;
@@ -135,8 +137,8 @@ function bindTopicChips(app: HTMLElement): void {
     const expanded = toggle.getAttribute('aria-expanded') !== 'true';
     toggle.setAttribute('aria-expanded', String(expanded));
     toggle.textContent = expanded
-      ? (toggle.dataset.fewerLabel ?? '')
-      : (toggle.dataset.moreLabel ?? '');
+      ? (toggle.dataset.collapseLabel ?? '')
+      : (toggle.dataset.expandLabel ?? '');
     app.querySelectorAll<HTMLElement>('[data-topic-extra]').forEach((chip) => {
       chip.classList.toggle('hidden', !expanded);
     });
@@ -206,7 +208,7 @@ export async function mountHome(app: HTMLElement, page: number, bindNavigation: 
     })),
     topics?.total ?? 0,
     categoryFilter,
-    { all: t('categoryAll'), more: t('moreTopics'), fewer: t('fewerTopics') }
+    { all: t('categoryAll'), expand: t('topicsExpand'), collapse: t('topicsCollapse') }
   );
 
   app.innerHTML = `
