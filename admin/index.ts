@@ -51,7 +51,17 @@ const DASHBOARD_PATHS = new Set([
   '/users',
   '/admins',
   '/audit',
-  '/settings'
+  '/settings',
+  // The settings section is one page per category. Every category has its own
+  // URL so the pages can be linked, bookmarked, and reloaded.
+  '/settings/general',
+  '/settings/appearance',
+  '/settings/polls',
+  '/settings/auth',
+  '/settings/reports',
+  '/settings/ai',
+  '/settings/publishing',
+  '/settings/advanced'
 ]);
 
 const htmlSecurityHeaders = (nonce: string): Record<string, string> => ({

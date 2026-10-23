@@ -7,7 +7,6 @@ import { logAudit } from '../lib/audit';
 import {
   SETTING_KEYS,
   SETTING_CATEGORIES_LIST,
-  SECRET_SETTING_KEYS,
   isSettingKey,
   validateSettingValue,
   maskSettingValue,
@@ -19,6 +18,7 @@ import {
   getSettingDefaultApi,
   isSettingPublicApi,
   isSettingSecretApi,
+  auditDetailsForSetting,
   type SettingKey,
 } from '../lib/settings';
 import {
@@ -202,7 +202,7 @@ async function bulkUpdateSettings(request: Request, env: AdminEnv, actor: AdminA
       await upsertSetting(env, key, validation.value);
       await logAudit(env, {
         actor, action: 'setting.update', targetType: 'setting', targetId: key,
-        details: SECRET_SETTING_KEYS.includes(key as SettingKey) ? { secret: true } : { value: validation.value }
+        details: auditDetailsForSetting(key, validation.value)
       });
       results.push({ key, ok: true, message: `Set ${key}.` });
     } catch (error) {
@@ -253,7 +253,7 @@ async function updateSetting(key: string, request: Request, env: AdminEnv, actor
 
   await logAudit(env, {
     actor, action: 'setting.update', targetType: 'setting', targetId: key,
-    details: SECRET_SETTING_KEYS.includes(key as SettingKey) ? { secret: true } : { value: validation.value }
+    details: auditDetailsForSetting(key, validation.value)
   });
 
   return Response.json({

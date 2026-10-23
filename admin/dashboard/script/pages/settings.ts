@@ -1,6 +1,14 @@
-// Settings page: edit and initialize application settings with categorized tabs.
+// Settings pages: one page per settings category.
+//
+// Every category has its own URL ("/settings/<category>") and its own sidebar
+// sub-item (see core.ts and shell.ts), so this fragment renders exactly one
+// category per page and reloads that page after a save.
 
-export const scriptSettings = `  var CATEGORY_ORDER = ['general', 'appearance', 'polls', 'auth', 'reports', 'ai', 'publishing', 'advanced'];
+export const scriptSettings = `  var SETTINGS_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/svg+xml', 'image/webp', 'image/x-icon', 'image/vnd.microsoft.icon'];
+  var SETTINGS_IMAGE_ACCEPT = SETTINGS_IMAGE_TYPES.join(',');
+  // Image settings are stored as base64 data URIs in the settings table. A D1 row
+  // is capped at 2 MB, so a file is limited to 700 KB (about 950 KB once encoded).
+  var SETTINGS_IMAGE_MAX_BYTES = 700 * 1024;
 
   function settingRow(item) {
     var type = item.isSecret ? 'password' : (item.type === 'boolean' ? 'checkbox' : (item.type === 'enum' ? 'select' : (item.type === 'image_base64' ? 'file' : 'text')));
@@ -16,11 +24,11 @@ export const scriptSettings = `  var CATEGORY_ORDER = ['general', 'appearance', 
     } else if (item.type === 'enum') {
       inputHtml = '<select id="setting-' + esc(item.key) + '" data-key="' + esc(item.key) + '">' + enumOptions + '</select>';
     } else if (item.type === 'image_base64') {
-      var previewHtml = value ? '<img src="' + esc(value) + '" alt="preview" style="max-height:60px;margin-top:4px">' : '';
+      var previewHtml = value ? '<img src="' + esc(value) + '" alt="preview" class="image-preview">' : '';
       var fileInputId = 'setting-' + esc(item.key) + '-file';
       var hiddenInputId = 'setting-' + esc(item.key);
       inputHtml = '<div class="file-upload">' +
-        '<input type="file" id="' + fileInputId + '" data-key="' + esc(item.key) + '" accept="image/png,image/jpeg,image/svg+xml,image/webp,image/x-icon">' +
+        '<input type="file" id="' + fileInputId + '" data-key="' + esc(item.key) + '" accept="' + SETTINGS_IMAGE_ACCEPT + '">' +
         '<input type="hidden" id="' + hiddenInputId + '" data-key="' + esc(item.key) + '" value="' + esc(value) + '">' +
         '<div class="file-preview" data-key="' + esc(item.key) + '">' + previewHtml + '</div>' +
         (value ? '<button type="button" class="secondary" data-action="clear-image" data-key="' + esc(item.key) + '">Remove</button>' : '') +
@@ -34,24 +42,19 @@ export const scriptSettings = `  var CATEGORY_ORDER = ['general', 'appearance', 
     metaParts.push('default: ' + esc(item.defaultValue));
     if (item.min !== undefined && item.max !== undefined) metaParts.push('range: ' + item.min + '–' + item.max);
 
+    // The label points at the file picker for images and at the control itself
+    // otherwise, so clicking it always focuses what it names.
+    var labelTarget = item.type === 'image_base64'
+      ? 'setting-' + esc(item.key) + '-file'
+      : 'setting-' + esc(item.key);
+
     return '<div class="setting-row" data-key="' + esc(item.key) + '">' +
-      '<div><label for="setting-' + esc(item.key) + '-file">' + esc(item.label) + '</label>' +
+      '<div><label for="' + labelTarget + '">' + esc(item.label) + '</label>' +
       '<div class="meta">' + metaParts.join(' · ') + '</div>' +
       (item.description ? '<div class="small muted desc">' + esc(item.description) + '</div>' : '') +
       '</div>' +
       '<div>' + inputHtml + '</div>' +
       '<div class="setting-status" data-status-key="' + esc(item.key) + '">' + (item.isSet ? ('last updated ' + esc(formatDate(item.updatedAt))) : '') + '</div>' +
-      '</div>';
-  }
-
-  function renderCategoryTab(category) {
-    var settings = state.settings.categories.find(function (c) { return c.category === category; });
-    if (!settings || settings.settings.length === 0) return '';
-    var rows = settings.settings.map(settingRow).join('');
-    var isActive = state.settings.activeTab === category ? ' active' : '';
-    return '<div class="tab-panel' + isActive + '" data-tab="' + esc(category) + '">' +
-      '<div class="setting-list">' + rows + '</div>' +
-      '<div class="toolbar"><button class="primary" data-action="save-settings-category" data-category="' + esc(category) + '">Save ' + esc(settings.label) + '</button></div>' +
       '</div>';
   }
 
@@ -63,58 +66,47 @@ export const scriptSettings = `  var CATEGORY_ORDER = ['general', 'appearance', 
       return;
     }
 
-    var tabs = CATEGORY_ORDER.map(function (cat) {
-      var catData = data.categories.find(function (c) { return c.category === cat; });
-      if (!catData || catData.settings.length === 0) return '';
-      var isActive = data.activeTab === cat ? ' active' : '';
-      return '<button class="tab' + isActive + '" data-action="switch-tab" data-tab="' + esc(cat) + '">' + esc(catData.icon + ' ' + catData.label) + '</button>';
-    }).join('');
+    var category = state.settingsCategory || DEFAULT_SETTINGS_CATEGORY;
+    var catData = data.categories.find(function (c) { return c.category === category; });
+    if (!catData) {
+      view.innerHTML = '<section class="card"><h2>Settings</h2><div class="empty">Unknown settings category.</div></section>';
+      return;
+    }
 
-    var panels = CATEGORY_ORDER.map(renderCategoryTab).join('');
+    var rows = catData.settings.length
+      ? '<div class="setting-list">' + catData.settings.map(settingRow).join('') + '</div>'
+      : '<div class="empty">No settings in this category.</div>';
 
-    view.innerHTML =
-      '<section class="card">' +
-        '<h2>Settings</h2>' +
-        '<p class="small muted">Values are validated with the same rules the public Worker API enforces.</p>' +
-        '<div class="tab-bar">' + tabs + '</div>' +
-        panels +
-      '</section>' +
-      '<section class="card mt-18"><h2>Public audit repository</h2>' +
-      '<p class="small muted">When publishing is on, the hourly maintenance run copies the signed snapshot chain to a GitHub repository in one commit per hour. The token is stored as a secret and is never returned or logged.</p>' +
-      '<div class="toolbar">' +
-      '<button data-action="publish-test">Test connection</button>' +
-      '<button class="primary" data-action="publish-run">Publish now</button>' +
-      '</div>' +
-      renderPublishSection(data) +
-      '</section>' +
-      '<section class="card mt-18"><h2>Poll topics</h2>' +
-      '<p class="small muted">Topics order the public home page chip row and the submit form dropdown. Add and edit them in the Topics tab, or start from the suggested set.</p>' +
-      '<div class="toolbar"><button data-action="insert-suggested-topics">Insert suggested topics</button></div>' +
+    var html = '<section class="card">' +
+      '<h2>' + esc(catData.label) + '</h2>' +
+      (catData.description ? '<p class="small muted">' + esc(catData.description) + '</p>' : '') +
+      '<p class="small muted">Values are validated with the same rules the public Worker API enforces.</p>' +
+      rows +
+      '<div class="toolbar mt-12"><button class="primary" data-action="save-settings-category" data-category="' + esc(category) + '">Save ' + esc(catData.label) + '</button></div>' +
       '</section>';
-  }
 
-  function renderPublishSection(data) {
-    var pubSettings = data.settings.filter(function (item) {
-      return ['publish_enable', 'publish_repository', 'publish_branch', 'publish_path', 'github_token'].indexOf(item.key) !== -1;
-    });
-    return pubSettings.map(settingRow).join('');
+    // The publish actions belong to the audit publishing settings, so they live on
+    // that page rather than in a section of their own.
+    if (category === 'publishing') {
+      html += '<section class="card mt-18"><h2>Publish now</h2>' +
+        '<p class="small muted">The hourly maintenance run copies the signed snapshot chain to the configured GitHub repository, one commit per hour. The token is stored as a secret and is never returned or logged.</p>' +
+        '<div class="toolbar">' +
+        '<button data-action="publish-test">Test connection</button>' +
+        '<button class="primary" data-action="publish-run">Publish now</button>' +
+        '</div></section>';
+    }
+
+    view.innerHTML = html;
   }
 
   function loadSettings() {
     return api('/api/admin/settings').then(function (data) {
-      if (!data.activeTab) data.activeTab = 'general';
       state.settings = data;
       if (state.view === 'settings') renderSettings();
     });
   }
 
   function handleSettingsAction(action, target) {
-    if (action === 'switch-tab') {
-      var tab = target.getAttribute('data-tab');
-      state.settings.activeTab = tab;
-      renderSettings();
-      return true;
-    }
     if (action === 'save-settings-category') {
       var category = target.getAttribute('data-category');
       return saveCategory(category, target);
@@ -150,24 +142,17 @@ export const scriptSettings = `  var CATEGORY_ORDER = ['general', 'appearance', 
       }).then(function () { target.disabled = false; }));
       return true;
     }
-    if (action === 'insert-suggested-topics') {
-      if (!window.confirm('Insert the suggested topics (politics, economy, education, environment, health, technology, culture, society, other)?')) return true;
-      target.disabled = true;
-      guard(api('/api/admin/topics/suggested', { method: 'POST' }).then(function (result) {
-        toast(result.message);
-        state.topics = null;
-      }).then(function () { target.disabled = false; }));
-      return true;
-    }
     return false;
   }
 
   function saveCategory(category, button) {
-    var panel = document.querySelector('.tab-panel[data-tab="' + esc(category) + '"]');
-    if (!panel) return true;
+    var view = document.getElementById('view');
+    if (!view) return true;
 
-    // Get all inputs except file inputs (hidden inputs for images store the base64)
-    var inputs = panel.querySelectorAll('[data-key]:not([type="file"])');
+    // Only form controls are collected. The image preview container and the
+    // Remove button carry a data-key too, and reading a value from them would
+    // drop the base64 held by the hidden input next to the file picker.
+    var inputs = view.querySelectorAll('input[data-key]:not([type="file"]), select[data-key], textarea[data-key]');
     var updates = {};
     inputs.forEach(function (input) {
       var key = input.getAttribute('data-key');
@@ -253,14 +238,13 @@ export const scriptSettings = `  var CATEGORY_ORDER = ['general', 'appearance', 
     var file = input.files[0];
     if (!file) return;
 
-    var allowedTypes = ['image/png', 'image/jpeg', 'image/svg+xml', 'image/webp', 'image/x-icon'];
-    if (!allowedTypes.includes(file.type)) {
+    if (SETTINGS_IMAGE_TYPES.indexOf(file.type) === -1) {
       toast('File type not allowed. Use PNG, JPEG, SVG, WebP, or ICO.', true);
       input.value = '';
       return;
     }
-    if (file.size > 5 * 1024 * 1024) {
-      toast('File too large. Maximum size is 5MB.', true);
+    if (file.size > SETTINGS_IMAGE_MAX_BYTES) {
+      toast('File too large. Maximum size is 700 KB.', true);
       input.value = '';
       return;
     }

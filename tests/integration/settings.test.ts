@@ -55,6 +55,20 @@ describe('public settings: Turnstile', () => {
     expect(JSON.stringify(settings)).not.toContain(SECRET_KEY);
   });
 
+  // The logo and favicon are stored as base64 data URIs and must reach the public
+  // site through the same endpoint the SPA and the server-rendered pages use.
+  it('serves the configured logo and favicon to the public site', async () => {
+    const logo = 'data:image/png;base64,iVBORw0KGgo=';
+    await env.DB.batch([
+      env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('logo', ?)").bind(logo),
+      env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('favicon', '')")
+    ]);
+
+    const settings = await (await SELF.fetch(`${ORIGIN}/api/settings/public`)).json() as Record<string, unknown>;
+    expect(settings.logo).toBe(logo);
+    expect(settings.favicon).toBe('');
+  });
+
   it('ignores legacy Turnstile rows left in the settings table', async () => {
     await env.DB.batch([
       env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('turnstile_enable', 'true')"),

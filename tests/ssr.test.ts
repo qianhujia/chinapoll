@@ -133,6 +133,20 @@ describe('server-side poll page', () => {
   });
 });
 
+describe('server-side header', () => {
+  it('renders the wordmark when no logo is configured', () => {
+    const html = renderAboutBody(settings);
+    expect(html).toContain('text-3xl font-extrabold');
+    expect(html).not.toContain('<img class="h-9 w-auto"');
+  });
+
+  it('renders the configured logo instead of the wordmark', () => {
+    const html = renderAboutBody({ ...settings, logo: 'data:image/png;base64,iVBORw0KGgo=' });
+    expect(html).toContain('<img class="h-9 w-auto" src="data:image/png;base64,iVBORw0KGgo=" alt="ChinaPoll">');
+    expect(html).not.toContain('text-3xl font-extrabold');
+  });
+});
+
 describe('server-side about page', () => {
   it('renders the about copy', () => {
     const html = renderAboutBody(settings);

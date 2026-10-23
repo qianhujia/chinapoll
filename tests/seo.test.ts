@@ -49,6 +49,17 @@ describe('buildMetaTags', () => {
     );
     expect(tags).not.toContain('</script><script>alert(1)');
   });
+
+  it('inlines the admin-configured favicon when one is set', () => {
+    const favicon = 'data:image/x-icon;base64,AAABAAEA';
+    const tags = buildMetaTags(getHomeSeoContext(settings, ORIGIN), { ...settings, favicon }, ORIGIN);
+    expect(tags).toContain(`<link rel="icon" href="${favicon}" />`);
+  });
+
+  it('omits the favicon link when none is configured', () => {
+    const tags = buildMetaTags(getHomeSeoContext(settings, ORIGIN), settings, ORIGIN);
+    expect(tags).not.toContain('rel="icon"');
+  });
 });
 
 describe('structured data', () => {

@@ -84,11 +84,43 @@ export function getSiteName(): string {
   return getPublicSettings().site_name || t('appName');
 }
 
+// The admin-configured header logo as a base64 data URI, or an empty string when
+// none is set.
+export function getSiteLogo(): string {
+  return getPublicSettings().logo;
+}
+
+// Applies the admin-configured favicon to the document. Without one the document
+// shell keeps whatever icon the browser requests by default.
+export function applyFavicon(): void {
+  const favicon = getPublicSettings().favicon;
+  if (!favicon) return;
+  let link = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
+  if (!link) {
+    link = document.createElement('link');
+    link.rel = 'icon';
+    document.head.appendChild(link);
+  }
+  const mediaTypeEnd = favicon.indexOf(';');
+  if (favicon.startsWith('data:') && mediaTypeEnd > 5) {
+    link.type = favicon.slice(5, mediaTypeEnd);
+  }
+  link.href = favicon;
+}
+
 export function renderHeader(activeRoute: string): string {
+  const siteName = escapeHtml(getSiteName());
+  const logo = getSiteLogo();
+  // A configured logo replaces the wordmark; without one the site name is shown
+  // as text, so the header never renders empty.
+  const brand = logo
+    ? `<img class="h-9 w-auto" src="${escapeHtml(logo)}" alt="${siteName}">`
+    : `<span class="text-3xl font-extrabold leading-none text-primary">${siteName}</span>`;
+
   return `
     <header class="flex items-center justify-between gap-4 py-4 pb-5 max-[700px]:flex-wrap max-[700px]:gap-3">
       <div class="flex flex-wrap items-center gap-x-7 gap-y-2 max-[700px]:gap-x-5">
-        <a class="text-3xl font-extrabold leading-none text-primary" href="/" data-route="/" aria-label="${escapeHtml(t('homeLinkLabel'))}">${escapeHtml(getSiteName())}</a>
+        <a class="flex items-center" href="/" data-route="/" aria-label="${siteName}">${brand}</a>
         <nav class="flex flex-wrap items-center gap-[18px]">
           ${getNavigationMarkup(activeRoute)}
           ${renderHeaderSearch()}

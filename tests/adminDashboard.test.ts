@@ -26,4 +26,31 @@ describe('admin dashboard script', () => {
     expect(dashboardScript).toContain("'/api/admin/topics/suggested'");
     expect(dashboardScript).not.toContain('/api/admin/categories');
   });
+
+  // The fragments are concatenated into a single inline script, so a stray
+  // backtick or brace in any fragment would break every dashboard page. Parsing
+  // the assembled script here catches that without a browser.
+  it('assembles into syntactically valid JavaScript', () => {
+    expect(() => new Function(dashboardScript)).not.toThrow();
+  });
+
+  // Settings is split into pages, one per category, each linked from its own
+  // sidebar sub-item instead of a tab bar.
+  it('gives every settings category its own sub-page', () => {
+    expect(dashboardScript).toContain('function navigateToSettingsCategory(category)');
+    expect(dashboardScript).toContain('data-action="settings-category"');
+    expect(dashboardScript).toContain("return '/settings/' + category;");
+    for (const category of ['general', 'appearance', 'polls', 'auth', 'reports', 'ai', 'publishing', 'advanced']) {
+      expect(dashboardScript).toContain("id: '" + category + "'");
+    }
+    expect(dashboardScript).not.toContain('switch-tab');
+  });
+
+  // The logo and favicon pickers store a base64 data URI in a hidden input, so
+  // the bulk save must ignore the preview container and the Remove button.
+  it('saves only form controls when a settings page is submitted', () => {
+    expect(dashboardScript).toContain(
+      "view.querySelectorAll('input[data-key]:not([type=\"file\"]), select[data-key], textarea[data-key]')"
+    );
+  });
 });

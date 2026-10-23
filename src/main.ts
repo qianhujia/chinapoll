@@ -8,7 +8,7 @@ import { mountVotePage } from './pages/poll';
 import { getPublicSettings, loadPublicSettings } from './config';
 import { loadSession } from './lib/session';
 import { bindHeaderSearch, setSearchNavigator } from './search';
-import { getErrorMessage, getQueryPage, getSiteName } from './ui';
+import { applyFavicon, getErrorMessage, getQueryPage, getSiteName } from './ui';
 import { updateSeo, getSeoForRoute } from './seo';
 
 const app = document.querySelector<HTMLElement>('#app');
@@ -130,6 +130,7 @@ async function start(): Promise<void> {
     setDefaultLocale(settings.default_locale);
     document.documentElement.lang = DEFAULT_LOCALE;
     document.documentElement.style.setProperty('--page-width', `${getPublicSettings().page_max_width_px}px`);
+    applyFavicon();
     await loadTranslations(DEFAULT_LOCALE);
     await loadSession();
     setSearchNavigator(navigateTo);

@@ -20,6 +20,10 @@ label{display:block;color:var(--muted);font-size:13px;margin-bottom:4px;}
 .sidebar .nav a{display:block;text-align:left;text-decoration:none;color:var(--text);background:transparent;border:1px solid transparent;border-radius:8px;padding:9px 12px;}
 .sidebar .nav a:hover{background:var(--panel-2);}
 .sidebar .nav a.active{background:var(--accent);border-color:var(--accent);color:#fff;}
+.sidebar .nav .subnav{display:flex;flex-direction:column;gap:2px;margin:2px 0 4px 12px;padding-left:8px;border-left:1px solid var(--border);}
+.sidebar .nav .subnav a.sub{padding:5px 10px;font-size:13px;color:var(--muted);}
+.sidebar .nav .subnav a.sub:hover{color:var(--text);background:var(--panel-2);}
+.sidebar .nav .subnav a.sub.active{background:var(--panel-2);border-color:var(--border);color:#fff;}
 .sidebar .footer{display:flex;flex-direction:column;gap:8px;border-top:1px solid var(--border);padding-top:12px;}
 .sidebar .who{color:var(--muted);font-size:13px;padding:0 8px;word-break:break-word;}
 .content{flex:1;min-width:0;}
@@ -72,4 +76,4 @@ tr:hover td{background:rgba(255,255,255,.02);}
 .card-link{text-decoration:none;color:inherit;}
 .card-link.alert{border-color:var(--err);}
 .image-preview{max-height:60px;margin-top:4px;}
-@media(max-width:720px){.setting-row{grid-template-columns:1fr;}.layout{flex-direction:column;}.sidebar{width:auto;height:auto;position:static;flex-direction:row;flex-wrap:wrap;align-items:center;gap:8px;}.sidebar .brand{width:100%;margin-bottom:6px;}.sidebar .nav{flex-direction:row;flex-wrap:wrap;flex:0 0 auto;width:100%;}.sidebar .footer{border-top:none;padding-top:0;flex-direction:row;flex-wrap:wrap;width:100%;}.sidebar .who{width:100%;}}`;
+@media(max-width:720px){.setting-row{grid-template-columns:1fr;}.layout{flex-direction:column;}.sidebar{width:auto;height:auto;position:static;flex-direction:row;flex-wrap:wrap;align-items:center;gap:8px;}.sidebar .brand{width:100%;margin-bottom:6px;}.sidebar .nav{flex-direction:row;flex-wrap:wrap;flex:0 0 auto;width:100%;}.sidebar .nav .subnav{flex-direction:row;flex-wrap:wrap;margin:0;padding-left:0;border-left:none;width:100%;}.sidebar .footer{border-top:none;padding-top:0;flex-direction:row;flex-wrap:wrap;width:100%;}.sidebar .who{width:100%;}}`;

@@ -23,6 +23,8 @@ export interface PublicSettingsSeo {
   site_name: string;
   site_slogan: string;
   default_locale: string;
+  /** Optional base64 data URI of the configured favicon. */
+  favicon?: string;
 }
 
 const DEFAULT_SEO: SeoContext = {
@@ -75,6 +77,12 @@ export function buildMetaTags(seo: SeoContext, settings: PublicSettingsSeo, orig
     `<link rel="canonical" href="${canonical}" />`,
     `<meta name="robots" content="${seo.robots ?? 'index, follow'}" />`
   ];
+
+  // The favicon is admin-controlled and stored as a data URI, so the document
+  // ships it inline. Without one the browser requests the site default.
+  if (settings.favicon) {
+    tags.push(`<link rel="icon" href="${escapeHtml(settings.favicon)}" />`);
+  }
 
   for (const document of toJsonLdList(seo.jsonLd)) {
     tags.push(`<script type="application/ld+json">${serializeJsonLd(document)}</script>`);

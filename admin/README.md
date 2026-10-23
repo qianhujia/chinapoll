@@ -116,7 +116,7 @@ login endpoint) or an `Authorization: Bearer <session-token>` header.
 | `GET` | `/users` | Users dashboard HTML |
 | `GET` | `/admins` | Admins dashboard HTML |
 | `GET` | `/audit` | Audit log dashboard HTML (super admins only) |
-| `GET` | `/settings` | Settings dashboard HTML |
+| `GET` | `/settings`, `/settings/<category>` | Settings dashboard HTML, one page per category (`general`, `appearance`, `polls`, `auth`, `reports`, `ai`, `publishing`, `advanced`) |
 | `GET` | `/api/health` | Heartbeat |
 | `GET` | `/api/admin/session` | Session state, setup flag, Turnstile config |
 | `POST` | `/api/admin/session` | Login with `{ username, password, turnstileToken? }` |
@@ -163,6 +163,32 @@ forward buttons. The Worker serves the same dashboard HTML for each of these
 paths; any view that a visitor is not allowed to open (for example `/audit` for a
 regular admin) or is not signed in for falls back to the overview or the login
 screen. Paths outside this set return `404`.
+
+Settings is split into one page per category. The sidebar lists them as
+sub-items under **Settings** while that section is open, and each page has its own
+URL (`/settings/general`, `/settings/appearance`, `/settings/polls`,
+`/settings/auth`, `/settings/reports`, `/settings/ai`, `/settings/publishing`,
+`/settings/advanced`). The bare `/settings` path resolves to General. A save
+button applies to the whole page, and the page is reloaded from the API
+afterwards.
+
+### Branding
+
+The **Appearance** page holds two image settings:
+
+| Setting | Meaning |
+| --- | --- |
+| `logo` | Header logo. A set logo replaces the site-name wordmark in the header on every public page. |
+| `favicon` | Browser tab icon. |
+
+Both accept PNG, JPEG, SVG, WebP, or ICO files up to 700 KB and are stored as
+base64 data URIs in the `settings` table (a D1 row is capped at 2 MB, so larger
+files are rejected by the validator). The picker previews the file immediately
+and shows a **Remove** button that clears the setting; saving writes the value
+through the same validation the public Worker applies. Both values are public
+settings: they are served by `/api/settings/public` and embedded in the
+server-rendered pages. Image values are recorded in the audit log as a size
+summary rather than the payload.
 
 ## Audit log
 
@@ -227,9 +253,9 @@ put it behind Cloudflare Access or another access control layer in production.
 
 ## Public audit repository
 
-The Settings tab has a **Public audit repository** card that controls the Worker
-publisher, which copies the signed snapshot chain to a GitHub data repository
-once an hour. It has four fields plus a secret:
+The **Audit Publishing** settings page controls the Worker publisher, which
+copies the signed snapshot chain to a GitHub data repository once an hour. It has
+four fields plus a secret:
 
 | Setting | Meaning |
 | --- | --- |

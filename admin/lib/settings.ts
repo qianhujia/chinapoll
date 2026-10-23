@@ -2,7 +2,6 @@
 // Uses the shared settings schema from shared/settings.ts as the single source of truth.
 
 import {
-  SETTING_SCHEMAS,
   SETTING_CATEGORIES,
   getSettingSchema,
   getSettingsByCategory,
@@ -10,6 +9,8 @@ import {
   getSettingDefault as getSharedSettingDefault,
   isSettingPublic,
   isSettingSecret,
+  IMAGE_DATA_URI_PATTERN,
+  IMAGE_DATA_URI_MAX_CHARS,
   type SettingSchema,
   type SettingCategory,
 } from '../../shared/settings';
@@ -19,10 +20,6 @@ export type SettingKey = string;
 export const SETTING_KEYS = getAllSettingKeys();
 
 export const SETTING_CATEGORIES_LIST = Object.keys(SETTING_CATEGORIES) as SettingCategory[];
-
-export const SECRET_SETTING_KEYS: ReadonlyArray<SettingKey> = SETTING_SCHEMAS
-  .filter((s) => s.secret)
-  .map((s) => s.key);
 
 export type SettingValidationResult =
   | { ok: true; value: string }
@@ -111,8 +108,11 @@ export function validateSettingValue(key: string, value: string): SettingValidat
     }
     case 'image_base64': {
       // Validate base64 image data (allow empty for removal)
-      if (value && !/^data:image\/(png|jpeg|svg\+xml|webp|x-icon);base64,/.test(value)) {
+      if (!IMAGE_DATA_URI_PATTERN.test(value)) {
         return { ok: false, error: `${schema.label} must be a valid base64 data URI (data:image/...;base64,...) or empty.` };
+      }
+      if (value.length > IMAGE_DATA_URI_MAX_CHARS) {
+        return { ok: false, error: `${schema.label} must not exceed ${IMAGE_DATA_URI_MAX_CHARS} characters once encoded.` };
       }
       return { ok: true, value };
     }
@@ -127,6 +127,15 @@ export function validateSettingValue(key: string, value: string): SettingValidat
       return { ok: true, value };
     }
   }
+}
+
+// Audit details for a settings change. The audit log must stay readable and
+// small, so a secret is only flagged and an image setting is recorded as a
+// summary instead of the whole base64 payload.
+export function auditDetailsForSetting(key: string, value: string): Record<string, unknown> {
+  if (isSettingSecret(key)) return { secret: true };
+  if (getSettingSchema(key)?.type === 'image_base64') return { image: true, bytes: value.length };
+  return { value };
 }
 
 export function maskSettingValue(key: string, value: string | null): string | null {

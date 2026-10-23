@@ -3,6 +3,7 @@
 
 import { isTurnstileEnabled, turnstileSiteKey, type TurnstileEnv } from '../services/turnstile';
 import { apiError } from '../../shared/http';
+import { IMAGE_DATA_URI_PATTERN, IMAGE_DATA_URI_MAX_CHARS } from '../../shared/settings';
 
 interface SettingRow {
   key: string;
@@ -25,6 +26,11 @@ export const DEFAULT_PUBLIC_SETTINGS = {
   site_name: 'ChinaPoll',
   site_slogan: 'Public opinion made visible',
   data_repository_url: 'https://github.com/qianhujia/chinapoll-data',
+  // Branding images, stored as base64 data URIs so the public site renders them
+  // without a separate asset pipeline. Empty falls back to the site wordmark and
+  // the default browser favicon request.
+  logo: '',
+  favicon: '',
   polls_per_page: 15,
   comments_per_page: 30,
   page_max_width_px: 960,
@@ -144,6 +150,16 @@ export async function loadPublicSettings(db: D1Database): Promise<PublicSettings
       case 'data_repository_url':
         if (value && !isHttpsUrl(value)) invalid(row.key, 'must be an HTTPS URL or empty');
         settings.data_repository_url = value;
+        break;
+      case 'logo':
+      case 'favicon':
+        if (value && !IMAGE_DATA_URI_PATTERN.test(value)) {
+          invalid(row.key, 'must be a base64 image data URI (data:image/...;base64,...) or empty');
+        }
+        if (value.length > IMAGE_DATA_URI_MAX_CHARS) {
+          invalid(row.key, `must not exceed ${IMAGE_DATA_URI_MAX_CHARS} characters once encoded`);
+        }
+        (settings as Record<string, unknown>)[row.key] = value;
         break;
       case 'polls_per_page':
       case 'comments_per_page':

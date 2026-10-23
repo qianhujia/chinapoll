@@ -288,8 +288,10 @@ The admin tools are packaged as a standalone Cloudflare Worker that shares the
 main application's D1 database. It serves a browser dashboard plus a JSON API for
 reviewing submissions, adjusting polls, reviewing poll reports, moderating comments, managing admin
 users, managing public accounts, reviewing an audit log, and updating settings. Each dashboard view has a
-dedicated URL (`/polls`, `/reports`, `/comments`, `/users`, `/admins`, `/audit`, `/settings`, and
-`/overview`). See `admin/README.md` for the full endpoint reference.
+dedicated URL (`/polls`, `/reports`, `/comments`, `/users`, `/admins`, `/audit`, and
+`/overview`); settings is split into one page per category (`/settings/general`,
+`/settings/appearance`, and so on, listed as sidebar sub-items). See `admin/README.md` for the full
+endpoint reference.
 
 ```bash
 cp admin/.dev.vars.example admin/.dev.vars        # optional local secrets

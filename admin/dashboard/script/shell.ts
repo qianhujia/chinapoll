@@ -1,12 +1,24 @@
 // Dashboard shell, navigation, and event wiring.
 
-export const scriptShell = `  function renderShell() {
+export const scriptShell = `  // The Settings pages are listed under the Settings link while that section is
+  // open, so every category is one click away.
+  function renderSettingsSubNav() {
+    return '<div class="subnav">' + SETTINGS_CATEGORIES.map(function (category) {
+      var active = state.settingsCategory === category.id ? ' active' : '';
+      return '<a href="' + settingsPath(category.id) + '" data-action="settings-category" data-category="' + category.id + '" class="sub' + active + '">' +
+        esc(category.icon) + ' ' + esc(category.label) + '</a>';
+    }).join('') + '</div>';
+  }
+
+  function renderShell() {
     var items = ['overview', 'polls', 'topics', 'reports', 'comments', 'users', 'admins'];
     if (isSuperAdmin()) items.push('audit');
     items.push('settings');
     var nav = items.map(function (item) {
-      return '<a href="' + pathForView(item) + '" data-action="tab" data-view="' + item + '" class="' + (state.view === item ? 'active' : '') + '">' +
+      var link = '<a href="' + pathForView(item) + '" data-action="tab" data-view="' + item + '" class="' + (state.view === item ? 'active' : '') + '">' +
         item.charAt(0).toUpperCase() + item.slice(1) + '</a>';
+      if (item !== 'settings' || state.view !== 'settings') return link;
+      return link + renderSettingsSubNav();
     }).join('');
     var who = state.user
       ? esc(state.user.username) + ' · ' + esc(state.user.role === 'super_admin' ? 'super admin' : 'admin')
@@ -25,6 +37,7 @@ export const scriptShell = `  function renderShell() {
       '</div>';
   }
 
+  // Loads the data for the active view; showView renders it.
   function loadCurrent() {
     if (state.view === 'overview') return loadOverview();
     if (state.view === 'polls') return loadPolls();
@@ -58,6 +71,11 @@ export const scriptShell = `  function renderShell() {
     if (action === 'tab') {
       event.preventDefault();
       navigateToView(target.getAttribute('data-view'));
+      return;
+    }
+    if (action === 'settings-category') {
+      event.preventDefault();
+      navigateToSettingsCategory(target.getAttribute('data-category'));
       return;
     }
     if (action === 'refresh') {
@@ -112,7 +130,7 @@ export const scriptShell = `  function renderShell() {
         return;
       }
 
-      state.view = allowedView(viewFromPath(window.location.pathname));
+      applyLocation(window.location.pathname);
       // Normalize aliases and disallowed paths (for example "/index.html" or
       // "/audit" for a regular admin) to the canonical URL for the resolved view.
       window.history.replaceState({}, '', pathForView(state.view));
@@ -131,7 +149,7 @@ export const scriptShell = `  function renderShell() {
   // stay put until the user signs in.
   window.addEventListener('popstate', function () {
     if (!state.user) return;
-    state.view = allowedView(viewFromPath(window.location.pathname));
+    applyLocation(window.location.pathname);
     showResolvedView();
   });
 

@@ -44,6 +44,15 @@ export interface SettingSchema {
   public?: boolean;
 }
 
+// Image settings are stored in the settings table as base64 data URIs. Two rules
+// are shared by the admin validator and the public settings loader: which image
+// media types are accepted, and how long the encoded string may be. A D1 row is
+// capped at 2 MB, so the cap stays well below that.
+export const IMAGE_DATA_URI_PATTERN =
+  /^data:image\/(png|jpeg|svg\+xml|webp|x-icon|vnd\.microsoft\.icon|ico);base64,/;
+
+export const IMAGE_DATA_URI_MAX_CHARS = 1_000_000;
+
 export const SETTING_SCHEMAS: SettingSchema[] = [
   // General
   {

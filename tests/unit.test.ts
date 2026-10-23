@@ -10,6 +10,8 @@ import { deriveKey, fromHex, hmacSha256Hex } from '../shared/crypto';
 import { checkAccountAge, validateUserPassword } from '../worker/services/users';
 import { enforceSameOrigin } from '../worker/services/csrf';
 import { validateProposal } from '../worker/api/proposal';
+import { validateSettingValue } from '../admin/lib/settings';
+import { IMAGE_DATA_URI_MAX_CHARS } from '../shared/settings';
 import { validatePollOptions } from '../worker/services/pollType';
 import {
   toPublicResults,
@@ -676,6 +678,35 @@ describe('session timestamps', () => {
     expect(expiresAt - createdAt).toBeLessThan(SESSION_TTL_SECONDS + 3600);
     // The single-session policy drops the admin's other sessions in the same batch.
     expect(recorded.some((entry) => entry.sql.includes('DELETE FROM admin_sessions WHERE admin_user_id = ?'))).toBe(true);
+  });
+});
+
+// The logo and favicon are stored as base64 data URIs in a TEXT column, so the
+// validator accepts only the image media types the picker offers and caps the
+// encoded length below the D1 row limit.
+describe('image settings', () => {
+  it('accepts a base64 image data URI', () => {
+    expect(validateSettingValue('logo', 'data:image/png;base64,iVBORw0KGgo='))
+      .toEqual({ ok: true, value: 'data:image/png;base64,iVBORw0KGgo=' });
+  });
+
+  it('accepts an empty value so an image can be removed', () => {
+    expect(validateSettingValue('favicon', '')).toEqual({ ok: true, value: '' });
+  });
+
+  it('accepts the icon media types browsers report for .ico files', () => {
+    expect(validateSettingValue('favicon', 'data:image/x-icon;base64,AA').ok).toBe(true);
+    expect(validateSettingValue('favicon', 'data:image/vnd.microsoft.icon;base64,AA').ok).toBe(true);
+  });
+
+  it('rejects a data URI that is not an image', () => {
+    expect(validateSettingValue('logo', 'data:text/html;base64,PHNjcmlwdD4=').ok).toBe(false);
+    expect(validateSettingValue('logo', 'https://example.com/logo.png').ok).toBe(false);
+  });
+
+  it('rejects an encoded payload that would not fit a settings row', () => {
+    const oversized = 'data:image/png;base64,' + 'A'.repeat(IMAGE_DATA_URI_MAX_CHARS);
+    expect(validateSettingValue('logo', oversized).ok).toBe(false);
   });
 });
 

@@ -40,6 +40,7 @@ export const scriptTopics = `  function topicOptions(selectedId) {
       '<input id="new-topic-name" class="grow" placeholder="Name">' +
       '<input id="new-topic-description" class="grow" placeholder="Description (optional)" maxlength="500">' +
       '<button data-action="create-topic" class="primary">Add topic</button>' +
+      '<button data-action="insert-suggested-topics">Insert suggested topics</button>' +
       '</div>' +
       '<table><thead><tr><th>ID</th><th>Name</th><th>Description</th><th>Slug</th><th>Polls</th><th>Enabled</th><th>Position</th><th></th></tr></thead>' +
       '<tbody>' + rows + '</tbody></table></section>';
@@ -102,6 +103,15 @@ export const scriptTopics = `  function topicOptions(selectedId) {
           toast(result.message);
           return loadTopics();
         }));
+      return true;
+    }
+    if (action === 'insert-suggested-topics') {
+      if (!window.confirm('Insert the suggested topics (politics, economy, education, environment, health, technology, culture, society, other)?')) return true;
+      target.disabled = true;
+      guard(api('/api/admin/topics/suggested', { method: 'POST' }).then(function (result) {
+        toast(result.message);
+        return loadTopics();
+      }).then(function () { target.disabled = false; }));
       return true;
     }
     return false;

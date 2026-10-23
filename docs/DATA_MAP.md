@@ -192,6 +192,9 @@ Key/value configuration. The `github_token` secret is read
 by the Workers only and are stripped from the public endpoint. The publish
 settings (`publish_enable`, `publish_repository`, `publish_branch`,
 `publish_path`) are private too: they are never served by the public endpoint.
+The `logo` and `favicon` values hold base64 image data URIs and are public: they
+are served by `/api/settings/public` and embedded in the server-rendered pages,
+so every visitor can read them.
 
 ## stats_snapshots
 

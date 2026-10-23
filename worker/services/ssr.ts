@@ -64,6 +64,8 @@ export interface SsrSettings {
   hero_subtitle: string;
   data_repository_url: string;
   polls_per_page: number;
+  /** Optional base64 data URI of the configured header logo. */
+  logo?: string;
 }
 
 export interface SsrTopic {
@@ -137,9 +139,15 @@ function renderHeader(settings: SsrSettings, t: Translate, activeRoute: string):
   const nav = links.map(({ route, label }) => `
           <a class="py-1 text-muted no-underline hover:text-primary ${activeRoute === route ? 'font-bold text-primary' : ''}" href="${route}" data-route="${route}">${escapeHtml(label)}</a>`).join('');
 
+  // A configured logo replaces the wordmark; without one the site name is shown
+  // as text, so the header never renders empty.
+  const brand = settings.logo
+    ? `<img class="h-9 w-auto" src="${escapeHtml(settings.logo)}" alt="${escapeHtml(settings.site_name)}">`
+    : `<span class="text-3xl font-extrabold leading-none text-primary">${escapeHtml(settings.site_name)}</span>`;
+
   return `    <header class="flex items-center justify-between gap-4 py-4 pb-5 max-[700px]:flex-wrap max-[700px]:gap-3">
       <div class="flex flex-wrap items-center gap-x-7 gap-y-2 max-[700px]:gap-x-5">
-        <a class="text-3xl font-extrabold leading-none text-primary" href="/" data-route="/" aria-label="${escapeHtml(t('homeLinkLabel'))}">${escapeHtml(settings.site_name)}</a>
+        <a class="flex items-center" href="/" data-route="/" aria-label="${escapeHtml(t('homeLinkLabel'))}">${brand}</a>
         <nav class="flex flex-wrap items-center gap-x-6 gap-y-2 max-[700px]:gap-x-5" aria-label="${escapeHtml(t('home'))}">${nav}
         </nav>
       </div>
