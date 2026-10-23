@@ -4,13 +4,12 @@
 // URI produced by an upload (see shared/settings.ts). A pasted URL is used by the
 // pages directly, so this endpoint only answers for uploaded bytes: it decodes the
 // data URI and returns the image. The public settings resolve an uploaded image to
-// `/branding/<key>?v=<updated_at>`, so replacing an image produces a new URL and a
-// stale copy is never served. `/favicon.ico` is answered too, for agents that
-// request the icon path instead of reading the document's `<link rel="icon">`.
+// `/image/<key>.<extension>?v=<updated_at>`, so replacing an image produces a new
+// URL and a stale copy is never served. `/favicon.ico` is answered too, for agents
+// that request the icon path instead of reading the document's
+// `<link rel="icon">`.
 
 export type BrandingKey = 'logo' | 'favicon';
-
-const BRANDING_KEYS: readonly BrandingKey[] = ['logo', 'favicon'];
 
 // Headers for a branding response. The Worker's wrapper normally forces
 // `no-store` on every response; these bytes are versioned by the URL instead, so
@@ -42,12 +41,20 @@ interface CachedImage {
 const IMAGE_TTL_MS = 30_000;
 const imageCache = new Map<BrandingKey, CachedImage>();
 
+// An uploaded image is addressed as /image/<key>.<extension>. The extension is
+// cosmetic: the stored row decides the content type that is returned, so a wrong
+// extension is answered rather than rejected and an image replaced with another
+// format keeps working until its versioned URL is regenerated.
+const IMAGE_PATH_PATTERN = /^\/image\/(logo|favicon)(?:\.[a-z0-9]+)?$/;
+
 // The branding key a request path names, or null for any other path. Also used by
 // the request router to keep these responses out of the `no-store` wrapper.
+// `/favicon.ico` is answered as well, for agents that request the conventional
+// icon path instead of reading the document's `<link rel="icon">`.
 export function brandingKeyFromPath(pathname: string): BrandingKey | null {
-  if (pathname === '/branding/logo') return 'logo';
-  if (pathname === '/branding/favicon' || pathname === '/favicon.ico') return 'favicon';
-  return null;
+  if (pathname === '/favicon.ico') return 'favicon';
+  const match = pathname.match(IMAGE_PATH_PATTERN);
+  return match ? (match[1] as BrandingKey) : null;
 }
 
 // Decodes `data:image/<type>;base64,<payload>`. Returns null for anything else,

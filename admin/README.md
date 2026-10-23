@@ -194,14 +194,15 @@ public site uses:
 - **Upload** a PNG, JPEG, SVG, WebP, or ICO file (up to 700 KB). The file is
   stored in the `settings` table as a base64 data URI — a D1 row is capped at
   2 MB, so larger files are rejected by the validator — and the public Worker
-  serves it from `/branding/logo` or `/branding/favicon`.
+  serves it from `/image/logo.<extension>` or `/image/favicon.<extension>`, where
+  the extension comes from the uploaded file (`png`, `jpg`, `svg`, `webp`, `ico`).
 - **Or paste an image URL.** The value must be `https:` and is stored as it is;
   the public pages reference it directly.
 - **Remove** clears the setting.
 
 The URL line under the preview shows the resolved image URL, marked *uploaded*
-(the branding endpoint, with a `?v=<updated_at>` query that makes a replaced
-image a new URL) or *external URL* (the pasted one), and can be opened or copied.
+(`/image/logo.png?v=<updated_at>`, where the version query makes a replaced image
+a new URL) or *external URL* (the pasted one), and can be opened or copied.
 A row with an uploaded image seeds the URL field empty, because the data URI is
 not something to edit by hand; typing in the field replaces the upload, and
 choosing a file clears the field. The field carries the value that a save stores,

@@ -195,7 +195,7 @@ settings (`publish_enable`, `publish_repository`, `publish_branch`,
 The `logo` and `favicon` values hold either an `https` image URL or, for an
 upload from the admin dashboard, a base64 image data URI. Both are public, but
 the payload is not: `/api/settings/public` returns the URL the pages should
-use — `/branding/<key>?v=<updated_at>` for an upload, which the Worker serves
+use — `/image/<key>.<extension>?v=<updated_at>` for an upload, which the Worker serves
 from the settings row, or the pasted URL as it is. A visitor can therefore fetch
 the image and read the URL, and nothing else about the row.
 

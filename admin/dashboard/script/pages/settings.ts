@@ -11,9 +11,27 @@ export const scriptSettings = `  var SETTINGS_IMAGE_TYPES = ['image/png', 'image
   // encoded). A pasted https URL is stored as it is.
   var SETTINGS_IMAGE_MAX_BYTES = 700 * 1024;
 
-  // The public URL of a saved image: an uploaded image is served by the branding
-  // endpoint, a pasted URL is used as-is. The version query matches the one the
-  // public site uses, so a copied link always fetches the current image.
+  // The extension an uploaded image's public URL uses, mirroring IMAGE_EXTENSIONS in
+  // shared/settings.ts so the URL shown here is the one the site serves.
+  var SETTINGS_IMAGE_EXTENSIONS = {
+    'image/png': 'png',
+    'image/jpeg': 'jpg',
+    'image/svg+xml': 'svg',
+    'image/webp': 'webp',
+    'image/x-icon': 'ico',
+    'image/vnd.microsoft.icon': 'ico',
+    'image/ico': 'ico'
+  };
+
+  function imageExtension(value) {
+    var separator = value.indexOf(';');
+    var type = separator > 5 ? value.slice(5, separator).toLowerCase() : '';
+    return SETTINGS_IMAGE_EXTENSIONS[type] || 'img';
+  }
+
+  // The public URL of a saved image: an uploaded image is served by the site as
+  // /image/<key>.<extension>, a pasted URL is used as-is. The version query matches
+  // the one the public site uses, so a copied link fetches the current image.
   function imagePublicUrl(item) {
     var value = item.value || '';
     if (!value) return '';
@@ -23,7 +41,7 @@ export const scriptSettings = `  var SETTINGS_IMAGE_TYPES = ['image/png', 'image
       var seconds = Math.floor(new Date(item.updatedAt).getTime() / 1000);
       if (!isNaN(seconds)) version = '?v=' + seconds;
     }
-    return (state.publicSiteOrigin || '') + '/branding/' + item.key + version;
+    return (state.publicSiteOrigin || '') + '/image/' + item.key + '.' + imageExtension(value) + version;
   }
 
   function imageUrlLine(url, source) {
@@ -59,7 +77,7 @@ export const scriptSettings = `  var SETTINGS_IMAGE_TYPES = ['image/png', 'image
     }
     var uploaded = value.indexOf('data:') === 0;
     display.innerHTML = imageUrlLine(
-      uploaded ? (state.publicSiteOrigin || '') + '/branding/' + key : value,
+      uploaded ? (state.publicSiteOrigin || '') + '/image/' + key + '.' + imageExtension(value) : value,
       uploaded ? 'uploaded' : 'external URL'
     );
   }

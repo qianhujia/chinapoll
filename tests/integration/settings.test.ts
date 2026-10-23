@@ -59,16 +59,16 @@ describe('public settings: Turnstile', () => {
   // as a short versioned URL served by the branding endpoint, so the payload never
   // travels in the settings document. Versioning by update time keeps a replaced
   // image out of an immutable browser cache.
-  it('serves an uploaded logo from the branding endpoint', async () => {
+  it('serves an uploaded logo from the image endpoint', async () => {
     await env.DB.batch([
       env.DB.prepare("INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('logo', ?, 1700000000)")
         .bind('data:image/png;base64,AQIDBA==')
     ]);
 
     const settings = await (await SELF.fetch(`${ORIGIN}/api/settings/public`)).json() as Record<string, unknown>;
-    expect(settings.logo).toBe('/branding/logo?v=1700000000');
+    expect(settings.logo).toBe('/image/logo.png?v=1700000000');
 
-    const image = await SELF.fetch(`${ORIGIN}/branding/logo?v=1700000000`);
+    const image = await SELF.fetch(`${ORIGIN}/image/logo.png?v=1700000000`);
     expect(image.status).toBe(200);
     expect(image.headers.get('content-type')).toBe('image/png');
     // The response keeps its own cache headers instead of the Worker's no-store.

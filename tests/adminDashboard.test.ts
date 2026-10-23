@@ -101,7 +101,7 @@ describe('admin dashboard script', () => {
   // hidden input that the save action collects.
   it('lets an image be uploaded or given as a URL', () => {
     expect(dashboardScript).toContain('function imagePublicUrl(item)');
-    expect(dashboardScript).toContain("'/branding/' + item.key");
+    expect(dashboardScript).toContain("'/image/' + item.key + '.' + imageExtension(value)");
     expect(dashboardScript).toContain('data-image-url-display');
     expect(dashboardScript).toContain('data-image-url-for');
     // The pasted-URL field deliberately carries no data-key, so the bulk save

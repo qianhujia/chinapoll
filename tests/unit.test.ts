@@ -11,7 +11,7 @@ import { checkAccountAge, validateUserPassword } from '../worker/services/users'
 import { enforceSameOrigin } from '../worker/services/csrf';
 import { validateProposal } from '../worker/api/proposal';
 import { validateSettingValue } from '../admin/lib/settings';
-import { IMAGE_DATA_URI_MAX_CHARS } from '../shared/settings';
+import { IMAGE_DATA_URI_MAX_CHARS, imageDataUriExtension } from '../shared/settings';
 import { validatePollOptions } from '../worker/services/pollType';
 import {
   toPublicResults,
@@ -713,6 +713,19 @@ describe('image settings', () => {
   it('rejects an encoded payload that would not fit a settings row', () => {
     const oversized = 'data:image/png;base64,' + 'A'.repeat(IMAGE_DATA_URI_MAX_CHARS);
     expect(validateSettingValue('logo', oversized).ok).toBe(false);
+  });
+
+  // The public URL of an upload is /image/<key>.<extension>?v=<updated_at>, so the
+  // extension has to come from the stored media type.
+  it('names the uploaded media type in the public URL', () => {
+    expect(imageDataUriExtension('data:image/png;base64,AA')).toBe('png');
+    expect(imageDataUriExtension('data:image/jpeg;base64,AA')).toBe('jpg');
+    expect(imageDataUriExtension('data:image/svg+xml;base64,AA')).toBe('svg');
+    expect(imageDataUriExtension('data:image/webp;base64,AA')).toBe('webp');
+    expect(imageDataUriExtension('data:image/x-icon;base64,AA')).toBe('ico');
+    expect(imageDataUriExtension('data:image/vnd.microsoft.icon;base64,AA')).toBe('ico');
+    // An unexpected type still resolves; the response carries the real type.
+    expect(imageDataUriExtension('data:image/tiff;base64,AA')).toBe('img');
   });
 });
 

@@ -51,7 +51,8 @@ export interface SettingSchema {
 //   1. an empty string, meaning "no image configured",
 //   2. an https URL the admin pasted, which the public pages use as-is, or
 //   3. a base64 data URI produced by an upload, which the public Worker serves
-//      from /branding/<key> so pages reference a short URL instead of the payload.
+//      from /image/<key>.<extension> so pages reference a short URL instead of
+//      the payload.
 //
 // An uploaded payload is stored in the settings table, so its encoded length is
 // capped well below the 2 MB D1 row limit. The accepted media types and the cap
@@ -60,6 +61,26 @@ export const IMAGE_DATA_URI_PATTERN =
   /^data:image\/(png|jpeg|svg\+xml|webp|x-icon|vnd\.microsoft\.icon|ico);base64,/;
 
 export const IMAGE_DATA_URI_MAX_CHARS = 1_000_000;
+
+// The file extension the public URL of an uploaded image uses. The extension is
+// decorative: the response always carries the stored image's content type, so an
+// unknown type still resolves, it just cannot name itself in the URL.
+const IMAGE_EXTENSIONS: Record<string, string> = {
+  'image/png': 'png',
+  'image/jpeg': 'jpg',
+  'image/svg+xml': 'svg',
+  'image/webp': 'webp',
+  'image/x-icon': 'ico',
+  'image/vnd.microsoft.icon': 'ico',
+  'image/ico': 'ico'
+};
+
+// The extension for an uploaded image value, e.g. "png" for
+// "data:image/png;base64,...". Falls back to "img" (see the note above).
+export function imageDataUriExtension(value: string): string {
+  const match = value.match(/^data:([\w.+-]+\/[\w.+-]+);base64,/);
+  return match ? IMAGE_EXTENSIONS[match[1].toLowerCase()] ?? 'img' : 'img';
+}
 
 // Why an image setting value was rejected, or null when it is valid. The wording
 // finishes the sentence "<label> <requirement>" in the admin validator and
@@ -139,7 +160,7 @@ export const SETTING_SCHEMAS: SettingSchema[] = [
     type: 'image',
     category: 'appearance',
     label: 'Logo',
-    description: 'Logo shown in the header on every public page. Upload an image file (PNG, SVG, WebP) or paste an https image URL. An upload is stored in the database and served from /branding/logo.',
+    description: 'Logo shown in the header on every public page. Upload an image file (PNG, SVG, WebP) or paste an https image URL. An upload is stored in the database and served from /image/logo.<extension>.',
     defaultValue: '',
     required: false,
     public: true,
@@ -149,7 +170,7 @@ export const SETTING_SCHEMAS: SettingSchema[] = [
     type: 'image',
     category: 'appearance',
     label: 'Favicon',
-    description: 'Favicon shown in browser tabs. Upload an image file (ICO, PNG, SVG) or paste an https image URL. An upload is stored in the database and served from /branding/favicon.',
+    description: 'Favicon shown in browser tabs. Upload an image file (ICO, PNG, SVG) or paste an https image URL. An upload is stored in the database and served from /image/favicon.<extension>.',
     defaultValue: '',
     required: false,
     public: true,

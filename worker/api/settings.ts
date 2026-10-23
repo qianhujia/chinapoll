@@ -3,7 +3,7 @@
 
 import { isTurnstileEnabled, turnstileSiteKey, type TurnstileEnv } from '../services/turnstile';
 import { apiError } from '../../shared/http';
-import { imageSettingError } from '../../shared/settings';
+import { imageDataUriExtension, imageSettingError } from '../../shared/settings';
 
 interface SettingRow {
   key: string;
@@ -121,12 +121,13 @@ function isHttpsUrl(value: string): boolean {
   }
 }
 // A branding value as the public pages use it. An uploaded image is served by the
-// branding endpoint, versioned with the row's update time so a replaced image is a
-// new URL; a pasted https URL is used as-is.
+// image endpoint as /image/<key>.<extension>, versioned with the row's update time
+// so a replaced image is a new URL; a pasted https URL is used as-is.
 function resolveBrandingValue(key: string, value: string, updatedAt: number | null): string {
   if (!value) return '';
   if (!value.startsWith('data:')) return value;
-  return updatedAt ? `/branding/${key}?v=${updatedAt}` : `/branding/${key}`;
+  const version = updatedAt ? `?v=${updatedAt}` : '';
+  return `/image/${key}.${imageDataUriExtension(value)}${version}`;
 }
 
 // Loads and validates every public setting in one pass. Missing rows keep their
