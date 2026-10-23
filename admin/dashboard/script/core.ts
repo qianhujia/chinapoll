@@ -39,6 +39,8 @@ export const scriptCore = `  var app = document.getElementById('app');
     pollQuery: '',
     // Poll ids whose option editor is expanded in the Polls tab.
     expandedPolls: [],
+    // Poll ids whose title editor is open in the Polls tab.
+    titleEdits: [],
     reportStatus: 'open',
     commentQuery: '',
     commentPollId: '',

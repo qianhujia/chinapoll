@@ -75,6 +75,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
 .w-80{width:80px;}
 .min-w-150{min-width:150px;}
 .min-w-160{min-width:160px;}
+.title-editor{margin-top:8px;}
 .row-priority{box-shadow:inset 3px 0 0 var(--err);}
 .card-link{text-decoration:none;color:inherit;}
 .card-link.alert{border-color:var(--err);}

@@ -32,6 +32,15 @@ export const scriptPolls = `  function statusOptions(selected, includeAll, inclu
       '<span class="small muted">Editable while the poll is pending with no ballots. The count column is read-only.</span></div></div>';
   }
 
+  // The title may be corrected at any time, including after a poll is published,
+  // so the editor is not gated on the poll status. Every change is audited.
+  function titleEditor(item) {
+    return '<div class="title-editor" data-title-editor="' + esc(item.id) + '">' +
+      '<input data-title-input value="' + esc(item.title || '') + '" maxlength="200">' +
+      '<div class="toolbar"><button class="primary" data-action="save-poll-title" data-id="' + esc(item.id) + '">Save title</button>' +
+      '<span class="small muted">Editable at any time, including after publishing. The change is written to the audit log.</span></div></div>';
+  }
+
   function topicOptions(selectedId) {
     var items = state.topics ? state.topics.topics : [];
     return items.map(function (item) {
@@ -61,13 +70,18 @@ export const scriptPolls = `  function statusOptions(selected, includeAll, inclu
           var topicSelect = '<select class="poll-topic-select" data-action="poll-topic" data-id="' + item.id + '">' +
             '<option value="">(no topic)</option>' + topicOptions(item.topicId) + '</select>';
           var expanded = state.expandedPolls.indexOf(item.id) !== -1;
+          var titleEditing = state.titleEdits.indexOf(item.id) !== -1;
+          var hasOptions = item.options && item.options.length > 0;
           var titleCell = '<strong>' + esc(item.title || '(no title)') + '</strong>' +
-            '<div class="small muted">' + esc(item.mode) + ' · ' + esc(item.pollType) + '</div>' + optionSummary(item);
-          if (item.options && item.options.length > 0) {
-            titleCell += '<div class="small"><button data-action="toggle-poll-options" data-id="' + esc(item.id) + '">' +
-              (expanded ? 'Hide options' : 'Show options') + '</button></div>';
-            if (expanded) titleCell += optionEditor(item);
-          }
+            '<div class="small muted">' + esc(item.mode) + ' · ' + esc(item.pollType) + '</div>' + optionSummary(item) +
+            '<div class="small">' +
+            '<button data-action="toggle-poll-title" data-id="' + esc(item.id) + '">' +
+            (titleEditing ? 'Close title editor' : 'Edit title') + '</button>' +
+            (hasOptions ? ' <button data-action="toggle-poll-options" data-id="' + esc(item.id) + '">' +
+              (expanded ? 'Hide options' : 'Show options') + '</button>' : '') +
+            '</div>';
+          if (titleEditing) titleCell += titleEditor(item);
+          if (hasOptions && expanded) titleCell += optionEditor(item);
           return '<tr><td>' + esc(item.id) + '</td>' +
             '<td>' + titleCell + '</td>' +
             '<td><span class="badge ' + esc(item.status) + '">' + esc(item.status) + '</span></td>' +
@@ -124,6 +138,28 @@ export const scriptPolls = `  function statusOptions(selected, includeAll, inclu
     }).then(function () { target.disabled = false; }));
   }
 
+  // Sends the title change and refreshes the listing. The title is editable even
+  // after the poll is published, so no status check gates it.
+  function savePollTitle(id, target) {
+    var editor = document.querySelector('[data-title-editor="' + id + '"]');
+    if (!editor) return;
+    var input = editor.querySelector('[data-title-input]');
+    if (!input) return;
+    var title = input.value.trim();
+    if (!title) {
+      toast('A poll needs a title.', true);
+      return;
+    }
+    target.disabled = true;
+    guard(api('/api/admin/polls/' + id + '/title', {
+      method: 'PUT',
+      body: JSON.stringify({ title: title })
+    }).then(function (result) {
+      toast(result.message);
+      return loadPolls();
+    }).then(function () { target.disabled = false; }));
+  }
+
   function handlePollsAction(action, target) {
     if (action === 'search-polls') {
       state.pollQuery = document.getElementById('poll-query').value.trim();
@@ -146,6 +182,18 @@ export const scriptPolls = `  function statusOptions(selected, includeAll, inclu
       if (at === -1) state.expandedPolls.push(toggleId);
       else state.expandedPolls.splice(at, 1);
       renderPolls();
+      return true;
+    }
+    if (action === 'toggle-poll-title') {
+      var titleId = Number(target.getAttribute('data-id'));
+      var titleAt = state.titleEdits.indexOf(titleId);
+      if (titleAt === -1) state.titleEdits.push(titleId);
+      else state.titleEdits.splice(titleAt, 1);
+      renderPolls();
+      return true;
+    }
+    if (action === 'save-poll-title') {
+      savePollTitle(target.getAttribute('data-id'), target);
       return true;
     }
     if (action === 'save-poll-options') {

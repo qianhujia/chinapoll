@@ -18,6 +18,8 @@ import {
 
 const MAX_PAGE_SIZE = 100;
 const MAX_QUERY_LENGTH = 100;
+// Mirrors the public proposal rule (worker/api/proposal.ts).
+const MAX_TITLE_LENGTH = 200;
 
 interface AdminPollRow {
   id: number;
@@ -69,6 +71,15 @@ export async function handlePollsRequest(request: Request, url: URL, env: AdminE
       return Response.json({ message: 'method not allowed' }, { status: 405 });
     }
     return updatePollOptions(Number(optionsMatch[1]), request, env, actor);
+  }
+
+  // The title may be corrected at any time, including after a poll is published.
+  const titleMatch = url.pathname.match(/^\/api\/admin\/polls\/(\d+)\/title$/);
+  if (titleMatch) {
+    if (request.method !== 'PUT') {
+      return Response.json({ message: 'method not allowed' }, { status: 405 });
+    }
+    return updatePollTitle(Number(titleMatch[1]), request, env, actor);
   }
 
   if (url.pathname !== '/api/admin/polls') {
@@ -250,6 +261,64 @@ async function updatePollTopic(
     pollId,
     topic: topicId === null || slug === null ? null : { id: topicId, slug },
     message: slug ? `Set topic to "${slug}" for poll ${pollId}.` : `Cleared the topic for poll ${pollId}.`
+  });
+}
+
+// Sets a poll's title. Unlike the option labels, the title can be corrected at
+// any time, including after the poll has been published, and every change is
+// written to the audit log with the previous value.
+async function updatePollTitle(
+  pollId: number,
+  request: Request,
+  env: AdminEnv,
+  actor: AdminActor
+): Promise<Response> {
+  if (!Number.isSafeInteger(pollId) || pollId < 1) {
+    return Response.json({ message: 'invalid poll ID' }, { status: 400 });
+  }
+
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return Response.json({ message: 'invalid JSON' }, { status: 400 });
+  }
+  const payload = typeof body === 'object' && body !== null ? body as Record<string, unknown> : {};
+
+  const title = typeof payload.title === 'string' ? payload.title.trim() : '';
+  if (!title || title.length > MAX_TITLE_LENGTH) {
+    return Response.json({ message: `title must be 1 to ${MAX_TITLE_LENGTH} characters` }, { status: 400 });
+  }
+
+  const poll = await env.DB.prepare('SELECT id, title FROM polls WHERE id = ?')
+    .bind(pollId).first<{ id: number; title: string | null }>();
+  if (!poll) {
+    return Response.json({ message: `poll ${pollId} was not found` }, { status: 404 });
+  }
+
+  // An unchanged title is not written, so the audit log only records real edits.
+  if ((poll.title ?? '') === title) {
+    return Response.json({
+      ok: true,
+      pollId,
+      title,
+      message: `Poll ${pollId} already has this title.`
+    });
+  }
+
+  await env.DB.prepare('UPDATE polls SET title = ?, updated_at = unixepoch() WHERE id = ?')
+    .bind(title, pollId).run();
+
+  await logAudit(env, {
+    actor, action: 'poll.title', targetType: 'poll', targetId: pollId,
+    details: { previous: poll.title ?? null, title }
+  });
+
+  return Response.json({
+    ok: true,
+    pollId,
+    title,
+    message: `Updated the title of poll ${pollId}.`
   });
 }
 
