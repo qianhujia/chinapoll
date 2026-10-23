@@ -1,5 +1,19 @@
 import { describe, expect, it } from 'vitest';
 import { dashboardScript } from '../admin/dashboard/script';
+import { renderDashboard } from '../admin/ui';
+
+// The root menu items, in sidebar order. Each one carries a Lucide icon.
+const ROOT_VIEWS = [
+  'overview',
+  'polls',
+  'topics',
+  'reports',
+  'comments',
+  'users',
+  'admins',
+  'audit',
+  'settings'
+];
 
 // The dashboard was renamed from categories to topics. These assertions keep the
 // shell, the router, and the settings page wired to the topics view so a sign-in
@@ -27,11 +41,39 @@ describe('admin dashboard script', () => {
     expect(dashboardScript).not.toContain('/api/admin/categories');
   });
 
-  // The fragments are concatenated into a single inline script, so a stray
-  // backtick or brace in any fragment would break every dashboard page. Parsing
-  // the assembled script here catches that without a browser.
+  // The icon map and the fragments are concatenated into a single inline script,
+  // so a stray backtick or brace (in a fragment or in the serialized icon markup)
+  // would break every dashboard page. Parsing the assembled script catches that
+  // without a browser.
   it('assembles into syntactically valid JavaScript', () => {
-    expect(() => new Function(dashboardScript)).not.toThrow();
+    const html = renderDashboard('test-nonce');
+    const start = html.indexOf('(function () {');
+    // The IIFE that wraps the whole script is closed by the last occurrence.
+    const end = html.lastIndexOf('})();');
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+
+    const inlineScript = html.slice(start, end + '})();'.length);
+    expect(() => new Function(inlineScript)).not.toThrow();
+  });
+
+  // Emojis were replaced by real icon shapes: one Lucide SVG per root menu item,
+  // injected into the embedded script as a JSON encoded string map.
+  it('gives every root menu item a Lucide SVG icon', () => {
+    const html = renderDashboard('test-nonce');
+    expect(html).toContain('var NAV_ICONS = {');
+    for (const view of ROOT_VIEWS) {
+      expect(html).toContain(`"${view}": "<svg class=`);
+    }
+    expect(dashboardScript).toContain("(NAV_ICONS[item] || '')");
+  });
+
+  // The icon markup is serialized as JSON, so a stray closing script tag or quote
+  // in an icon can never terminate the embedded script element.
+  it('keeps the icon markup inside the script element', () => {
+    const html = renderDashboard('test-nonce');
+    const scriptBody = html.slice(html.indexOf('<script nonce='));
+    expect(scriptBody.slice(0, scriptBody.indexOf('</script>'))).not.toContain('<svg class="nav-icon"');
   });
 
   // Settings is split into pages, one per category, each linked from its own

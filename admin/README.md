@@ -26,6 +26,7 @@ an audit log, and update application settings.
 | `lib/audit.ts` | Audit log writer (never records client IPs) |
 | `lib/settings.ts` | Setting validation shared by the dashboard API |
 | `ui.ts` | Dashboard HTML shell (embedded styles and assembled client script) |
+| `dashboard/icons.ts` | Lucide SVG markup for the sidebar's root menu items, rendered Worker-side and injected into the embedded script |
 | `dashboard/styles.ts` | Embedded dashboard CSS |
 | `dashboard/script/*` | Client script fragments: `script/index.ts` assembles `core`, `auth`, `shell`, and one module per page under `script/pages/` |
 | `wrangler.toml` | Worker configuration and shared D1 binding |
@@ -163,6 +164,12 @@ forward buttons. The Worker serves the same dashboard HTML for each of these
 paths; any view that a visitor is not allowed to open (for example `/audit` for a
 regular admin) or is not signed in for falls back to the overview or the login
 screen. Paths outside this set return `404`.
+
+Each root menu item carries a Lucide icon shape. The markup is rendered by the
+Worker (`dashboard/icons.ts`) and injected into the embedded script as a string
+map, so the dashboard stays one self-contained document with no build step and no
+runtime dependency. Colors come from `currentColor`, so an icon follows its
+link's normal, hover, and active states.
 
 Settings is split into one page per category. The sidebar lists them as
 sub-items under **Settings** while that section is open, and each page has its own

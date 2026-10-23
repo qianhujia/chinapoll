@@ -8,6 +8,7 @@
 // avoid clashing with these server-side template strings.
 
 import { dashboardStyles } from './dashboard/styles';
+import { dashboardNavIconsScript } from './dashboard/icons';
 import { dashboardScript } from './dashboard/script';
 
 export function renderDashboard(nonce: string, turnstileEnabled = false): string {
@@ -29,7 +30,7 @@ ${turnstileEnabled ? '<script src="https://challenges.cloudflare.com/turnstile/v
 <script nonce="${nonce}">
 (function () {
   'use strict';
-${dashboardScript}
+${dashboardNavIconsScript}${dashboardScript}
 })();
 </script>
 </body>

@@ -16,7 +16,8 @@ export const scriptShell = `  // The Settings pages are listed under the Setting
     items.push('settings');
     var nav = items.map(function (item) {
       var link = '<a href="' + pathForView(item) + '" data-action="tab" data-view="' + item + '" class="' + (state.view === item ? 'active' : '') + '">' +
-        item.charAt(0).toUpperCase() + item.slice(1) + '</a>';
+        (NAV_ICONS[item] || '') +
+        '<span>' + item.charAt(0).toUpperCase() + item.slice(1) + '</span></a>';
       if (item !== 'settings' || state.view !== 'settings') return link;
       return link + renderSettingsSubNav();
     }).join('');
