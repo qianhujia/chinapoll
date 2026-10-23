@@ -9,8 +9,7 @@ import {
   getSettingDefault as getSharedSettingDefault,
   isSettingPublic,
   isSettingSecret,
-  IMAGE_DATA_URI_PATTERN,
-  IMAGE_DATA_URI_MAX_CHARS,
+  imageSettingError,
   type SettingSchema,
   type SettingCategory,
 } from '../../shared/settings';
@@ -106,14 +105,11 @@ export function validateSettingValue(key: string, value: string): SettingValidat
       }
       return { ok: true, value };
     }
-    case 'image_base64': {
-      // Validate base64 image data (allow empty for removal)
-      if (!IMAGE_DATA_URI_PATTERN.test(value)) {
-        return { ok: false, error: `${schema.label} must be a valid base64 data URI (data:image/...;base64,...) or empty.` };
-      }
-      if (value.length > IMAGE_DATA_URI_MAX_CHARS) {
-        return { ok: false, error: `${schema.label} must not exceed ${IMAGE_DATA_URI_MAX_CHARS} characters once encoded.` };
-      }
+    case 'image': {
+      // An image is an uploaded base64 data URI or a pasted https URL. An empty
+      // value removes the image and returned earlier.
+      const error = imageSettingError(value);
+      if (error) return { ok: false, error: `${schema.label} ${error}.` };
       return { ok: true, value };
     }
     case 'string':
@@ -134,7 +130,7 @@ export function validateSettingValue(key: string, value: string): SettingValidat
 // summary instead of the whole base64 payload.
 export function auditDetailsForSetting(key: string, value: string): Record<string, unknown> {
   if (isSettingSecret(key)) return { secret: true };
-  if (getSettingSchema(key)?.type === 'image_base64') return { image: true, bytes: value.length };
+  if (getSettingSchema(key)?.type === 'image') return { image: true, bytes: value.length };
   return { value };
 }
 

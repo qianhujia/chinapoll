@@ -25,6 +25,7 @@ import {
 } from './api/settings';
 import { handleAuthRequest } from './api/auth';
 import { handleUserRequest } from './api/user';
+import { brandingKeyFromPath, handleBrandingRequest } from './api/branding';
 import { makeSnapshot } from './services/snapshot';
 import { runMaintenanceTasks } from './services/maintenance';
 import { publishHealth } from './services/publisher';
@@ -101,7 +102,9 @@ function buildSha(env: Env): string {
    "style-src 'self' 'unsafe-inline'",
    "connect-src 'self' https://challenges.cloudflare.com",
    "frame-src https://challenges.cloudflare.com",
-   "img-src 'self' data:",
+   // Images come from this origin, from an inline payload, or from the host of a
+   // logo or favicon URL the admin pasted (https only).
+   "img-src 'self' data: https:",
    "font-src 'self' data:",
    "base-uri 'none'",
    "form-action 'self'",
@@ -452,6 +455,13 @@ ${polls.map(entry).join('\n')}
     }), true);
   }
 
+  // An uploaded logo or favicon is served from its own URL, so a page references
+  // a short versioned URL instead of the stored base64 payload. A pasted image
+  // URL needs no route here: the pages use it directly.
+  if (brandingKeyFromPath(url.pathname)) {
+    return handleBrandingRequest(request, url, env);
+  }
+
   // The JSON API is answered by the Worker. Unknown API paths return JSON so
   // they never fall through to the single-page application shell.
   if (url.pathname.startsWith('/api/')) {
@@ -528,7 +538,12 @@ export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     console.log('[DEBUG] fetch:', request.url);
     try {
-      return withSecurityHeaders(await route(request, env), true);
+      const response = await route(request, env);
+      // A branding image is the one cacheable response: it carries its own
+      // immutable cache headers and a version query (see api/branding.ts), so the
+      // wrapper must not rewrite it to no-store.
+      if (brandingKeyFromPath(new URL(request.url).pathname)) return response;
+      return withSecurityHeaders(response, true);
     } catch (error) {
       // Structured error, never logs headers, bodies, cookies, or addresses.
       console.error(JSON.stringify({

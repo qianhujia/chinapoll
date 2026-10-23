@@ -6,12 +6,66 @@
 
 export const scriptSettings = `  var SETTINGS_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/svg+xml', 'image/webp', 'image/x-icon', 'image/vnd.microsoft.icon'];
   var SETTINGS_IMAGE_ACCEPT = SETTINGS_IMAGE_TYPES.join(',');
-  // Image settings are stored as base64 data URIs in the settings table. A D1 row
-  // is capped at 2 MB, so a file is limited to 700 KB (about 950 KB once encoded).
+  // An uploaded image is stored in the settings table as a base64 data URI, and a
+  // D1 row is capped at 2 MB, so a file is limited to 700 KB (about 950 KB once
+  // encoded). A pasted https URL is stored as it is.
   var SETTINGS_IMAGE_MAX_BYTES = 700 * 1024;
 
+  // The public URL of a saved image: an uploaded image is served by the branding
+  // endpoint, a pasted URL is used as-is. The version query matches the one the
+  // public site uses, so a copied link always fetches the current image.
+  function imagePublicUrl(item) {
+    var value = item.value || '';
+    if (!value) return '';
+    if (value.indexOf('data:') !== 0) return value;
+    var version = '';
+    if (item.updatedAt) {
+      var seconds = Math.floor(new Date(item.updatedAt).getTime() / 1000);
+      if (!isNaN(seconds)) version = '?v=' + seconds;
+    }
+    return (state.publicSiteOrigin || '') + '/branding/' + item.key + version;
+  }
+
+  function imageUrlLine(url, source) {
+    if (!url) return '<span class="small muted">No image set.</span>';
+    return '<span class="small muted">URL:</span> ' +
+      '<a class="small" href="' + esc(url) + '" target="_blank" rel="noopener noreferrer">' + esc(url) + '</a>' +
+      (source ? ' <span class="small muted">(' + esc(source) + ')</span>' : '');
+  }
+
+  function imageUrlMarkup(item) {
+    var value = item.value || '';
+    if (!value) return imageUrlLine('', '');
+    return imageUrlLine(imagePublicUrl(item), value.indexOf('data:') === 0 ? 'uploaded' : 'external URL');
+  }
+
+  // Reflects an edit in the row before it is saved: the hidden input holds the
+  // value that gets saved, and the preview and the URL line follow it. For an
+  // upload the URL line can only show the final versioned URL after saving.
+  function applyImageEdit(key, value) {
+    var hidden = document.getElementById('setting-' + key);
+    if (hidden) hidden.value = value;
+
+    var preview = document.querySelector('.file-preview[data-key="' + esc(key) + '"]');
+    if (preview) {
+      preview.innerHTML = value ? '<img src="' + esc(value) + '" alt="preview" class="image-preview">' : '';
+    }
+
+    var display = document.querySelector('[data-image-url-display="' + esc(key) + '"]');
+    if (!display) return;
+    if (!value) {
+      display.innerHTML = imageUrlLine('', '');
+      return;
+    }
+    var uploaded = value.indexOf('data:') === 0;
+    display.innerHTML = imageUrlLine(
+      uploaded ? (state.publicSiteOrigin || '') + '/branding/' + key : value,
+      uploaded ? 'uploaded' : 'external URL'
+    );
+  }
+
   function settingRow(item) {
-    var type = item.isSecret ? 'password' : (item.type === 'boolean' ? 'checkbox' : (item.type === 'enum' ? 'select' : (item.type === 'image_base64' ? 'file' : 'text')));
+    var type = item.isSecret ? 'password' : (item.type === 'boolean' ? 'checkbox' : (item.type === 'enum' ? 'select' : (item.type === 'image' ? 'file' : 'text')));
     var value = item.isSecret ? '' : (item.value === null ? '' : item.value);
     var placeholder = item.isSecret ? 'Leave blank to keep the current secret' : 'Not set';
     var enumOptions = item.enumOptions ? item.enumOptions.map(function (o) {
@@ -23,15 +77,22 @@ export const scriptSettings = `  var SETTINGS_IMAGE_TYPES = ['image/png', 'image
       inputHtml = '<label class="checkbox-label"><input type="checkbox" id="setting-' + esc(item.key) + '" data-key="' + esc(item.key) + '"' + (value === 'true' ? ' checked' : '') + '> ' + esc(item.label) + '</label>';
     } else if (item.type === 'enum') {
       inputHtml = '<select id="setting-' + esc(item.key) + '" data-key="' + esc(item.key) + '">' + enumOptions + '</select>';
-    } else if (item.type === 'image_base64') {
+    } else if (item.type === 'image') {
       var previewHtml = value ? '<img src="' + esc(value) + '" alt="preview" class="image-preview">' : '';
       var fileInputId = 'setting-' + esc(item.key) + '-file';
       var hiddenInputId = 'setting-' + esc(item.key);
+      var urlInputId = 'setting-' + esc(item.key) + '-url';
+      // A saved pasted URL seeds the URL field; an uploaded image is shown in the
+      // preview and served by the branding endpoint once it is saved.
+      var pastedUrl = value && value.indexOf('data:') !== 0 ? value : '';
       inputHtml = '<div class="file-upload">' +
         '<input type="file" id="' + fileInputId + '" data-key="' + esc(item.key) + '" accept="' + SETTINGS_IMAGE_ACCEPT + '">' +
         '<input type="hidden" id="' + hiddenInputId + '" data-key="' + esc(item.key) + '" value="' + esc(value) + '">' +
         '<div class="file-preview" data-key="' + esc(item.key) + '">' + previewHtml + '</div>' +
         (value ? '<button type="button" class="secondary" data-action="clear-image" data-key="' + esc(item.key) + '">Remove</button>' : '') +
+        '<div class="image-url" data-image-url-display="' + esc(item.key) + '">' + imageUrlMarkup(item) + '</div>' +
+        '<label class="small muted" for="' + urlInputId + '">Or paste an image URL</label>' +
+        '<input type="url" id="' + urlInputId + '" data-image-url-for="' + esc(item.key) + '" value="' + esc(pastedUrl) + '" placeholder="https://example.com/logo.png">' +
         '</div>';
     } else {
       inputHtml = '<input id="setting-' + esc(item.key) + '" type="' + type + '" data-key="' + esc(item.key) + '" value="' + esc(value) + '" placeholder="' + esc(placeholder) + '"' + (item.min !== undefined ? ' min="' + item.min + '"' : '') + (item.max !== undefined ? ' max="' + item.max + '"' : '') + '>';
@@ -44,7 +105,7 @@ export const scriptSettings = `  var SETTINGS_IMAGE_TYPES = ['image/png', 'image
 
     // The label points at the file picker for images and at the control itself
     // otherwise, so clicking it always focuses what it names.
-    var labelTarget = item.type === 'image_base64'
+    var labelTarget = item.type === 'image'
       ? 'setting-' + esc(item.key) + '-file'
       : 'setting-' + esc(item.key);
 
@@ -252,20 +313,11 @@ export const scriptSettings = `  var SETTINGS_IMAGE_TYPES = ['image/png', 'image
     var reader = new FileReader();
     reader.onload = function (e) {
       var base64 = e.target.result;
-      // Store the base64 in the hidden input for the save
-      var hiddenInput = document.getElementById('setting-' + key);
-      if (!hiddenInput) {
-        hiddenInput = document.createElement('input');
-        hiddenInput.type = 'hidden';
-        hiddenInput.id = 'setting-' + key;
-        hiddenInput.setAttribute('data-key', key);
-        input.parentNode.appendChild(hiddenInput);
-      }
-      hiddenInput.value = base64;
-
-      // Update preview
-      var preview = document.querySelector('.file-preview[data-key="' + esc(key) + '"]');
-      if (preview) preview.innerHTML = '<img src="' + esc(base64) + '" alt="preview" class="image-preview">';
+      // An upload replaces a pasted URL: the URL field is cleared and the hidden
+      // input, which is the value that gets saved, holds the data URI.
+      var urlInput = input.parentNode.querySelector('[data-image-url-for]');
+      if (urlInput) urlInput.value = '';
+      applyImageEdit(key, base64);
 
       // Show remove button
       var removeBtn = input.parentNode.querySelector('[data-action="clear-image"]');
@@ -282,4 +334,13 @@ export const scriptSettings = `  var SETTINGS_IMAGE_TYPES = ['image/png', 'image
       toast('Image loaded. Click Save to store.');
     };
     reader.readAsDataURL(file);
+  });
+
+  // A pasted image URL is written straight into the hidden input, so one save
+  // action stores either an uploaded image or a URL. Clearing the field removes
+  // the image. The value is validated by the API, which reports it in a toast.
+  app.addEventListener('input', function (event) {
+    var input = event.target;
+    if (!input || !input.getAttribute || !input.getAttribute('data-image-url-for')) return;
+    applyImageEdit(input.getAttribute('data-image-url-for'), input.value.trim());
   });`;

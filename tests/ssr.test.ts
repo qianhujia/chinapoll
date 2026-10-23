@@ -141,8 +141,10 @@ describe('server-side header', () => {
   });
 
   it('renders the configured logo instead of the wordmark', () => {
-    const html = renderAboutBody({ ...settings, logo: 'data:image/png;base64,iVBORw0KGgo=' });
-    expect(html).toContain('<img class="h-9 w-auto" src="data:image/png;base64,iVBORw0KGgo=" alt="ChinaPoll">');
+    // The public settings resolve an upload to the branding endpoint and keep a
+    // pasted URL as it is, so the header only ever sees a URL.
+    const html = renderAboutBody({ ...settings, logo: '/branding/logo?v=1700000000' });
+    expect(html).toContain('<img class="h-9 w-auto" src="/branding/logo?v=1700000000" alt="ChinaPoll">');
     expect(html).not.toContain('text-3xl font-extrabold');
   });
 });

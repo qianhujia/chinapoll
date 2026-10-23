@@ -79,4 +79,6 @@ tr:hover td{background:rgba(255,255,255,.02);}
 .card-link{text-decoration:none;color:inherit;}
 .card-link.alert{border-color:var(--err);}
 .image-preview{max-height:60px;margin-top:4px;}
+.image-url{margin:6px 0 10px;word-break:break-all;}
+.file-upload input[type="url"]{margin-top:2px;}
 @media(max-width:720px){.setting-row{grid-template-columns:1fr;}.layout{flex-direction:column;}.sidebar{width:auto;height:auto;position:static;flex-direction:row;flex-wrap:wrap;align-items:center;gap:8px;}.sidebar .brand{width:100%;margin-bottom:6px;}.sidebar .nav{flex-direction:row;flex-wrap:wrap;flex:0 0 auto;width:100%;}.sidebar .nav .subnav{flex-direction:row;flex-wrap:wrap;margin:0;padding-left:0;border-left:none;width:100%;}.sidebar .footer{border-top:none;padding-top:0;flex-direction:row;flex-wrap:wrap;width:100%;}.sidebar .who{width:100%;}}`;

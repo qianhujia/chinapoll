@@ -699,9 +699,15 @@ describe('image settings', () => {
     expect(validateSettingValue('favicon', 'data:image/vnd.microsoft.icon;base64,AA').ok).toBe(true);
   });
 
-  it('rejects a data URI that is not an image', () => {
+  it('accepts an https image URL so a logo can live on another host', () => {
+    expect(validateSettingValue('logo', 'https://cdn.example.com/logo.png'))
+      .toEqual({ ok: true, value: 'https://cdn.example.com/logo.png' });
+  });
+
+  it('rejects a value that is neither an image payload nor an https URL', () => {
     expect(validateSettingValue('logo', 'data:text/html;base64,PHNjcmlwdD4=').ok).toBe(false);
-    expect(validateSettingValue('logo', 'https://example.com/logo.png').ok).toBe(false);
+    expect(validateSettingValue('logo', 'http://cdn.example.com/logo.png').ok).toBe(false);
+    expect(validateSettingValue('logo', 'not-a-url').ok).toBe(false);
   });
 
   it('rejects an encoded payload that would not fit a settings row', () => {

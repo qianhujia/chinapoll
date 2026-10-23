@@ -69,7 +69,7 @@ through the API at deploy time.
 | `TURNSTILE_SITE_KEY` | No | Public Turnstile site key rendered on the login form |
 | `TURNSTILE_SECRET_KEY` | No | Private Turnstile key used to verify login tokens; the login check runs only when both keys are set |
 | `ADMIN_ORIGIN` | No | Extra origin allowed for cookie-authenticated mutations |
-| `PUBLIC_SITE_ORIGIN` | No | Origin of the public site, used to link a report row to its poll (for example `https://chinapoll.org`) |
+| `PUBLIC_SITE_ORIGIN` | No | Origin of the public site (for example `https://chinapoll.org`). Used to link a report row to its poll and to show the branding image URL in full; while it is unset that URL is shown as a path. |
 
 Turnstile verification runs only when both `TURNSTILE_SITE_KEY` and
 `TURNSTILE_SECRET_KEY` are set. The keys are environment variables, never
@@ -188,14 +188,30 @@ The **Appearance** page holds two image settings:
 | `logo` | Header logo. A set logo replaces the site-name wordmark in the header on every public page. |
 | `favicon` | Browser tab icon. |
 
-Both accept PNG, JPEG, SVG, WebP, or ICO files up to 700 KB and are stored as
-base64 data URIs in the `settings` table (a D1 row is capped at 2 MB, so larger
-files are rejected by the validator). The picker previews the file immediately
-and shows a **Remove** button that clears the setting; saving writes the value
-through the same validation the public Worker applies. Both values are public
-settings: they are served by `/api/settings/public` and embedded in the
-server-rendered pages. Image values are recorded in the audit log as a size
-summary rather than the payload.
+Each row offers both ways to set the image, and the row always shows the URL the
+public site uses:
+
+- **Upload** a PNG, JPEG, SVG, WebP, or ICO file (up to 700 KB). The file is
+  stored in the `settings` table as a base64 data URI — a D1 row is capped at
+  2 MB, so larger files are rejected by the validator — and the public Worker
+  serves it from `/branding/logo` or `/branding/favicon`.
+- **Or paste an image URL.** The value must be `https:` and is stored as it is;
+  the public pages reference it directly.
+- **Remove** clears the setting.
+
+The URL line under the preview shows the resolved image URL, marked *uploaded*
+(the branding endpoint, with a `?v=<updated_at>` query that makes a replaced
+image a new URL) or *external URL* (the pasted one), and can be opened or copied.
+A row with an uploaded image seeds the URL field empty, because the data URI is
+not something to edit by hand; typing in the field replaces the upload, and
+choosing a file clears the field. The field carries the value that a save stores,
+so one save button covers both cases.
+
+Both settings are public: `/api/settings/public` returns the resolved URL (never
+the base64 payload), and the server-rendered pages and the SPA use it for the
+header logo and the `<link rel="icon">`. The public CSP therefore allows images
+over `https:` in addition to this origin. Image values are recorded in the audit
+log as a size summary rather than the payload.
 
 ## Audit log
 

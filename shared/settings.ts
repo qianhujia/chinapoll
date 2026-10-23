@@ -11,7 +11,9 @@ export type SettingType =
   | 'rate_limit'
   | 'url'
   | 'color'
-  | 'image_base64';
+  // An image is either an https URL the admin pasted or a base64 data URI
+  // produced by an upload (see imageSettingError).
+  | 'image';
 
 export type SettingCategory =
   | 'general'
@@ -44,14 +46,41 @@ export interface SettingSchema {
   public?: boolean;
 }
 
-// Image settings are stored in the settings table as base64 data URIs. Two rules
-// are shared by the admin validator and the public settings loader: which image
-// media types are accepted, and how long the encoded string may be. A D1 row is
-// capped at 2 MB, so the cap stays well below that.
+// An image setting holds one of three things:
+//
+//   1. an empty string, meaning "no image configured",
+//   2. an https URL the admin pasted, which the public pages use as-is, or
+//   3. a base64 data URI produced by an upload, which the public Worker serves
+//      from /branding/<key> so pages reference a short URL instead of the payload.
+//
+// An uploaded payload is stored in the settings table, so its encoded length is
+// capped well below the 2 MB D1 row limit. The accepted media types and the cap
+// are shared by the admin validator and the public settings loader.
 export const IMAGE_DATA_URI_PATTERN =
   /^data:image\/(png|jpeg|svg\+xml|webp|x-icon|vnd\.microsoft\.icon|ico);base64,/;
 
 export const IMAGE_DATA_URI_MAX_CHARS = 1_000_000;
+
+// Why an image setting value was rejected, or null when it is valid. The wording
+// finishes the sentence "<label> <requirement>" in the admin validator and
+// "setting <key> <requirement>" in the public settings loader.
+export function imageSettingError(value: string): string | null {
+  if (value.startsWith('data:')) {
+    if (!IMAGE_DATA_URI_PATTERN.test(value)) {
+      return 'must be a base64 image data URI (data:image/...;base64,...) or an https image URL';
+    }
+    if (value.length > IMAGE_DATA_URI_MAX_CHARS) {
+      return `must not exceed ${IMAGE_DATA_URI_MAX_CHARS} characters once encoded`;
+    }
+    return null;
+  }
+  try {
+    if (new URL(value).protocol === 'https:') return null;
+  } catch {
+    // Not a URL at all; fall through to the shared error below.
+  }
+  return 'must be an https image URL or an uploaded image';
+}
 
 export const SETTING_SCHEMAS: SettingSchema[] = [
   // General
@@ -107,20 +136,20 @@ export const SETTING_SCHEMAS: SettingSchema[] = [
   // Appearance
   {
     key: 'logo',
-    type: 'image_base64',
+    type: 'image',
     category: 'appearance',
     label: 'Logo',
-    description: 'Logo image shown in the header. Upload an image file (PNG, SVG, WebP). Stored as base64 in database.',
+    description: 'Logo shown in the header on every public page. Upload an image file (PNG, SVG, WebP) or paste an https image URL. An upload is stored in the database and served from /branding/logo.',
     defaultValue: '',
     required: false,
     public: true,
   },
   {
     key: 'favicon',
-    type: 'image_base64',
+    type: 'image',
     category: 'appearance',
     label: 'Favicon',
-    description: 'Favicon shown in browser tabs. Upload an image file (ICO, PNG, SVG). Stored as base64 in database.',
+    description: 'Favicon shown in browser tabs. Upload an image file (ICO, PNG, SVG) or paste an https image URL. An upload is stored in the database and served from /branding/favicon.',
     defaultValue: '',
     required: false,
     public: true,

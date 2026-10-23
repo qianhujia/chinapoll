@@ -84,14 +84,15 @@ export function getSiteName(): string {
   return getPublicSettings().site_name || t('appName');
 }
 
-// The admin-configured header logo as a base64 data URI, or an empty string when
-// none is set.
+// The header logo URL, or an empty string when no logo is configured. An uploaded
+// image is served by the branding endpoint; a pasted URL points elsewhere.
 export function getSiteLogo(): string {
   return getPublicSettings().logo;
 }
 
-// Applies the admin-configured favicon to the document. Without one the document
-// shell keeps whatever icon the browser requests by default.
+// Applies the admin-configured favicon to the document. The value is the branding
+// endpoint's URL for an uploaded icon or an https URL the admin pasted; without
+// one the document shell keeps whatever icon the browser requests by default.
 export function applyFavicon(): void {
   const favicon = getPublicSettings().favicon;
   if (!favicon) return;
@@ -100,10 +101,6 @@ export function applyFavicon(): void {
     link = document.createElement('link');
     link.rel = 'icon';
     document.head.appendChild(link);
-  }
-  const mediaTypeEnd = favicon.indexOf(';');
-  if (favicon.startsWith('data:') && mediaTypeEnd > 5) {
-    link.type = favicon.slice(5, mediaTypeEnd);
   }
   link.href = favicon;
 }

@@ -73,7 +73,8 @@ const htmlSecurityHeaders = (nonce: string): Record<string, string> => ({
     `script-src 'nonce-${nonce}' ${TURNSTILE_ORIGIN}`,
     `connect-src 'self' ${TURNSTILE_ORIGIN} data:`,
     `frame-src ${TURNSTILE_ORIGIN}`,
-    "img-src 'self' data:",
+    // A logo or favicon may be previewed from an https URL the admin pasted.
+    "img-src 'self' data: https:",
     "base-uri 'none'",
     "form-action 'self'",
     "frame-ancestors 'none'"

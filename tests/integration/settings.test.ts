@@ -55,18 +55,37 @@ describe('public settings: Turnstile', () => {
     expect(JSON.stringify(settings)).not.toContain(SECRET_KEY);
   });
 
-  // The logo and favicon are stored as base64 data URIs and must reach the public
-  // site through the same endpoint the SPA and the server-rendered pages use.
-  it('serves the configured logo and favicon to the public site', async () => {
-    const logo = 'data:image/png;base64,iVBORw0KGgo=';
+  // An uploaded image is stored as a base64 data URI but reaches the public site
+  // as a short versioned URL served by the branding endpoint, so the payload never
+  // travels in the settings document. Versioning by update time keeps a replaced
+  // image out of an immutable browser cache.
+  it('serves an uploaded logo from the branding endpoint', async () => {
     await env.DB.batch([
-      env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('logo', ?)").bind(logo),
-      env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('favicon', '')")
+      env.DB.prepare("INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('logo', ?, 1700000000)")
+        .bind('data:image/png;base64,AQIDBA==')
     ]);
 
     const settings = await (await SELF.fetch(`${ORIGIN}/api/settings/public`)).json() as Record<string, unknown>;
-    expect(settings.logo).toBe(logo);
-    expect(settings.favicon).toBe('');
+    expect(settings.logo).toBe('/branding/logo?v=1700000000');
+
+    const image = await SELF.fetch(`${ORIGIN}/branding/logo?v=1700000000`);
+    expect(image.status).toBe(200);
+    expect(image.headers.get('content-type')).toBe('image/png');
+    // The response keeps its own cache headers instead of the Worker's no-store.
+    expect(image.headers.get('cache-control')).toBe('public, max-age=31536000, immutable');
+    expect(Array.from(new Uint8Array(await image.arrayBuffer()))).toEqual([1, 2, 3, 4]);
+  });
+
+  // A pasted URL is used by the pages directly, so the site serves it as it is and
+  // the branding endpoint has nothing to answer with.
+  it('serves a pasted favicon URL as it is', async () => {
+    const url = 'https://cdn.example.com/favicon.png';
+    await env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('favicon', ?)").bind(url).run();
+
+    const settings = await (await SELF.fetch(`${ORIGIN}/api/settings/public`)).json() as Record<string, unknown>;
+    expect(settings.favicon).toBe(url);
+
+    expect((await SELF.fetch(`${ORIGIN}/favicon.ico`)).status).toBe(404);
   });
 
   it('ignores legacy Turnstile rows left in the settings table', async () => {

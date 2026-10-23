@@ -95,4 +95,17 @@ describe('admin dashboard script', () => {
       "view.querySelectorAll('input[data-key]:not([type=\"file\"]), select[data-key], textarea[data-key]')"
     );
   });
+
+  // An image setting is either an uploaded file or a pasted https URL. The row
+  // shows the URL the public site uses, and the pasted field writes into the same
+  // hidden input that the save action collects.
+  it('lets an image be uploaded or given as a URL', () => {
+    expect(dashboardScript).toContain('function imagePublicUrl(item)');
+    expect(dashboardScript).toContain("'/branding/' + item.key");
+    expect(dashboardScript).toContain('data-image-url-display');
+    expect(dashboardScript).toContain('data-image-url-for');
+    // The pasted-URL field deliberately carries no data-key, so the bulk save
+    // still collects only the hidden input that holds the value.
+    expect(dashboardScript).toContain("data-image-url-for=\"' + esc(item.key) + '\" value=\"");
+  });
 });

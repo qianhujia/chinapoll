@@ -3,11 +3,12 @@
 
 import { isTurnstileEnabled, turnstileSiteKey, type TurnstileEnv } from '../services/turnstile';
 import { apiError } from '../../shared/http';
-import { IMAGE_DATA_URI_PATTERN, IMAGE_DATA_URI_MAX_CHARS } from '../../shared/settings';
+import { imageSettingError } from '../../shared/settings';
 
 interface SettingRow {
   key: string;
   value: string | null;
+  updated_at: number | null;
 }
 
 // Rate limits use the "<count>/<unit>" format where unit is one of w, d, h, m, s.
@@ -119,12 +120,21 @@ function isHttpsUrl(value: string): boolean {
     return false;
   }
 }
+// A branding value as the public pages use it. An uploaded image is served by the
+// branding endpoint, versioned with the row's update time so a replaced image is a
+// new URL; a pasted https URL is used as-is.
+function resolveBrandingValue(key: string, value: string, updatedAt: number | null): string {
+  if (!value) return '';
+  if (!value.startsWith('data:')) return value;
+  return updatedAt ? `/branding/${key}?v=${updatedAt}` : `/branding/${key}`;
+}
+
 // Loads and validates every public setting in one pass. Missing rows keep their
 // default; a malformed stored value raises SettingsValidationError.
 export async function loadPublicSettings(db: D1Database): Promise<PublicSettings> {
   const placeholders = publicSettingKeys.map(() => '?').join(', ');
   const result = await db.prepare(
-    `SELECT key, value FROM settings WHERE key IN (${placeholders})`
+    `SELECT key, value, updated_at FROM settings WHERE key IN (${placeholders})`
   ).bind(...publicSettingKeys).all<SettingRow>();
 
   const settings: PublicSettings = { ...DEFAULT_PUBLIC_SETTINGS };
@@ -152,15 +162,14 @@ export async function loadPublicSettings(db: D1Database): Promise<PublicSettings
         settings.data_repository_url = value;
         break;
       case 'logo':
-      case 'favicon':
-        if (value && !IMAGE_DATA_URI_PATTERN.test(value)) {
-          invalid(row.key, 'must be a base64 image data URI (data:image/...;base64,...) or empty');
+      case 'favicon': {
+        if (value) {
+          const error = imageSettingError(value);
+          if (error) invalid(row.key, error);
         }
-        if (value.length > IMAGE_DATA_URI_MAX_CHARS) {
-          invalid(row.key, `must not exceed ${IMAGE_DATA_URI_MAX_CHARS} characters once encoded`);
-        }
-        (settings as Record<string, unknown>)[row.key] = value;
+        (settings as Record<string, unknown>)[row.key] = resolveBrandingValue(row.key, value, row.updated_at);
         break;
+      }
       case 'polls_per_page':
       case 'comments_per_page':
         if (!isInteger(value, 1, 100)) invalid(row.key, 'must be an integer from 1 to 100');
