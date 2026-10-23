@@ -70,7 +70,7 @@ export function optionsFieldsetMarkup(): string {
       <button class="cursor-pointer rounded-full border border-border bg-panel px-3.5 py-2 text-sm text-ink disabled:cursor-not-allowed disabled:opacity-60" type="button" data-add-option>${t('addOption')}</button>
       <button class="cursor-pointer rounded-full border border-border bg-panel px-3.5 py-2 text-sm text-ink disabled:cursor-not-allowed disabled:opacity-60" type="button" data-ai-options disabled hidden>${t('aiSuggestOptions')}</button>
       <div class="hidden" data-turnstile-options></div>
-      <button class="cursor-pointer text-xs text-primary hover:underline" type="button" data-ai-discard hidden>${t('aiDiscardSuggestions')}</button>
+      <button class="cursor-pointer text-xs text-primary" type="button" data-ai-discard hidden>${t('aiDiscardSuggestions')}</button>
     </div>
   </fieldset>
   `;

@@ -88,7 +88,7 @@ function pollCardMarkup(poll: UserPoll): string {
   return `
     <li class="flex flex-wrap items-center justify-between gap-3 border-b border-border py-3.5">
       <div class="grid gap-1">
-        <a class="font-semibold text-primary hover:underline" href="/poll/${poll.id}" data-route="/poll/${poll.id}">#${poll.id} ${escapeHtml(poll.title ?? '')}</a>
+        <a class="font-semibold text-primary" href="/poll/${poll.id}" data-route="/poll/${poll.id}">#${poll.id} ${escapeHtml(poll.title ?? '')}</a>
         <span class="text-xs text-muted">${statusLabel(poll.status)} · ${escapeHtml(poll.createdAt)}</span>
       </div>
       <div class="flex items-center gap-2">${actions}</div>
@@ -102,7 +102,7 @@ function commentCardMarkup(comment: UserComment): string {
       <div class="grid min-w-0 gap-1">
         <p class="m-0 whitespace-pre-wrap break-words">${escapeHtml(comment.comment)}</p>
         <span class="text-xs text-muted">
-          <a class="text-primary hover:underline" href="/poll/${comment.pollId}" data-route="/poll/${comment.pollId}">#${comment.pollId} ${escapeHtml(comment.pollTitle ?? '')}</a>
+          <a class="text-primary" href="/poll/${comment.pollId}" data-route="/poll/${comment.pollId}">#${comment.pollId} ${escapeHtml(comment.pollTitle ?? '')}</a>
           · ${escapeHtml(comment.createdAt)}
         </span>
       </div>

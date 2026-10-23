@@ -38,7 +38,7 @@ export function renderPollRow({ poll, stats, views }: Awaited<ReturnType<typeof 
       <div class="col-start-1 flex items-start justify-between gap-[18px]">
         <div class="flex flex-wrap items-center gap-2">
           <span class="shrink-0 font-bold tabular-nums text-muted">#${poll.id}</span>
-          <h2 class="m-0 flex-[1_1_auto] text-[1.15rem] leading-[1.5]"><a class="text-inherit no-underline hover:text-primary hover:underline focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-[3px] focus-visible:outline-primary" href="/poll/${poll.id}" data-route="/poll/${poll.id}">${escapeHtml(poll.title)}</a></h2>
+          <h2 class="m-0 flex-[1_1_auto] text-[1.15rem] leading-[1.5]"><a class="text-inherit no-underline hover:text-primary focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-[3px] focus-visible:outline-primary" href="/poll/${poll.id}" data-route="/poll/${poll.id}">${escapeHtml(poll.title)}</a></h2>
           ${renderModeBadge(poll.mode)}
           ${renderPollTypeBadge(pollType, poll.options?.length ?? 0)}
           ${topicBadge}
@@ -120,7 +120,7 @@ export function renderTopicChips(
   // button so it stays keyboard- and screen-reader-operable, but it is styled as
   // plain text rather than another chip.
   const toggle = extra.length === 0 ? '' : `
-          <button type="button" class="cursor-pointer bg-transparent p-0 text-sm text-primary hover:underline" data-action="toggle-topics" aria-expanded="false" data-expand-label="${escapeHtml(labels.expand)}" data-collapse-label="${escapeHtml(labels.collapse)}">${escapeHtml(labels.expand)}</button>`;
+          <button type="button" class="cursor-pointer bg-transparent p-0 text-sm text-primary" data-action="toggle-topics" aria-expanded="false" data-expand-label="${escapeHtml(labels.expand)}" data-collapse-label="${escapeHtml(labels.collapse)}">${escapeHtml(labels.expand)}</button>`;
 
   return `
         <nav class="flex flex-wrap items-center gap-2" data-topic-chips>${chips}${toggle}
@@ -248,7 +248,7 @@ export async function mountHome(app: HTMLElement, page: number, bindNavigation: 
         ${searchQuery
     ? `<div class="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-panel px-4 py-3 text-sm">
             <span class="text-muted">${t('searchResultsFor')}: <strong class="text-ink">${escapeHtml(searchQuery)}</strong> · ${openPolls}</span>
-            <a class="text-primary hover:underline" href="/" data-route="/">${t('searchClear')}</a>
+            <a class="text-primary" href="/" data-route="/">${t('searchClear')}</a>
           </div>`
     : ''}
         ${chipRow}

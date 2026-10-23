@@ -139,7 +139,7 @@ function renderHeader(settings: SsrSettings, t: Translate, activeRoute: string):
 
   return `    <header class="flex items-center justify-between gap-4 py-4 pb-5 max-[700px]:flex-wrap max-[700px]:gap-3">
       <div class="flex flex-wrap items-center gap-x-7 gap-y-2 max-[700px]:gap-x-5">
-        <a class="text-3xl font-extrabold leading-none text-primary hover:underline" href="/" data-route="/" aria-label="${escapeHtml(t('homeLinkLabel'))}">${escapeHtml(settings.site_name)}</a>
+        <a class="text-3xl font-extrabold leading-none text-primary" href="/" data-route="/" aria-label="${escapeHtml(t('homeLinkLabel'))}">${escapeHtml(settings.site_name)}</a>
         <nav class="flex flex-wrap items-center gap-x-6 gap-y-2 max-[700px]:gap-x-5" aria-label="${escapeHtml(t('home'))}">${nav}
         </nav>
       </div>
@@ -150,14 +150,14 @@ function renderFooter(settings: SsrSettings, t: Translate): string {
   const dataUrl = settings.data_repository_url;
   // Mirrors the SPA footer: the credit names the site inside a link to the
   // source repository.
-  const siteLink = `<a class="font-bold text-primary hover:underline" href="${SOURCE_REPOSITORY_URL}" target="_blank" rel="noopener noreferrer">${escapeHtml(settings.site_name)}</a>`;
+  const siteLink = `<a class="font-bold text-primary" href="${SOURCE_REPOSITORY_URL}" target="_blank" rel="noopener noreferrer">${escapeHtml(settings.site_name)}</a>`;
   // A translation that omits the placeholder still keeps the site link.
   const credit = t('poweredBy');
   const creditHtml = credit.includes('{name}') ? credit.replace('{name}', siteLink) : `${credit} ${siteLink}`;
 
   return `    <footer class="mt-9 flex flex-wrap items-center justify-center gap-3 text-center text-[0.9rem] text-muted">
       <span>${creditHtml}</span>
-      ${dataUrl ? `<a class="text-primary hover:underline" href="${escapeHtml(dataUrl)}" rel="noopener noreferrer">${escapeHtml(t('dataLink'))}</a>` : ''}
+      ${dataUrl ? `<a class="text-primary" href="${escapeHtml(dataUrl)}" rel="noopener noreferrer">${escapeHtml(t('dataLink'))}</a>` : ''}
     </footer>`;
 }
 
@@ -194,7 +194,7 @@ function renderPollRow(poll: SsrPollCard, settings: SsrSettings, t: Translate): 
         <article class="grid grid-cols-[minmax(0,1fr)_minmax(190px,240px)] items-center gap-x-8 border-b border-border py-[22px] max-[700px]:grid-cols-1 max-[700px]:gap-y-3" data-poll-row="${poll.id}">
           <div class="col-start-1 flex flex-wrap items-center gap-2">
             <span class="shrink-0 font-bold tabular-nums text-muted">#${poll.id}</span>
-            <h2 class="m-0 flex-[1_1_auto] text-[1.15rem] leading-[1.5]"><a class="text-inherit no-underline hover:text-primary hover:underline" href="${href}" data-route="${href}">${escapeHtml(poll.title)}</a></h2>
+            <h2 class="m-0 flex-[1_1_auto] text-[1.15rem] leading-[1.5]"><a class="text-inherit no-underline hover:text-primary" href="${href}" data-route="${href}">${escapeHtml(poll.title)}</a></h2>
             ${badge(modeLabel(poll.mode, t))}
             ${badge(typeLabel)}
             ${topic}
@@ -245,7 +245,7 @@ export function renderHomeBody(input: HomeBodyInput, t: Translate = serverTransl
     ? `
         <div class="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-panel px-4 py-3 text-sm">
           <span class="text-muted">${escapeHtml(t('searchResultsFor'))}: <strong class="text-ink">${escapeHtml(query)}</strong></span>
-          <a class="text-primary hover:underline" href="/" data-route="/">${escapeHtml(t('searchClear'))}</a>
+          <a class="text-primary" href="/" data-route="/">${escapeHtml(t('searchClear'))}</a>
         </div>`
     : '';
 

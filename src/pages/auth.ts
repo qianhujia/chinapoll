@@ -51,8 +51,8 @@ export async function mountLoginPage(app: HTMLElement, bindNavigation: () => voi
             ${turnstileSiteKey() ? '<div class="flex justify-center" data-turnstile-login></div>' : ''}
             <button class="mx-auto mt-2 cursor-pointer rounded-full border border-primary bg-primary px-4 py-2.5 text-white" type="submit">${t('loginSubmit')}</button>
           </form>
-          <p class="m-0 text-center text-sm text-muted"><a class="text-primary hover:underline" href="/register" data-route="/register">${t('registerLink')}</a></p>
-          <p class="m-0 text-center text-sm text-muted"><a class="text-primary hover:underline" href="/reset" data-route="/reset">${t('forgotPassword')}</a></p>
+          <p class="m-0 text-center text-sm text-muted"><a class="text-primary" href="/register" data-route="/register">${t('registerLink')}</a></p>
+          <p class="m-0 text-center text-sm text-muted"><a class="text-primary" href="/reset" data-route="/reset">${t('forgotPassword')}</a></p>
         </section>
       </main>
       ${renderToast()}
@@ -113,7 +113,7 @@ export async function mountRegisterPage(app: HTMLElement, bindNavigation: () => 
             ${turnstileSiteKey() ? '<div class="flex justify-center" data-turnstile-register></div>' : ''}
             <button class="mx-auto mt-2 cursor-pointer rounded-full border border-primary bg-primary px-4 py-2.5 text-white" type="submit">${t('registerSubmit')}</button>
           </form>
-          <p class="m-0 text-center text-sm text-muted"><a class="text-primary hover:underline" href="/login" data-route="/login">${t('loginLink')}</a></p>
+          <p class="m-0 text-center text-sm text-muted"><a class="text-primary" href="/login" data-route="/login">${t('loginLink')}</a></p>
         </section>
       </main>
       ${renderToast()}
@@ -221,7 +221,7 @@ export function mountResetPage(app: HTMLElement, bindNavigation: () => void): vo
             ${fieldMarkup('reset-confirm', 'confirmPassword', t('confirmPassword'), 'password', 'new-password')}
             <button class="mx-auto mt-2 cursor-pointer rounded-full border border-primary bg-primary px-4 py-2.5 text-white" type="submit">${t('resetSubmit')}</button>
           </form>
-          <p class="m-0 text-center text-sm text-muted"><a class="text-primary hover:underline" href="/login" data-route="/login">${t('loginLink')}</a></p>
+          <p class="m-0 text-center text-sm text-muted"><a class="text-primary" href="/login" data-route="/login">${t('loginLink')}</a></p>
         </section>
       </main>
       ${renderToast()}

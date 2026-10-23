@@ -88,7 +88,7 @@ export function renderHeader(activeRoute: string): string {
   return `
     <header class="flex items-center justify-between gap-4 py-4 pb-5 max-[700px]:flex-wrap max-[700px]:gap-3">
       <div class="flex flex-wrap items-center gap-x-7 gap-y-2 max-[700px]:gap-x-5">
-        <a class="text-3xl font-extrabold leading-none text-primary hover:underline" href="/" data-route="/" aria-label="${escapeHtml(t('homeLinkLabel'))}">${escapeHtml(getSiteName())}</a>
+        <a class="text-3xl font-extrabold leading-none text-primary" href="/" data-route="/" aria-label="${escapeHtml(t('homeLinkLabel'))}">${escapeHtml(getSiteName())}</a>
         <nav class="flex flex-wrap items-center gap-[18px]">
           ${getNavigationMarkup(activeRoute)}
           ${renderHeaderSearch()}
@@ -185,7 +185,7 @@ export function renderFooter(): string {
   const dataUrl = getPublicSettings().data_repository_url;
   // The credit names the site inside a link to the source repository. The site
   // name is admin-controlled, so it is escaped before it is interpolated.
-  const siteLink = `<a class="font-bold text-primary hover:underline" href="${SOURCE_REPOSITORY_URL}" target="_blank" rel="noopener noreferrer">${escapeHtml(getSiteName())}</a>`;
+  const siteLink = `<a class="font-bold text-primary" href="${SOURCE_REPOSITORY_URL}" target="_blank" rel="noopener noreferrer">${escapeHtml(getSiteName())}</a>`;
   // A translation that omits the placeholder still keeps the site link.
   const credit = t('poweredBy');
   const creditHtml = credit.includes('{name}') ? credit.replace('{name}', siteLink) : `${credit} ${siteLink}`;
@@ -193,7 +193,7 @@ export function renderFooter(): string {
   return `
     <footer class="mt-9 flex flex-wrap items-center justify-center gap-3 text-center text-[0.9rem] text-muted">
       <span>${creditHtml}</span>
-      ${dataUrl ? `<a class="text-primary hover:underline" href="${escapeHtml(dataUrl)}" target="_blank" rel="noopener noreferrer">${t('dataLink')}</a>` : ''}
+      ${dataUrl ? `<a class="text-primary" href="${escapeHtml(dataUrl)}" target="_blank" rel="noopener noreferrer">${t('dataLink')}</a>` : ''}
     </footer>
   `;
 }

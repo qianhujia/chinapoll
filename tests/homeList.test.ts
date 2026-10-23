@@ -6,6 +6,8 @@
 // other. The topic chip row shows a few topics at a time and reveals the rest
 // behind a toggle.
 
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { renderPollRow, renderTopicChips, TOPIC_CHIP_LIMIT } from '../src/pages/home';
 import { renderFooter } from '../src/ui';
@@ -140,7 +142,7 @@ describe('renderPollRow', () => {
   });
 });
 
-const CHIP_LABELS = { all: 'All', expand: 'Expand...', collapse: 'Collapse' };
+const CHIP_LABELS = { all: 'All', expand: 'Show more', collapse: 'Collapse' };
 
 function makeTopics(count: number): { slug: string; label: string; count: number }[] {
   return Array.from({ length: count }, (_, index) => ({
@@ -162,12 +164,12 @@ describe('renderTopicChips', () => {
     expect(markup.match(/ hidden/g)).toHaveLength(3);
     expect(markup).toContain('data-action="toggle-topics"');
     expect(markup).toContain('aria-expanded="false"');
-    expect(markup).toContain('>Expand...</button>');
+    expect(markup).toContain('>Show more</button>');
     // The toggle reads as text, not as another pill-shaped chip.
     expect(markup).not.toMatch(/<button[^>]*rounded-full/);
-    expect(markup).toMatch(/<button[^>]*text-primary[^>]*>Expand\.\.\.<\/button>/);
+    expect(markup).toMatch(/<button[^>]*text-primary[^>]*>Show more<\/button>/);
     // The label swap on expand is carried on the element itself.
-    expect(markup).toContain('data-expand-label="Expand..."');
+    expect(markup).toContain('data-expand-label="Show more"');
     expect(markup).toContain('data-collapse-label="Collapse"');
   });
 
@@ -206,5 +208,27 @@ describe('renderFooter', () => {
     expect(markup).toContain('poweredBy');
     expect(markup).not.toContain('Powered by');
     expect(markup).toContain('github.com/qianhujia/chinapoll');
+  });
+});
+
+function typescriptFiles(dir: string): string[] {
+  return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) return typescriptFiles(full);
+    return entry.name.endsWith('.ts') ? [full] : [];
+  });
+}
+
+// Assembled from parts so the Tailwind scanner does not emit the underline
+// utility merely because the forbidden class name appears in this test file.
+const UNDERLINE_UTILITY = ['hover', 'underline'].join(':');
+
+describe('link styling', () => {
+  it('never underlines a link, on the client or in the server-rendered markup', () => {
+    // Links are distinguished by colour only, so no underline-on-hover may come
+    // back into the client markup or the server-rendered shell.
+    for (const file of [...typescriptFiles('src'), join('worker', 'services', 'ssr.ts')]) {
+      expect(readFileSync(file, 'utf8'), `${file} must not underline a link`).not.toContain(UNDERLINE_UTILITY);
+    }
   });
 });
