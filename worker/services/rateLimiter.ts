@@ -13,6 +13,8 @@
 // therefore lag the real count by at most PERSIST_STEP - 1, which only loosens a
 // limit after an eviction, never tightens it.
 
+
+import { apiError } from '../../shared/http';
 interface RateLimitRequest {
   key: string;
   limit: number;
@@ -43,14 +45,14 @@ export class RateLimiter {
     try {
       body = await request.json() as RateLimitRequest;
     } catch {
-      return Response.json({ message: 'invalid JSON' }, { status: 400 });
+      return apiError('INVALID_JSON', 400);
     }
 
     const key = String(body.key ?? '');
     const limit = Number(body.limit ?? 0);
     const windowMs = Number(body.windowMs ?? 0);
     if (!key || !Number.isSafeInteger(limit) || limit < 1 || !Number.isSafeInteger(windowMs) || windowMs < 1) {
-      return Response.json({ message: 'invalid rate limit request' }, { status: 400 });
+      return apiError('INVALID_RATE_LIMIT_REQUEST', 400);
     }
 
     // Durable Object requests run one at a time, so the in-memory map can be

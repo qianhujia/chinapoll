@@ -8,6 +8,7 @@
 import type { HandlerEnv } from '../index';
 import { PollMode, PollStatus } from '../enums';
 import { topicNames } from '../../shared/categories';
+import { apiError } from '../../shared/http';
 
 interface TopicRow {
   id: number;
@@ -41,7 +42,7 @@ export async function loadEnabledTopics(env: { DB: D1Database }): Promise<Enable
 
 export async function handleTopicsRequest(request: Request, env: HandlerEnv): Promise<Response> {
   if (request.method !== 'GET') {
-    return Response.json({ message: 'method not allowed' }, { status: 405 });
+    return apiError('METHOD_NOT_ALLOWED', 405);
   }
 
   const result = await env.DB.prepare(

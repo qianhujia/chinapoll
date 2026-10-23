@@ -1,5 +1,7 @@
 // Shared request helpers used by both Workers.
 
+import { errorPayload, type ApiErrorCode, type ApiErrorParams } from './errors';
+
 export async function readJsonBody(request: Request): Promise<Record<string, unknown> | null> {
   try {
     const body: unknown = await request.json();
@@ -20,4 +22,18 @@ export function noStoreJson(data: unknown, status = 200, headers: Record<string,
     status,
     headers: { 'cache-control': 'no-store', ...headers }
   });
+}
+
+// A failing API response carrying a stable code for the frontend to translate.
+// The English `message` is still included so older clients keep working.
+export function apiError(
+  code: ApiErrorCode,
+  status: number,
+  options: {
+    params?: ApiErrorParams;
+    extra?: Record<string, unknown>;
+    headers?: Record<string, string>;
+  } = {}
+): Response {
+  return noStoreJson(errorPayload(code, options.params, options.extra), status, options.headers);
 }

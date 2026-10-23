@@ -12,6 +12,7 @@
 
 import { PBKDF2_ITERATIONS, checkPasswordHash, derivePasswordHash } from '../../shared/password';
 import { sha256Hex } from '../../shared/crypto';
+import { apiError } from '../../shared/http';
 
 export interface PasswordHasherEnv {
   PASSWORD_HASHER: DurableObjectNamespace;
@@ -34,12 +35,12 @@ export class PasswordHasher {
     try {
       body = await request.json() as HasherRequest;
     } catch {
-      return Response.json({ message: 'invalid JSON' }, { status: 400 });
+      return apiError('INVALID_JSON', 400);
     }
 
     const password = typeof body.password === 'string' ? body.password : '';
     if (!password) {
-      return Response.json({ message: 'password is required' }, { status: 400 });
+      return apiError('PASSWORD_REQUIRED', 400);
     }
 
     if (body.op === 'hash') {
@@ -54,7 +55,7 @@ export class PasswordHasher {
       return Response.json({ ok: await checkPasswordHash(password, stored) });
     }
 
-    return Response.json({ message: 'unknown operation' }, { status: 400 });
+    return apiError('UNKNOWN_OPERATION', 400);
   }
 }
 

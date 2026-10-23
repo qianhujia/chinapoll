@@ -315,6 +315,39 @@ are rejected unless they originate from the Worker itself, and the audit log
 records admin actions without client IP addresses. Deploy with
 `npm run deploy:admin`.
 
+## API errors and translations
+
+Every application-controlled error from the public Worker carries a stable code
+next to the English text it always returned:
+
+```json
+{
+  "error": { "code": "USERNAME_TAKEN", "params": {} },
+  "message": "username is already taken"
+}
+```
+
+- The codes and their canonical English text live in `shared/errors.ts`
+  (`ERROR_MESSAGES`); the Worker builds responses with `apiError(code, status,
+  { params, extra })` from `shared/http.ts`. `message` is kept for backward
+  compatibility, and `params` carries the values of a templated message
+  (`{ "hours": 48 }` for an account-age gate, for example).
+- The frontend never shows the backend text. `src/lib/apiError.ts` parses the
+  response, translates the code with the existing i18n dictionary
+  (`errors.<CODE>`, flat keys like every other entry) and interpolates the
+  params. `getErrorMessage` in `src/ui.ts` is the single entry point every form,
+  toast, and dialog already calls, so the message follows the site's
+  `default_locale` without the backend knowing about locales.
+- Older shapes (`{ "detail": { "code": ... } }`, `{ "detail": "text" }`,
+  `{ "message": "text" }`, a bare string, a validation array) are still accepted;
+  a legacy English text is mapped back to its code through `ERROR_MESSAGES`.
+  Anything that cannot be identified reliably - an unknown code, a malformed
+  body, a network failure, a timeout, or a raw exception - becomes one localized
+  generic message instead of leaking internal text.
+- `tests/apiError.test.ts` checks the parsing, the per-locale output, the
+  interpolation, the legacy fallbacks, and that every code has a translation in
+  all three dictionaries.
+
 ## Testing
 
 `npm test` runs two Vitest projects:

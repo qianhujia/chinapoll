@@ -11,6 +11,7 @@
 
 import { PollType, type PollTypeLabel } from '../enums';
 import { pollTypeLabel, requiredSelectionCount } from './pollType';
+import { errorMessage, type ApiErrorCode } from '../../shared/errors';
 
 export interface PollOption {
   id: number;
@@ -100,7 +101,7 @@ export async function getOptionsForPolls(
 
 export type SelectionResult =
   | { ok: true; optionIds: number[] }
-  | { ok: false; message: string };
+  | { ok: false; code: ApiErrorCode; message: string };
 
 // Validates the submitted ballot against the poll type and returns the selected
 // option IDs. Every ID must belong to the poll, so a caller cannot vote with
@@ -112,27 +113,27 @@ export function validateSelections(poll: PollLike, options: PollOption[], body: 
   const pollType = Number(poll.poll_type ?? PollType.SingleChoice);
   const rawIds = source.optionIds;
   if (rawIds !== undefined && !Array.isArray(rawIds)) {
-    return { ok: false, message: 'bad request' };
+    return { ok: false, code: 'BAD_REQUEST', message: errorMessage('BAD_REQUEST') };
   }
 
   const rule = requiredSelectionCount(pollType);
-  if (rule === null) return { ok: false, message: 'bad request' };
+  if (rule === null) return { ok: false, code: 'BAD_REQUEST', message: errorMessage('BAD_REQUEST') };
 
   const ids = ((rawIds as unknown[] | undefined) ?? []).map((value) => Number(value));
   if (ids.some((id) => !Number.isSafeInteger(id) || id < 1)) {
-    return { ok: false, message: 'bad request' };
+    return { ok: false, code: 'BAD_REQUEST', message: errorMessage('BAD_REQUEST') };
   }
   const distinct = [...new Set(ids)];
   if (distinct.length !== ids.length) {
-    return { ok: false, message: 'duplicate option' };
+    return { ok: false, code: 'DUPLICATE_OPTION', message: errorMessage('DUPLICATE_OPTION') };
   }
 
   const allowed = new Set(options.map((option) => option.id));
   if (distinct.some((id) => !allowed.has(id))) {
-    return { ok: false, message: 'unknown option' };
+    return { ok: false, code: 'UNKNOWN_OPTION', message: errorMessage('UNKNOWN_OPTION') };
   }
   if (distinct.length < rule.min || distinct.length > rule.max) {
-    return { ok: false, message: 'bad request' };
+    return { ok: false, code: 'BAD_REQUEST', message: errorMessage('BAD_REQUEST') };
   }
   return { ok: true, optionIds: distinct };
 }

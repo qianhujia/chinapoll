@@ -18,6 +18,7 @@ import { checkAccountAge } from '../services/users';
 import { commentOwnerHash } from '../services/owner';
 import { serverHmacKey } from '../services/ip';
 import { PollMode, PollStatus } from '../enums';
+import { apiError } from '../../shared/http';
 
 const MAX_PAGE_SIZE = 100;
 const MIN_COMMENT_LENGTH = 5;
@@ -35,7 +36,7 @@ export async function handleCommentsRequest(request: Request, url: URL, env: Han
   }
 
   if (request.method !== 'GET') {
-    return Response.json({ message: 'method not allowed' }, { status: 405 });
+    return apiError('METHOD_NOT_ALLOWED', 405);
   }
 
   const pollId = Number(url.pathname.split('/').pop() ?? '0');
@@ -45,12 +46,12 @@ export async function handleCommentsRequest(request: Request, url: URL, env: Han
   if (!Number.isSafeInteger(pollId) || pollId < 1
     || !Number.isSafeInteger(page) || page < 1
     || !Number.isSafeInteger(pageSize) || pageSize < 1 || pageSize > MAX_PAGE_SIZE) {
-    return Response.json({ message: 'invalid pagination parameters' }, { status: 400 });
+    return apiError('INVALID_PAGINATION', 400);
   }
 
   const offset = (page - 1) * pageSize;
   if (!Number.isSafeInteger(offset)) {
-    return Response.json({ message: 'invalid pagination parameters' }, { status: 400 });
+    return apiError('INVALID_PAGINATION', 400);
   }
 
   const countResult = await env.DB.prepare(
@@ -81,7 +82,7 @@ export async function handleCommentsRequest(request: Request, url: URL, env: Han
 }
 async function handleCommentSubmission(request: Request, env: HandlerEnv): Promise<Response> {
   if (request.method !== 'POST') {
-    return Response.json({ message: 'method not allowed' }, { status: 405 });
+    return apiError('METHOD_NOT_ALLOWED', 405);
   }
 
   const auth = await requireUser(request, env);
@@ -93,49 +94,49 @@ async function handleCommentSubmission(request: Request, env: HandlerEnv): Promi
   const delayHours = Number(env.user_comment_delay_hours ?? DEFAULT_COMMENT_DELAY_HOURS);
   const accountAge = checkAccountAge(auth.user.createdAt, delayHours);
   if (!accountAge.allowed) {
-    return Response.json({
-      message: `new accounts can comment once the account is ${delayHours} hours old`,
-      remainingHours: accountAge.remainingHours
-    }, { status: 403 });
+    return apiError('ACCOUNT_TOO_NEW_COMMENT', 403, {
+      params: { hours: delayHours },
+      extra: { remainingHours: accountAge.remainingHours }
+    });
   }
 
   let body: unknown;
   try {
     body = await request.json();
   } catch {
-    return Response.json({ message: 'invalid JSON' }, { status: 400 });
+    return apiError('INVALID_JSON', 400);
   }
 
   if (typeof body !== 'object' || body === null || !('pollId' in body) || !('comment' in body)) {
-    return Response.json({ message: 'pollId and comment are required' }, { status: 400 });
+    return apiError('COMMENT_REQUIRED', 400);
   }
 
   const pollId = Number(body.pollId);
   const comment = typeof body.comment === 'string' ? body.comment.trim() : '';
   if (!Number.isSafeInteger(pollId) || pollId < 1) {
-    return Response.json({ message: 'invalid pollId' }, { status: 400 });
+    return apiError('INVALID_POLL_ID', 400);
   }
   if (comment.length < MIN_COMMENT_LENGTH || comment.length > MAX_COMMENT_LENGTH) {
-    return Response.json({ message: 'comment must be between 5 and 140 characters' }, { status: 400 });
+    return apiError('COMMENT_LENGTH', 400);
   }
 
   const poll = await env.DB.prepare(
     'SELECT status, mode, start_at, end_at FROM polls WHERE id = ?'
   ).bind(pollId).first<{ status: number; mode: number; start_at: number | null; end_at: number | null }>();
   if (!poll) {
-    return Response.json({ message: 'poll not found' }, { status: 404 });
+    return apiError('POLL_NOT_FOUND', 404);
   }
   const nowSeconds = Math.floor(Date.now() / 1000);
   const withinDeadline = poll.mode !== PollMode.Deadline
     || ((poll.start_at === null || poll.start_at <= nowSeconds)
       && (poll.end_at === null || nowSeconds <= poll.end_at));
   if (poll.status !== PollStatus.Open || !withinDeadline) {
-    return Response.json({ message: 'poll is not open' }, { status: 409 });
+    return apiError('POLL_NOT_OPEN', 409);
   }
 
   const limited = await checkRateLimit(env, 'comment', `user:${auth.user.id}`, env.comment_rate_limit, DEFAULT_COMMENT_RATE_LIMIT);
   if (!limited.allowed) {
-    return Response.json({ message: 'comment rate limit reached' }, { status: 429 });
+    return apiError('COMMENT_RATE_LIMIT', 429);
   }
 
   // Coarsen the timestamp to the hour so it cannot be correlated with a session

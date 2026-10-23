@@ -24,26 +24,27 @@ import {
   type PublicResults
 } from '../services/options';
 import { PollMode, PollStatus, PollType } from '../enums';
+import { apiError } from '../../shared/http';
 
 const DEFAULT_VOTE_RATE_LIMIT = '5/h';
 const TOKEN_HASH_PATTERN = /^[0-9a-f]{64}$/i;
 
 export async function handleVoteStatusRequest(request: Request, env: HandlerEnv): Promise<Response> {
   if (request.method !== 'POST') {
-    return Response.json({ message: 'POST only' }, { status: 405 });
+    return apiError('POST_ONLY', 405);
   }
 
   let body: any;
   try {
     body = await request.json();
   } catch {
-    return Response.json({ message: 'invalid JSON' }, { status: 400 });
+    return apiError('INVALID_JSON', 400);
   }
 
   const pollId = Number(body.pollId ?? 0);
   const tokenHash = typeof body.tokenHash === 'string' ? body.tokenHash : '';
   if (!Number.isSafeInteger(pollId) || pollId < 1 || !TOKEN_HASH_PATTERN.test(tokenHash)) {
-    return Response.json({ message: 'bad request' }, { status: 400 });
+    return apiError('BAD_REQUEST', 400);
   }
 
   const vote: { id: number } | null = await env.DB.prepare(
@@ -75,17 +76,17 @@ export async function handleVoteRequest(request: Request, env: HandlerEnv): Prom
   // 423 Locked, kept distinct from the 503 that a missing server key returns so a
   // read-only window is not mistaken for a misconfiguration.
   if (env.read_only_mode === true) {
-    return Response.json({ ok: false, message: 'readonly mode enabled' }, { status: 423 });
+    return apiError('READ_ONLY', 423, { extra: { ok: false } });
   }
   if (request.method !== 'POST') {
-    return Response.json({ ok: false, message: 'POST only' }, { status: 405 });
+    return apiError('POST_ONLY', 405, { extra: { ok: false } });
   }
 
   let body: any;
   try {
     body = await request.json();
   } catch {
-    return Response.json({ ok: false, message: 'invalid JSON' }, { status: 400 });
+    return apiError('INVALID_JSON', 400, { extra: { ok: false } });
   }
 
   const pollId = Number(body.pollId ?? 0);
@@ -93,7 +94,7 @@ export async function handleVoteRequest(request: Request, env: HandlerEnv): Prom
   const turnstileResponse = String(body.turnstileToken ?? '');
 
   if (!Number.isSafeInteger(pollId) || pollId < 1 || !TOKEN_HASH_PATTERN.test(tokenHash)) {
-    return Response.json({ ok: false, message: 'bad request' }, { status: 400 });
+    return apiError('BAD_REQUEST', 400, { extra: { ok: false } });
   }
 
   const poll = await env.DB.prepare(
@@ -107,20 +108,20 @@ export async function handleVoteRequest(request: Request, env: HandlerEnv): Prom
     poll_type: number;
   }>();
   if (!poll) {
-    return Response.json({ ok: false, message: 'poll not found' }, { status: 404 });
+    return apiError('POLL_NOT_FOUND', 404, { extra: { ok: false } });
   }
 
   const pollType = Number(poll.poll_type ?? PollType.SingleChoice);
   const options = await getPollOptions(env, poll);
   const selection = validateSelections(poll, options, body);
   if (!selection.ok) {
-    return Response.json({ ok: false, message: selection.message }, { status: 400 });
+    return apiError(selection.code, 400, { extra: { ok: false } });
   }
 
   // Turnstile is enforced only when both keys are configured.
   if (isTurnstileEnabled(env)) {
     if (!turnstileResponse || !await verifyTurnstile(turnstileSecretKey(env), turnstileResponse, new URL(request.url).hostname)) {
-      return Response.json({ ok: false, message: 'turnstile verification failed' }, { status: 403 });
+      return apiError('TURNSTILE_FAILED', 403, { extra: { ok: false } });
     }
   }
 
@@ -129,17 +130,17 @@ export async function handleVoteRequest(request: Request, env: HandlerEnv): Prom
     || ((poll.start_at === null || poll.start_at <= nowSeconds)
       && (poll.end_at === null || nowSeconds <= poll.end_at));
   if (poll.status !== PollStatus.Open || !withinDeadline) {
-    return Response.json({ ok: false, message: 'poll is not open' }, { status: 409 });
+    return apiError('POLL_NOT_OPEN', 409, { extra: { ok: false } });
   }
 
   const ipHash = await hashedNetworkBucket(clientAddress(request), serverHmacKey(env));
   if (!ipHash) {
-    return Response.json({ ok: false, message: 'server key is not configured' }, { status: 503 });
+    return apiError('SERVER_NOT_CONFIGURED', 503, { extra: { ok: false } });
   }
 
   const limited = await checkRateLimit(env, 'vote', ipHash, env.vote_rate_limit, DEFAULT_VOTE_RATE_LIMIT);
   if (!limited.allowed) {
-    return Response.json({ ok: false, message: 'rate limit reached' }, { status: 429 });
+    return apiError('RATE_LIMIT_EXCEEDED', 429, { extra: { ok: false } });
   }
 
   // The ON CONFLICT clause both inserts and detects a duplicate in one round
@@ -154,7 +155,7 @@ export async function handleVoteRequest(request: Request, env: HandlerEnv): Prom
   ).bind(pollId, tokenHash, coarseNow).run();
 
   if (!insertResult.meta.changes) {
-    return Response.json({ ok: false, message: 'duplicate vote' }, { status: 409 });
+    return apiError('DUPLICATE_VOTE', 409, { extra: { ok: false } });
   }
 
   // The ballot row is written first, then one selection row per chosen option,
@@ -168,7 +169,7 @@ export async function handleVoteRequest(request: Request, env: HandlerEnv): Prom
       ).bind(pollId, voteId, optionId)));
     } catch {
       await env.DB.prepare('DELETE FROM votes WHERE id = ?').bind(voteId).run();
-      return Response.json({ ok: false, message: 'vote could not be stored' }, { status: 500 });
+      return apiError('VOTE_NOT_STORED', 500, { extra: { ok: false } });
     }
   }
 

@@ -14,6 +14,7 @@ import { generateRecoveryCode } from '../services/recovery';
 import { commentOwnerHash, ownerHash } from '../services/owner';
 import { serverHmacKey } from '../services/ip';
 import { currentHour, writeSnapshotForPoll } from '../services/maintenance';
+import { apiError } from '../../shared/http';
 
 const MAX_IDS = 100;
 
@@ -48,50 +49,50 @@ export async function handleUserRequest(request: Request, url: URL, env: UserEnv
   if (csrf) return csrf;
 
   if (url.pathname === '/api/user/account') {
-    if (request.method !== 'DELETE') return noStoreJson({ message: 'method not allowed' }, 405);
+    if (request.method !== 'DELETE') return apiError('METHOD_NOT_ALLOWED', 405);
     return deleteAccount(request, env, auth.user.id);
   }
 
   if (url.pathname === '/api/user/polls') {
-    if (request.method !== 'GET') return noStoreJson({ message: 'method not allowed' }, 405);
+    if (request.method !== 'GET') return apiError('METHOD_NOT_ALLOWED', 405);
     return listUserPolls(url, env, auth.user.id);
   }
 
   if (url.pathname === '/api/user/comments') {
-    if (request.method !== 'GET') return noStoreJson({ message: 'method not allowed' }, 405);
+    if (request.method !== 'GET') return apiError('METHOD_NOT_ALLOWED', 405);
     return listUserComments(url, env, auth.user.id);
   }
 
   if (url.pathname === '/api/user/recovery-code') {
     if (request.method === 'GET') return recoveryCodeStatus(env, auth.user.id);
     if (request.method === 'POST') return regenerateRecoveryCode(request, env, auth.user.id);
-    return noStoreJson({ message: 'method not allowed' }, 405);
+    return apiError('METHOD_NOT_ALLOWED', 405);
   }
 
   if (url.pathname === '/api/user/logout-all') {
-    if (request.method !== 'POST') return noStoreJson({ message: 'method not allowed' }, 405);
+    if (request.method !== 'POST') return apiError('METHOD_NOT_ALLOWED', 405);
     return logoutAllSessions(request, env, auth.user.id);
   }
 
   const pollMatch = url.pathname.match(/^\/api\/user\/polls\/(\d+)(?:\/(close))?$/);
   if (pollMatch) {
     const pollId = Number(pollMatch[1]);
-    if (!Number.isSafeInteger(pollId) || pollId < 1) return noStoreJson({ message: 'invalid poll ID' }, 400);
+    if (!Number.isSafeInteger(pollId) || pollId < 1) return apiError('INVALID_POLL_ID', 400);
     if (pollMatch[2] === 'close') {
-      if (request.method !== 'POST') return noStoreJson({ message: 'method not allowed' }, 405);
+      if (request.method !== 'POST') return apiError('METHOD_NOT_ALLOWED', 405);
       return closeUserPoll(env, auth.user.id, pollId);
     }
-    if (request.method !== 'DELETE') return noStoreJson({ message: 'method not allowed' }, 405);
+    if (request.method !== 'DELETE') return apiError('METHOD_NOT_ALLOWED', 405);
     return deleteUserPoll(env, auth.user.id, pollId);
   }
 
   const commentMatch = url.pathname.match(/^\/api\/user\/comments\/([A-Za-z0-9_-]+)$/);
   if (commentMatch) {
-    if (request.method !== 'DELETE') return noStoreJson({ message: 'method not allowed' }, 405);
+    if (request.method !== 'DELETE') return apiError('METHOD_NOT_ALLOWED', 405);
     return deleteUserComment(env, auth.user.id, commentMatch[1]);
   }
 
-  return noStoreJson({ message: 'not found' }, 404);
+  return apiError('RESOURCE_NOT_FOUND', 404);
 }
 
 // Parses the comma-separated `ids` query parameter used by the client-side list.
@@ -135,7 +136,7 @@ async function findOwnedPoll(env: UserEnv, userId: number, pollId: number): Prom
 // to scan all polls.
 async function listUserPolls(url: URL, env: UserEnv, userId: number): Promise<Response> {
   const ids = parseIds(url);
-  if (!ids) return noStoreJson({ message: 'invalid ids parameter' }, 400);
+  if (!ids) return apiError('INVALID_IDS', 400);
   if (ids.length === 0) return noStoreJson({ polls: [] });
 
   const placeholders = ids.map(() => '?').join(', ');
@@ -165,7 +166,7 @@ async function listUserPolls(url: URL, env: UserEnv, userId: number): Promise<Re
 
 async function closeUserPoll(env: UserEnv, userId: number, pollId: number): Promise<Response> {
   const poll = await findOwnedPoll(env, userId, pollId);
-  if (!poll) return noStoreJson({ message: 'poll not found' }, 404);
+  if (!poll) return apiError('POLL_NOT_FOUND', 404);
 
   await env.DB.prepare(
     `UPDATE polls SET status = 2, closed_at = unixepoch(), updated_at = unixepoch()
@@ -181,10 +182,10 @@ async function closeUserPoll(env: UserEnv, userId: number, pollId: number): Prom
 
 async function deleteUserPoll(env: UserEnv, userId: number, pollId: number): Promise<Response> {
   const poll = await findOwnedPoll(env, userId, pollId);
-  if (!poll) return noStoreJson({ message: 'poll not found' }, 404);
+  if (!poll) return apiError('POLL_NOT_FOUND', 404);
   // Only polls that have not been reviewed yet can be withdrawn.
   if (Number(poll.status) !== 4) {
-    return noStoreJson({ message: 'only polls still under review can be withdrawn' }, 409);
+    return apiError('POLL_NOT_WITHDRAWABLE', 409);
   }
 
   // votes and comments cascade with the poll (ON DELETE CASCADE).
@@ -233,7 +234,7 @@ async function findOwnedComment<T extends { owner_hash: string | null; public_id
 // server never has to scan every comment, and the owner hash proves ownership.
 async function listUserComments(url: URL, env: UserEnv, userId: number): Promise<Response> {
   const ids = parseCommentIds(url);
-  if (!ids) return noStoreJson({ message: 'invalid ids parameter' }, 400);
+  if (!ids) return apiError('INVALID_IDS', 400);
   if (ids.length === 0) return noStoreJson({ comments: [] });
 
   const placeholders = ids.map(() => '?').join(', ');
@@ -272,11 +273,11 @@ async function listUserComments(url: URL, env: UserEnv, userId: number): Promise
 // Deletes one of the account's own comments. The owner hash is compared again, so
 // a comment id from another account is a 404 rather than a deletion.
 async function deleteUserComment(env: UserEnv, userId: number, publicId: string): Promise<Response> {
-  if (!/^[0-9a-f]{16}$/i.test(publicId)) return noStoreJson({ message: 'invalid comment id' }, 400);
+  if (!/^[0-9a-f]{16}$/i.test(publicId)) return apiError('INVALID_COMMENT_ID', 400);
   const row = await findOwnedComment(env, userId, await env.DB.prepare(
     'SELECT public_id, owner_hash FROM comments WHERE public_id = ?'
   ).bind(publicId).first<{ public_id: string; owner_hash: string | null }>());
-  if (!row) return noStoreJson({ message: 'comment not found' }, 404);
+  if (!row) return apiError('COMMENT_NOT_FOUND', 404);
 
   await env.DB.prepare('DELETE FROM comments WHERE public_id = ? AND owner_hash = ?')
     .bind(row.public_id, row.owner_hash).run();
@@ -291,13 +292,13 @@ async function regenerateRecoveryCode(request: Request, env: UserEnv, userId: nu
   try {
     body = await request.json();
   } catch {
-    return noStoreJson({ message: 'invalid JSON' }, 400);
+    return apiError('INVALID_JSON', 400);
   }
   const currentPassword = typeof body === 'object' && body !== null
     ? String((body as Record<string, unknown>).currentPassword ?? '')
     : '';
   if (!currentPassword) {
-    return noStoreJson({ message: 'current password is required' }, 400);
+    return apiError('CURRENT_PASSWORD_REQUIRED', 400);
   }
 
   // The password hasher is sharded by username, so the username is read here.
@@ -305,7 +306,7 @@ async function regenerateRecoveryCode(request: Request, env: UserEnv, userId: nu
     'SELECT username, password_hash FROM users WHERE id = ?'
   ).bind(userId).first<{ username: string; password_hash: string }>();
   if (!user || !await verifyPassword(env, user.username, currentPassword, user.password_hash)) {
-    return noStoreJson({ message: 'current password is incorrect' }, 403);
+    return apiError('CURRENT_PASSWORD_INCORRECT', 403);
   }
 
   const recoveryCode = await generateRecoveryCode();
@@ -332,13 +333,13 @@ async function deleteAccount(request: Request, env: UserEnv, userId: number): Pr
   try {
     body = await request.json();
   } catch {
-    return noStoreJson({ message: 'invalid JSON' }, 400);
+    return apiError('INVALID_JSON', 400);
   }
   const currentPassword = typeof body === 'object' && body !== null
     ? String((body as Record<string, unknown>).currentPassword ?? '')
     : '';
   if (!currentPassword) {
-    return noStoreJson({ message: 'current password is required' }, 400);
+    return apiError('CURRENT_PASSWORD_REQUIRED', 400);
   }
 
   // The password hasher is sharded by username, so the username is read here.
@@ -346,7 +347,7 @@ async function deleteAccount(request: Request, env: UserEnv, userId: number): Pr
     'SELECT username, password_hash FROM users WHERE id = ?'
   ).bind(userId).first<{ username: string; password_hash: string }>();
   if (!user || !await verifyPassword(env, user.username, currentPassword, user.password_hash)) {
-    return noStoreJson({ message: 'current password is incorrect' }, 403);
+    return apiError('CURRENT_PASSWORD_INCORRECT', 403);
   }
 
   await env.DB.batch([

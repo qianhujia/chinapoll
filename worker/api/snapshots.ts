@@ -7,6 +7,7 @@ import {
   verifySnapshotHash,
   type SnapshotRecord
 } from '../services/snapshot';
+import { apiError } from '../../shared/http';
 
 interface SnapshotRow {
   poll_id: number;
@@ -55,17 +56,17 @@ function parseCursor(url: URL): number | null {
 
 export async function handleSnapshotRequest(request: Request, url: URL, env: HandlerEnv): Promise<Response> {
   if (request.method !== 'GET') {
-    return Response.json({ message: 'method not allowed' }, { status: 405 });
+    return apiError('METHOD_NOT_ALLOWED', 405);
   }
 
   const match = url.pathname.match(/^\/api\/snapshots\/([1-9]\d*)(?:\/(verify))?$/);
   if (!match) {
-    return Response.json({ message: 'not found' }, { status: 404 });
+    return apiError('RESOURCE_NOT_FOUND', 404);
   }
 
   const pollId = Number(match[1]);
   if (!Number.isSafeInteger(pollId)) {
-    return Response.json({ message: 'invalid poll ID' }, { status: 400 });
+    return apiError('INVALID_POLL_ID', 400);
   }
 
   if (match[2] === 'verify') {
@@ -94,7 +95,7 @@ export async function handleSnapshotRequest(request: Request, url: URL, env: Han
 
   const after = parseCursor(url);
   if (after === null) {
-    return Response.json({ message: 'invalid after cursor' }, { status: 400 });
+    return apiError('INVALID_CURSOR', 400);
   }
 
   const rows = await fetchPage(env, pollId, after, MAX_SNAPSHOTS);

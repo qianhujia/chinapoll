@@ -15,6 +15,8 @@
 // hour. The hourly cron, the snapshots, and the 90-day roll-up keep reading
 // `poll_views` unchanged.
 
+
+import { apiError } from '../../shared/http';
 export interface ViewCounterEnv {
   DB: D1Database;
   VIEW_COUNTER: DurableObjectNamespace;
@@ -57,13 +59,13 @@ export class ViewCounter {
     try {
       body = await request.json() as ViewRequest;
     } catch {
-      return Response.json({ ok: false, message: 'invalid JSON' }, { status: 400 });
+      return apiError('INVALID_JSON', 400, { extra: { ok: false } });
     }
 
     const pollId = Number(body.pollId ?? 0);
     const ipHash = typeof body.ipHash === 'string' ? body.ipHash : '';
     if (!Number.isSafeInteger(pollId) || pollId < 1 || !ipHash) {
-      return Response.json({ ok: false, message: 'invalid view request' }, { status: 400 });
+      return apiError('INVALID_VIEW_REQUEST', 400, { extra: { ok: false } });
     }
 
     // The per-network rate limit is a local memory check, so the request path

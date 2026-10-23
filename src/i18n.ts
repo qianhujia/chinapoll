@@ -51,3 +51,11 @@ export async function loadTranslations(locale: Locale): Promise<void> {
 export function getLocaleText(locale: Locale, key: string): string {
   return translations[locale]?.[key] ?? key;
 }
+
+// True when the dictionary for `locale` actually defines `key`. Callers that
+// need to fall back (for example the API error helper) use this instead of
+// comparing against the returned text, which cannot tell a missing key from a
+// value that happens to equal its key.
+export function hasLocaleText(locale: Locale, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(translations[locale] ?? {}, key);
+}

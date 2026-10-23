@@ -5,6 +5,8 @@
 // enforce SameSite. GET, HEAD, and OPTIONS are not state changing and are
 // allowed through.
 
+
+import { apiError } from '../../shared/http';
 export function enforceSameOrigin(
   request: Request,
   options: { viaCookie: boolean; extraOrigin?: string } = { viaCookie: true }
@@ -25,7 +27,7 @@ export function enforceSameOrigin(
   }
 
   if (!origin || !allowed.has(origin)) {
-    return Response.json({ message: 'cross-origin request rejected' }, { status: 403 });
+    return apiError('CROSS_ORIGIN_REJECTED', 403);
   }
   return null;
 }

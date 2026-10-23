@@ -2,6 +2,7 @@ import { CircleAlert, CircleCheck, EllipsisVertical, Eye, Search, X, type IconNo
 import { DEFAULT_LOCALE, getLocaleText } from './i18n';
 import { getComments, type CommentsResponse, type PollSummary } from './lib/poll';
 import { getCurrentUser } from './lib/session';
+import { apiErrorMessage } from './lib/apiError';
 import { getPublicSettings } from './config';
 
 // Lucide icon nodes are inlined into SVG markup at build time; no icon library ships at runtime.
@@ -71,8 +72,12 @@ export function t(key: string): string {
   return getLocaleText(DEFAULT_LOCALE, key);
 }
 
+// The message to display for a failed request. Backend errors carry a stable
+// code (see src/lib/apiError.ts) that is translated into the current language;
+// anything that cannot be identified becomes one localized generic message, so
+// raw exception text is never shown.
 export function getErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  return apiErrorMessage(error);
 }
 
 export function getSiteName(): string {

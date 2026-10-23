@@ -2,6 +2,7 @@
 // by both the request router and the public settings endpoint.
 
 import { isTurnstileEnabled, turnstileSiteKey, type TurnstileEnv } from '../services/turnstile';
+import { apiError } from '../../shared/http';
 
 interface SettingRow {
   key: string;
@@ -272,7 +273,7 @@ export async function handlePublicSettingsRequest(
   env: { DB: D1Database } & TurnstileEnv
 ): Promise<Response> {
   if (request.method !== 'GET') {
-    return Response.json({ message: 'method not allowed' }, { status: 405 });
+    return apiError('METHOD_NOT_ALLOWED', 405);
   }
 
   try {
@@ -289,7 +290,10 @@ export async function handlePublicSettingsRequest(
     });
   } catch (error) {
     if (error instanceof SettingsValidationError) {
-      return Response.json({ message: error.message }, { status: 500 });
+      // The stored value is logged, never returned: a settings error must not
+      // leak the raw row or any other internal detail to the caller.
+      console.error('public settings invalid', error.key, error.message);
+      return apiError('INTERNAL_ERROR', 500);
     }
     throw error;
   }

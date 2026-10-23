@@ -58,6 +58,7 @@ import {
   type HomeSsrData
 } from './services/ssr';
 import { getPollStatusLabel, PollMode, PollStatus } from './enums';
+import { apiError } from '../shared/http';
 
 export interface Env {
   DB: D1Database;
@@ -506,7 +507,7 @@ ${polls.map(entry).join('\n')}
       return handleUserRequest(request, url, envWithSettings);
     }
 
-    return Response.json({ message: 'not found' }, { status: 404 });
+    return apiError('RESOURCE_NOT_FOUND', 404);
   }
 
   // Everything else, including the SPA shell and deep links such as `/poll/12`,
@@ -535,7 +536,7 @@ export default {
         status: 500,
         error: error instanceof Error ? error.message : String(error)
       }));
-      return withSecurityHeaders(Response.json({ message: 'internal error' }, { status: 500 }), true);
+      return withSecurityHeaders(apiError('INTERNAL_ERROR', 500), true);
     } finally {
       void ctx;
     }

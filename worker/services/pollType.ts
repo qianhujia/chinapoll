@@ -10,6 +10,8 @@
 // Every public response shows the ballots per poll and the counts per option only -
 // never which options were chosen together on one ballot.
 
+import { errorMessage, type ApiErrorCode, type ApiErrorParams } from '../../shared/errors';
+
 import { getPollTypeLabel, PollType, type PollTypeLabel } from '../enums';
 
 export const MIN_POLL_OPTIONS = 2;
@@ -25,12 +27,19 @@ export function requiredSelectionCount(pollType: number): { min: number; max: nu
   return null;
 }
 
-export type PollTypeValidation = { ok: true; label: PollTypeLabel } | { ok: false; message: string };
+export type PollTypeValidation =
+  | { ok: true; label: PollTypeLabel }
+  | { ok: false; code: ApiErrorCode; params: ApiErrorParams; message: string };
 
-export function validateOptionLabel(value: unknown, position: number): { ok: true; label: string } | { ok: false; message: string } {
+export type OptionLabelValidation =
+  | { ok: true; label: string }
+  | { ok: false; code: ApiErrorCode; params: ApiErrorParams; message: string };
+
+export function validateOptionLabel(value: unknown, position: number): OptionLabelValidation {
   const label = typeof value === 'string' ? value.trim() : '';
   if (label.length < 1 || label.length > MAX_OPTION_LABEL_LENGTH) {
-    return { ok: false, message: `option ${position} must be 1 to ${MAX_OPTION_LABEL_LENGTH} characters` };
+    const params = { position, max: MAX_OPTION_LABEL_LENGTH };
+    return { ok: false, code: 'OPTION_LABEL_LENGTH', params, message: errorMessage('OPTION_LABEL_LENGTH', params) };
   }
   return { ok: true, label };
 }
@@ -43,19 +52,20 @@ export interface ParsedOption {
 
 export type PollOptionsValidation =
   | { ok: true; options: ParsedOption[] }
-  | { ok: false; message: string };
+  | { ok: false; code: ApiErrorCode; params: ApiErrorParams; message: string };
 
 // Validates an option list: 2 to 7 rows, 1 to 80 characters each after
 // trimming, position 1..7, and no duplicates. A plain string array is accepted
 // as well as `{ position, label }` entries; a string entry takes its position
 // from its index, so a client can submit the rows in order.
 export function validatePollOptions(value: unknown): PollOptionsValidation {
+  const bounds = { min: MIN_POLL_OPTIONS, max: MAX_POLL_OPTIONS };
   const entries = toOptionEntries(value);
   if (entries === null) {
-    return { ok: false, message: 'a choice poll needs 2 to 7 options' };
+    return { ok: false, code: 'POLL_OPTIONS_COUNT', params: bounds, message: errorMessage('POLL_OPTIONS_COUNT', bounds) };
   }
   if (entries.length < MIN_POLL_OPTIONS || entries.length > MAX_POLL_OPTIONS) {
-    return { ok: false, message: `a choice poll needs ${MIN_POLL_OPTIONS} to ${MAX_POLL_OPTIONS} options` };
+    return { ok: false, code: 'POLL_OPTIONS_COUNT', params: bounds, message: errorMessage('POLL_OPTIONS_COUNT', bounds) };
   }
 
   const options: ParsedOption[] = [];
@@ -66,19 +76,20 @@ export function validatePollOptions(value: unknown): PollOptionsValidation {
     const raw = entry as Record<string, unknown>;
     const position = typeof entry === 'string' ? options.length + 1 : Number(raw.position);
     if (!Number.isSafeInteger(position) || position < 1 || position > MAX_POLL_OPTIONS) {
-      return { ok: false, message: `option positions must be between 1 and ${MAX_POLL_OPTIONS}` };
+      const params = { max: MAX_POLL_OPTIONS };
+      return { ok: false, code: 'OPTION_POSITION_RANGE', params, message: errorMessage('OPTION_POSITION_RANGE', params) };
     }
     if (seenPositions.has(position)) {
-      return { ok: false, message: 'option positions must be unique' };
+      return { ok: false, code: 'OPTION_POSITION_DUPLICATE', params: {}, message: errorMessage('OPTION_POSITION_DUPLICATE') };
     }
     seenPositions.add(position);
 
     const label = validateOptionLabel(typeof entry === 'string' ? entry : raw.label, position);
-    if (!label.ok) return { ok: false, message: label.message };
+    if (!label.ok) return { ok: false, code: label.code, params: label.params, message: label.message };
 
     const key = label.label.toLowerCase();
     if (seenLabels.has(key)) {
-      return { ok: false, message: 'option labels must be unique' };
+      return { ok: false, code: 'OPTION_LABEL_DUPLICATE', params: {}, message: errorMessage('OPTION_LABEL_DUPLICATE') };
     }
     seenLabels.add(key);
     options.push({ position, label: label.label });

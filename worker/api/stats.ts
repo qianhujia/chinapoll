@@ -13,6 +13,7 @@ import {
   toPublicResults,
   type PublicResults
 } from '../services/options.js';
+import { apiError } from '../../shared/http';
 
 export interface StatsResponse extends PublicResults {
   pollId: number;
@@ -21,17 +22,17 @@ export interface StatsResponse extends PublicResults {
 
 export async function handleStatsRequest(request: Request, url: URL, env: HandlerEnv): Promise<Response> {
   if (request.method !== 'GET') {
-    return Response.json({ message: 'method not allowed' }, { status: 405 });
+    return apiError('METHOD_NOT_ALLOWED', 405);
   }
 
   // Same validation as getPoll in polls.ts.
   const pollIdText = url.pathname.split('/').pop() ?? '';
   if (!/^[1-9]\d*$/.test(pollIdText)) {
-    return Response.json({ message: 'invalid poll ID' }, { status: 400 });
+    return apiError('INVALID_POLL_ID', 400);
   }
   const pollId = Number(pollIdText);
   if (!Number.isSafeInteger(pollId)) {
-    return Response.json({ message: 'invalid poll ID' }, { status: 400 });
+    return apiError('INVALID_POLL_ID', 400);
   }
 
   const poll = await env.DB.prepare('SELECT id, poll_type FROM polls WHERE id = ?')

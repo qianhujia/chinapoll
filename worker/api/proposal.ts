@@ -32,6 +32,8 @@ import { ownerHash } from '../services/owner';
 import { serverHmacKey } from '../services/ip';
 import { requireUser } from '../services/session';
 import { checkAccountAge } from '../services/users';
+import { apiError } from '../../shared/http';
+import { errorMessage, type ApiErrorCode, type ApiErrorParams } from '../../shared/errors';
 
 const MAX_TITLE_LENGTH = 200;
 const MIN_DESCRIPTION_LENGTH = 20;
@@ -41,7 +43,7 @@ const DEFAULT_POLL_DELAY_HOURS = 48;
 
 export async function handleProposalRequest(request: Request, env: HandlerEnv): Promise<Response> {
   if (request.method !== 'POST') {
-    return Response.json({ ok: false, message: 'POST only' }, { status: 405 });
+    return apiError('POST_ONLY', 405, { extra: { ok: false } });
   }
 
   const auth = await requireUser(request, env);
@@ -53,21 +55,20 @@ export async function handleProposalRequest(request: Request, env: HandlerEnv): 
   const delayHours = Number(env.user_poll_delay_hours ?? DEFAULT_POLL_DELAY_HOURS);
   const accountAge = checkAccountAge(auth.user.createdAt, delayHours);
   if (!accountAge.allowed) {
-    return Response.json({
-      ok: false,
-      message: `new accounts can submit a poll once the account is ${delayHours} hours old`,
-      remainingHours: accountAge.remainingHours
-    }, { status: 403 });
+    return apiError('ACCOUNT_TOO_NEW_POLL', 403, {
+      params: { hours: delayHours },
+      extra: { ok: false, remainingHours: accountAge.remainingHours }
+    });
   }
 
   const body = await readJson(request);
   if (!body) {
-    return Response.json({ ok: false, message: 'invalid JSON' }, { status: 400 });
+    return apiError('INVALID_JSON', 400, { extra: { ok: false } });
   }
 
   const validation = validateProposal(body);
   if (!validation.ok) {
-    return Response.json({ ok: false, message: validation.message }, { status: 400 });
+    return apiError(validation.code, 400, { params: validation.params, extra: { ok: false } });
   }
   const { title, description, pollType, duration, options } = validation.input;
   const mode = durationMode(duration);
@@ -78,12 +79,12 @@ export async function handleProposalRequest(request: Request, env: HandlerEnv): 
      WHERE status IN (?, ?) AND LOWER(TRIM(title)) = LOWER(TRIM(?)) LIMIT 1`
   ).bind(PollStatus.Pending, PollStatus.Open, title).first<{ id: number }>();
   if (duplicate) {
-    return Response.json({ ok: false, message: 'a poll with this title is already pending or open' }, { status: 409 });
+    return apiError('DUPLICATE_POLL_TITLE', 409, { extra: { ok: false } });
   }
 
   const limited = await checkRateLimit(env, 'proposal', `user:${auth.user.id}`, env.proposal_rate_limit, DEFAULT_PROPOSAL_RATE_LIMIT);
   if (!limited.allowed) {
-    return Response.json({ ok: false, message: 'proposal rate limit reached' }, { status: 429 });
+    return apiError('PROPOSAL_RATE_LIMIT', 429, { extra: { ok: false } });
   }
 
   // The submitter's explicit category always wins. Only when none was chosen does
@@ -93,12 +94,12 @@ export async function handleProposalRequest(request: Request, env: HandlerEnv): 
   let topicId: number | null = null;
   if (requestedTopic) {
     if (!TOPIC_SLUG_PATTERN.test(requestedTopic)) {
-      return Response.json({ ok: false, message: 'invalid topic' }, { status: 400 });
+      return apiError('INVALID_TOPIC', 400, { extra: { ok: false } });
     }
     const topics = await loadEnabledTopics(env);
     const match = topics.find((topic) => topic.slug === requestedTopic);
     if (!match) {
-      return Response.json({ ok: false, message: 'unknown topic' }, { status: 400 });
+      return apiError('UNKNOWN_TOPIC', 400, { extra: { ok: false } });
     }
     topicId = match.id;
   }
@@ -193,7 +194,7 @@ export interface ProposalInput {
 
 export type ProposalValidation =
   | { ok: true; input: ProposalInput }
-  | { ok: false; message: string };
+  | { ok: false; code: ApiErrorCode; params: ApiErrorParams; message: string };
 
 // Validates a proposal payload. The description is optional: an empty or omitted
 // description is accepted and stored as NULL, while a provided description must
@@ -203,19 +204,18 @@ export type ProposalValidation =
 export function validateProposal(body: Record<string, unknown>): ProposalValidation {
   const title = typeof body.title === 'string' ? body.title.trim() : '';
   if (!title || title.length > MAX_TITLE_LENGTH) {
-    return { ok: false, message: `a poll needs a title of at most ${MAX_TITLE_LENGTH} characters` };
+    const params = { max: MAX_TITLE_LENGTH };
+    return { ok: false, code: 'TITLE_TOO_LONG', params, message: errorMessage('TITLE_TOO_LONG', params) };
   }
 
   if (body.description !== undefined && typeof body.description !== 'string') {
-    return { ok: false, message: 'invalid proposal description' };
+    return { ok: false, code: 'PROPOSAL_DESCRIPTION_INVALID', params: {}, message: errorMessage('PROPOSAL_DESCRIPTION_INVALID') };
   }
   const trimmedDescription = typeof body.description === 'string' ? body.description.trim() : '';
   if (trimmedDescription.length > 0
     && (trimmedDescription.length < MIN_DESCRIPTION_LENGTH || trimmedDescription.length > MAX_DESCRIPTION_LENGTH)) {
-    return {
-      ok: false,
-      message: `a description must be between ${MIN_DESCRIPTION_LENGTH} and ${MAX_DESCRIPTION_LENGTH} characters`
-    };
+    const params = { min: MIN_DESCRIPTION_LENGTH, max: MAX_DESCRIPTION_LENGTH };
+    return { ok: false, code: 'DESCRIPTION_LENGTH', params, message: errorMessage('DESCRIPTION_LENGTH', params) };
   }
   const description = trimmedDescription.length > 0 ? trimmedDescription : null;
 
@@ -225,18 +225,21 @@ export function validateProposal(body: Record<string, unknown>): ProposalValidat
   // Oppose.
   const pollType = getPollTypeCode(body.pollType);
   if (pollType === null) {
-    return { ok: false, message: 'a poll needs a valid type' };
+    return { ok: false, code: 'PROPOSAL_TYPE_INVALID', params: {}, message: errorMessage('PROPOSAL_TYPE_INVALID') };
   }
 
   if (!isPollDuration(body.duration)) {
-    return { ok: false, message: `duration must be one of ${POLL_DURATIONS.join(', ')}` };
+    const params = { options: POLL_DURATIONS.join(', ') };
+    return { ok: false, code: 'DURATION_INVALID', params, message: errorMessage('DURATION_INVALID', params) };
   }
 
   // A poll needs 2 to 7 custom options, each 1 to 80 characters after trimming
   // and all distinct. A plain string array is accepted as well as
   // `{ position, label }` entries, so the client can submit the rows in order.
   const optionValidation = validatePollOptions(body.options);
-  if (!optionValidation.ok) return { ok: false, message: optionValidation.message };
+  if (!optionValidation.ok) {
+    return { ok: false, code: optionValidation.code, params: optionValidation.params, message: optionValidation.message };
+  }
   const options = optionValidation.options;
 
   return {

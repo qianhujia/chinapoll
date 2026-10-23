@@ -13,6 +13,7 @@
 import type { HandlerEnv } from '../index';
 import { countView } from '../services/viewCounter';
 import { clientAddress, hashedNetworkBucket, serverHmacKey } from '../services/ip';
+import { apiError } from '../../shared/http';
 
 const VIEW_PATH_PATTERN = /^\/api\/polls\/([1-9]\d*)\/view$/;
 
@@ -23,16 +24,16 @@ export function dayBucket(unixSeconds: number): number {
 
 export async function handleViewRequest(request: Request, url: URL, env: HandlerEnv): Promise<Response> {
   if (request.method !== 'POST') {
-    return Response.json({ ok: false, message: 'POST only' }, { status: 405 });
+    return apiError('POST_ONLY', 405, { extra: { ok: false } });
   }
 
   const match = url.pathname.match(VIEW_PATH_PATTERN);
   if (!match) {
-    return Response.json({ ok: false, message: 'not found' }, { status: 404 });
+    return apiError('RESOURCE_NOT_FOUND', 404, { extra: { ok: false } });
   }
   const pollId = Number(match[1]);
   if (!Number.isSafeInteger(pollId)) {
-    return Response.json({ ok: false, message: 'invalid poll ID' }, { status: 400 });
+    return apiError('INVALID_POLL_ID', 400, { extra: { ok: false } });
   }
 
   // The keyed, daily-rotated network hash is computed here and passed to the

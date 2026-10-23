@@ -26,15 +26,17 @@ import { enforceSameOrigin } from '../services/csrf';
 import { isTurnstileEnabled, turnstileSecretKey, verifyTurnstile } from '../services/turnstile';
 import { requireUser } from '../services/session';
 import { checkAccountAge } from '../services/users';
+import { apiError } from '../../shared/http';
+import type { ApiErrorCode } from '../../shared/errors';
 
 const DEFAULT_AI_RATE_LIMIT = '10/h';
 const DEFAULT_POLL_DELAY_HOURS = 48;
 const MIN_TITLE_CHARACTERS = 10;
 
-const FAILURE_MESSAGES: Record<string, { message: string; status: number }> = {
-  bad_model_output: { message: 'the model returned an unusable answer', status: 502 },
-  timeout: { message: 'the model did not answer in time', status: 504 },
-  model_error: { message: 'the model could not be reached', status: 502 }
+const FAILURE_MESSAGES: Record<string, { code: ApiErrorCode; status: number }> = {
+  bad_model_output: { code: 'AI_BAD_OUTPUT', status: 502 },
+  timeout: { code: 'AI_TIMEOUT', status: 504 },
+  model_error: { code: 'AI_UNREACHABLE', status: 502 }
 };
 
 function isLocale(value: unknown): value is AiLocale {
@@ -44,7 +46,7 @@ function isLocale(value: unknown): value is AiLocale {
 export async function handleAiRequest(request: Request, url: URL, env: HandlerEnv): Promise<Response> {
   // With the feature off the endpoints behave as if they did not exist.
   if (env.ai_enable !== true) {
-    return Response.json({ message: 'not found' }, { status: 404 });
+    return apiError('RESOURCE_NOT_FOUND', 404);
   }
 
   if (url.pathname === '/api/ai/enhance-title') {
@@ -59,7 +61,7 @@ export async function handleAiRequest(request: Request, url: URL, env: HandlerEn
   if (url.pathname === '/api/ai/categorise') {
     return handleCategorise(request, env);
   }
-  return Response.json({ message: 'not found' }, { status: 404 });
+  return apiError('RESOURCE_NOT_FOUND', 404);
 }
 
 interface AiContext {
@@ -70,7 +72,7 @@ interface AiContext {
 // Shared gate: sign-in, Origin, account age, Turnstile, and the `ai` rate limit.
 async function openAiContext(request: Request, env: HandlerEnv): Promise<AiContext | Response> {
   if (request.method !== 'POST') {
-    return Response.json({ message: 'method not allowed' }, { status: 405 });
+    return apiError('METHOD_NOT_ALLOWED', 405);
   }
 
   const auth = await requireUser(request, env);
@@ -82,10 +84,10 @@ async function openAiContext(request: Request, env: HandlerEnv): Promise<AiConte
   const delayHours = Number(env.user_poll_delay_hours ?? DEFAULT_POLL_DELAY_HOURS);
   const accountAge = checkAccountAge(auth.user.createdAt, delayHours);
   if (!accountAge.allowed) {
-    return Response.json({
-      message: `new accounts can use AI assistance once the account is ${delayHours} hours old`,
-      remainingHours: accountAge.remainingHours
-    }, { status: 403 });
+    return apiError('ACCOUNT_TOO_NEW_AI', 403, {
+      params: { hours: delayHours },
+      extra: { remainingHours: accountAge.remainingHours }
+    });
   }
 
   let body: Record<string, unknown>;
@@ -94,20 +96,20 @@ async function openAiContext(request: Request, env: HandlerEnv): Promise<AiConte
     if (typeof parsed !== 'object' || parsed === null) throw new Error('not an object');
     body = parsed as Record<string, unknown>;
   } catch {
-    return Response.json({ message: 'invalid JSON' }, { status: 400 });
+    return apiError('INVALID_JSON', 400);
   }
 
   // The same Turnstile gate as the other account actions.
   if (isTurnstileEnabled(env)) {
     const token = typeof body.turnstileToken === 'string' ? body.turnstileToken : '';
     if (!token || !await verifyTurnstile(turnstileSecretKey(env), token, new URL(request.url).hostname)) {
-      return Response.json({ message: 'turnstile verification failed' }, { status: 403 });
+      return apiError('TURNSTILE_FAILED', 403);
     }
   }
 
   const limited = await checkRateLimit(env, 'ai', `user:${auth.user.id}`, env.ai_rate_limit, DEFAULT_AI_RATE_LIMIT);
   if (!limited.allowed) {
-    return Response.json({ message: 'ai rate limit reached' }, { status: 429 });
+    return apiError('AI_RATE_LIMIT', 429);
   }
 
   return { body, model: env.ai_model?.trim() || DEFAULT_AI_MODEL };
@@ -126,23 +128,21 @@ interface TextInput {
 function readText(body: Record<string, unknown>, model: string): TextInput | Response {
   const title = typeof body.title === 'string' ? body.title.trim() : '';
   if (title.length < MIN_TITLE_CHARACTERS || title.length > MAX_TITLE_LENGTH) {
-    return Response.json({
-      message: `a title of ${MIN_TITLE_CHARACTERS} to ${MAX_TITLE_LENGTH} characters is required`
-    }, { status: 400 });
+    return apiError('TITLE_LENGTH_REQUIRED', 400, {
+      params: { min: MIN_TITLE_CHARACTERS, max: MAX_TITLE_LENGTH }
+    });
   }
 
   if (body.description !== undefined && typeof body.description !== 'string') {
-    return Response.json({ message: 'invalid description' }, { status: 400 });
+    return apiError('INVALID_DESCRIPTION', 400);
   }
   const description = typeof body.description === 'string' ? body.description.trim() : '';
   if (description.length > MAX_DESCRIPTION_LENGTH) {
-    return Response.json({
-      message: `a description of at most ${MAX_DESCRIPTION_LENGTH} characters is required`
-    }, { status: 400 });
+    return apiError('DESCRIPTION_TOO_LONG', 400, { params: { max: MAX_DESCRIPTION_LENGTH } });
   }
 
   if (!isLocale(body.locale)) {
-    return Response.json({ message: 'unsupported locale' }, { status: 400 });
+    return apiError('UNSUPPORTED_LOCALE', 400);
   }
 
   return { title, description, locale: body.locale, model };
@@ -152,10 +152,7 @@ function readText(body: Record<string, unknown>, model: string): TextInput | Res
 // the Worker so a caller cannot probe the model through error text.
 function failureResponse(reason: string): Response {
   const failure = FAILURE_MESSAGES[reason] ?? FAILURE_MESSAGES.bad_model_output;
-  return Response.json({ ok: false, message: failure.message }, {
-    status: failure.status,
-    headers: { 'cache-control': 'no-store' }
-  });
+  return apiError(failure.code, failure.status, { extra: { ok: false } });
 }
 
 async function handleEnhanceTitle(request: Request, env: HandlerEnv): Promise<Response> {
@@ -187,12 +184,12 @@ async function handleSuggestOptions(request: Request, env: HandlerEnv): Promise<
 
   const pollType = context.body.pollType;
   if (pollType !== 'single_choice' && pollType !== 'multi_choice') {
-    return Response.json({ message: 'pollType must be single_choice or multi_choice' }, { status: 400 });
+    return apiError('INVALID_POLL_TYPE', 400);
   }
 
   const requested = Number(context.body.count ?? 4);
   if (context.body.count !== undefined && (!Number.isSafeInteger(requested) || requested < 2 || requested > 7)) {
-    return Response.json({ message: 'count must be an integer from 2 to 7' }, { status: 400 });
+    return apiError('OPTION_COUNT_INVALID', 400);
   }
 
   const result = await suggestPollOptions(
@@ -246,19 +243,17 @@ async function handleEnhanceDescription(request: Request, env: HandlerEnv): Prom
 function readCategoryText(body: Record<string, unknown>): { title: string; description: string } | Response {
   const title = typeof body.title === 'string' ? body.title.trim() : '';
   if (title.length < MIN_TITLE_CHARACTERS || title.length > MAX_TITLE_LENGTH) {
-    return Response.json({
-      message: `a title of ${MIN_TITLE_CHARACTERS} to ${MAX_TITLE_LENGTH} characters is required`
-    }, { status: 400 });
+    return apiError('TITLE_LENGTH_REQUIRED', 400, {
+      params: { min: MIN_TITLE_CHARACTERS, max: MAX_TITLE_LENGTH }
+    });
   }
 
   if (body.description !== undefined && typeof body.description !== 'string') {
-    return Response.json({ message: 'invalid description' }, { status: 400 });
+    return apiError('INVALID_DESCRIPTION', 400);
   }
   const description = typeof body.description === 'string' ? body.description.trim() : '';
   if (description.length > MAX_DESCRIPTION_LENGTH) {
-    return Response.json({
-      message: `a description of at most ${MAX_DESCRIPTION_LENGTH} characters is required`
-    }, { status: 400 });
+    return apiError('DESCRIPTION_TOO_LONG', 400, { params: { max: MAX_DESCRIPTION_LENGTH } });
   }
 
   return { title, description };

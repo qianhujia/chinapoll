@@ -1,6 +1,9 @@
 // Ballot shape of a poll, matching worker/enums.ts. The verdict type is its own
 // type: its options are the verdict words the proposal form pre-fills, and it
 // accepts the same single ballot as a single choice poll.
+
+import { ApiError, parseApiErrorPayload } from './apiError';
+
 export type PollType = 'verdict' | 'single_choice' | 'multi_choice';
 
 // The durations offered by the proposal form. The mapping is defined once in
@@ -153,6 +156,16 @@ export interface CommentsResponse {
   comments: Array<{ id: string | null; comment: string; createdAt: string }>;
 }
 
+// Parses an error body, keeping the raw text when it is not JSON so a plain-text
+// failure still reaches the caller.
+function readErrorPayload(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text.trim();
+  }
+}
+
 export async function fetchJson<T>(input: string, init?: RequestInit): Promise<T> {
   const response = await fetch(input, {
     headers: {
@@ -163,20 +176,14 @@ export async function fetchJson<T>(input: string, init?: RequestInit): Promise<T
   });
 
   if (!response.ok) {
-    const responseBody = await response.text();
-    let message = '';
-    try {
-      const errorBody: unknown = JSON.parse(responseBody);
-      if (typeof errorBody === 'object' && errorBody !== null && 'message' in errorBody
-        && typeof errorBody.message === 'string') {
-        message = errorBody.message;
-      }
-    } catch {
-      message = responseBody.trim();
-    }
-    throw new Error(message
-      ? `${message} (${response.status})`
-      : `Request failed: ${response.status} ${response.statusText}`);
+    const parsed = parseApiErrorPayload(readErrorPayload(await response.text()));
+    // The message keeps the API's English text so a legacy response can still be
+    // mapped back to a code; `code` and `params` drive the localized text.
+    throw new ApiError(parsed.message, {
+      code: parsed.code,
+      params: parsed.params,
+      status: response.status
+    });
   }
 
   return response.json() as Promise<T>;

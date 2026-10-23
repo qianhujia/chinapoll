@@ -16,6 +16,7 @@ import {
 } from '../services/options.js';
 import { loadViewCounts, publicViews } from './views';
 import { TOPIC_SLUG_PATTERN } from '../../shared/categories';
+import { apiError } from '../../shared/http';
 
 const MAX_PAGE_SIZE = 100;
 const MAX_QUERY_LENGTH = 100;
@@ -53,7 +54,7 @@ function buildSearch(query: string, prefix = ''): { clause: string; pattern: str
 
 export async function handlePollsRequest(request: Request, url: URL, env: HandlerEnv): Promise<Response> {
   if (request.method !== 'GET') {
-    return Response.json({ message: 'method not allowed' }, { status: 405 });
+    return apiError('METHOD_NOT_ALLOWED', 405);
   }
 
   // Recently closed polls are listed for the snapshot publisher, so a poll that
@@ -71,7 +72,7 @@ export async function handlePollsRequest(request: Request, url: URL, env: Handle
   const pageSize = Number(url.searchParams.get('pageSize') ?? '15');
   if (!Number.isSafeInteger(page) || page < 1
     || !Number.isSafeInteger(pageSize) || pageSize < 1 || pageSize > MAX_PAGE_SIZE) {
-    return Response.json({ message: 'invalid pagination parameters' }, { status: 400 });
+    return apiError('INVALID_PAGINATION', 400);
   }
 
   const query = (url.searchParams.get('q') ?? '').trim().slice(0, MAX_QUERY_LENGTH);
@@ -82,7 +83,7 @@ export async function handlePollsRequest(request: Request, url: URL, env: Handle
   // matches nothing, so the listing is simply empty.
   const topicSlug = (url.searchParams.get('topic') ?? '').trim();
   if (topicSlug && !TOPIC_SLUG_PATTERN.test(topicSlug)) {
-    return Response.json({ message: 'invalid topic' }, { status: 400 });
+    return apiError('INVALID_TOPIC', 400);
   }
   const topicClause = topicSlug
     ? ' AND topic_id = (SELECT id FROM topics WHERE slug = ? AND enabled = 1)'
@@ -210,7 +211,7 @@ async function listRecentlyClosed(url: URL, env: HandlerEnv): Promise<Response> 
   const rawDays = url.searchParams.get('days');
   const days = rawDays === null ? RECENT_CLOSED_DAYS : Number(rawDays);
   if (!Number.isSafeInteger(days) || days < 1 || days > RECENT_CLOSED_MAX_DAYS) {
-    return Response.json({ message: 'invalid days parameter' }, { status: 400 });
+    return apiError('INVALID_DAYS', 400);
   }
 
   const since = Math.floor(Date.now() / 1000) - days * 86400;
@@ -234,12 +235,12 @@ async function listRecentlyClosed(url: URL, env: HandlerEnv): Promise<Response> 
 
 async function getPoll(pollIdText: string, env: HandlerEnv): Promise<Response> {
   if (!/^[1-9]\d*$/.test(pollIdText)) {
-    return Response.json({ message: 'invalid poll ID' }, { status: 400 });
+    return apiError('INVALID_POLL_ID', 400);
   }
 
   const pollId = Number(pollIdText);
   if (!Number.isSafeInteger(pollId)) {
-    return Response.json({ message: 'invalid poll ID' }, { status: 400 });
+    return apiError('INVALID_POLL_ID', 400);
   }
 
   const poll = await env.DB.prepare(
@@ -267,7 +268,7 @@ async function getPoll(pollIdText: string, env: HandlerEnv): Promise<Response> {
   }>();
 
   if (!poll) {
-    return Response.json({ message: 'poll not found' }, { status: 404 });
+    return apiError('POLL_NOT_FOUND', 404);
   }
 
   const viewCounts = await loadViewCounts(env.DB, [pollId]);

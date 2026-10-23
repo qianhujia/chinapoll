@@ -7,6 +7,7 @@
 import { buildCookie, readCookie } from '../../shared/cookies';
 import { sha256Hex, toHex } from '../../shared/crypto';
 import { USER_STATUS_ACTIVE } from './users';
+import { apiError } from '../../shared/http';
 
 export const USER_SESSION_COOKIE = 'chinapoll_user_session';
 export const USER_SESSION_TTL_SECONDS = 30 * 24 * 60 * 60;
@@ -105,7 +106,7 @@ export async function requireUser(request: Request, env: SessionEnv): Promise<Re
   const user = await getUserActor(request, env);
   const token = readCookie(request, USER_SESSION_COOKIE);
   if (!user || !token) {
-    return { ok: false, response: Response.json({ ok: false, message: 'login required' }, { status: 401 }) };
+    return { ok: false, response: apiError('LOGIN_REQUIRED', 401, { extra: { ok: false } }) };
   }
   return { ok: true, user, token };
 }
