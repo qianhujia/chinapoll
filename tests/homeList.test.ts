@@ -8,6 +8,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { renderPollRow, renderTopicChips, TOPIC_CHIP_LIMIT } from '../src/pages/home';
+import { renderFooter } from '../src/ui';
 import type { PollWithStats } from '../src/lib/poll';
 
 // The shared row layout: identity and badges on the left, the ballot total, the
@@ -193,5 +194,17 @@ describe('renderTopicChips', () => {
 
   it('renders nothing when there are no topics', () => {
     expect(renderTopicChips([], 0, '', CHIP_LABELS)).toBe('');
+  });
+});
+
+describe('renderFooter', () => {
+  it('builds the credit from the translation instead of hardcoded text', () => {
+    const markup = renderFooter();
+
+    // Translations are not loaded here, so `t()` falls back to the key; the
+    // point is that the label comes from the dictionary, not the markup.
+    expect(markup).toContain('poweredBy');
+    expect(markup).not.toContain('Powered by');
+    expect(markup).toContain('github.com/qianhujia/chinapoll');
   });
 });

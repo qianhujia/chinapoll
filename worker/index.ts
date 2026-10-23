@@ -54,7 +54,7 @@ import {
   renderAboutBody,
   renderHomeBody,
   renderPollBody,
-  serverTranslate,
+  translatorFor,
   type HomeSsrData
 } from './services/ssr';
 import { getPollStatusLabel, PollMode, PollStatus } from './enums';
@@ -159,7 +159,9 @@ async function buildPublicPage(
   origin: string,
   env: Env
 ): Promise<PublicPage> {
-  const t = serverTranslate;
+  // The server-rendered copy follows the site's default locale, matching what
+  // the client bundle renders a moment later.
+  const t = translatorFor(settings.default_locale);
   const page = readPageParam(search);
   const query = (search.get('q') ?? '').trim().slice(0, 100);
 

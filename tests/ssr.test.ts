@@ -3,15 +3,18 @@ import { PollMode } from '../worker/enums';
 import {
   applyHtmlLang,
   injectAppBody,
+  normalizeLocale,
   renderAboutBody,
   renderHomeBody,
   renderPollBody,
   serverTranslate,
+  translatorFor,
   type SsrPollCard,
   type SsrPollDetail,
   type SsrSettings
 } from '../worker/services/ssr';
 import { escapeHtml, serializeJsonLd } from '../worker/services/html';
+import zhDictionary from '../public/i18n/zh.json';
 
 const settings: SsrSettings = {
   site_name: 'ChinaPoll',
@@ -142,5 +145,52 @@ describe('server translator', () => {
   it('uses the SPA dictionary and falls back to the key', () => {
     expect(serverTranslate('vote')).toBe('Vote');
     expect(serverTranslate('a-key-that-does-not-exist')).toBe('a-key-that-does-not-exist');
+  });
+});
+
+describe('locale-aware translator', () => {
+  it('normalizes the stored locale spellings', () => {
+    expect(normalizeLocale('zh-CN')).toBe('zh-CN');
+    expect(normalizeLocale('zh')).toBe('zh-CN');
+    expect(normalizeLocale('cn')).toBe('zh-CN');
+    expect(normalizeLocale('zh-TW')).toBe('zh-TW');
+    expect(normalizeLocale('zh-hant')).toBe('zh-TW');
+    expect(normalizeLocale('fr')).toBe('en');
+    expect(normalizeLocale(undefined)).toBe('en');
+  });
+
+  it('renders the site copy in the configured locale', () => {
+    const t = translatorFor('zh-CN');
+
+    // The server-rendered shell must not fall back to English when the site is
+    // configured in another language.
+    expect(t('noPolls')).toBe(zhDictionary.noPolls);
+    expect(t('dataLink')).toBe(zhDictionary.dataLink);
+    expect(t('noPolls')).not.toBe(serverTranslate('noPolls'));
+  });
+
+  it('falls back to English and then to the key', () => {
+    expect(translatorFor('fr')('vote')).toBe('Vote');
+    expect(translatorFor('zh-CN')('a-key-that-does-not-exist')).toBe('a-key-that-does-not-exist');
+  });
+
+  it('renders the home body in the configured locale', () => {
+    const html = renderHomeBody({
+      settings: { ...settings, default_locale: 'zh-CN' },
+      topics: [],
+      topicTotal: 0,
+      polls: [],
+      page: 1,
+      totalPages: 1,
+      query: '',
+      activeTopic: ''
+    }, translatorFor('zh-CN'));
+
+    expect(html).toContain(zhDictionary.noPolls);
+    expect(html).not.toContain(serverTranslate('noPolls'));
+    // The footer credit is translated too, not hardcoded English.
+    expect(html).toContain(zhDictionary.poweredBy.split('{name}')[0]);
+    expect(html).toContain(zhDictionary.poweredBy.split('{name}')[1]);
+    expect(html).not.toContain('Powered by');
   });
 });

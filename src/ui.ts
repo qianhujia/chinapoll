@@ -173,12 +173,21 @@ function renderHeaderSearch(): string {
   `;
 }
 
+// The source repository credited in the footer.
+const SOURCE_REPOSITORY_URL = 'https://github.com/qianhujia/chinapoll';
+
 export function renderFooter(): string {
   const dataUrl = getPublicSettings().data_repository_url;
+  // The credit names the site inside a link to the source repository. The site
+  // name is admin-controlled, so it is escaped before it is interpolated.
+  const siteLink = `<a class="font-bold text-primary hover:underline" href="${SOURCE_REPOSITORY_URL}" target="_blank" rel="noopener noreferrer">${escapeHtml(getSiteName())}</a>`;
+  // A translation that omits the placeholder still keeps the site link.
+  const credit = t('poweredBy');
+  const creditHtml = credit.includes('{name}') ? credit.replace('{name}', siteLink) : `${credit} ${siteLink}`;
 
   return `
     <footer class="mt-9 flex flex-wrap items-center justify-center gap-3 text-center text-[0.9rem] text-muted">
-      <span>Powered by <a class="font-bold text-primary hover:underline" href="https://github.com/qianhujia/chinapoll" target="_blank" rel="noopener noreferrer">${getSiteName()}</a></span>
+      <span>${creditHtml}</span>
       ${dataUrl ? `<a class="text-primary hover:underline" href="${escapeHtml(dataUrl)}" target="_blank" rel="noopener noreferrer">${t('dataLink')}</a>` : ''}
     </footer>
   `;

@@ -15,15 +15,46 @@
 import { PollMode, PollStatus, PollType } from '../enums';
 import { localizedTopicName, type TopicLocale } from '../../shared/categories';
 import en from '../../public/i18n/en.json';
+import zh from '../../public/i18n/zh.json';
+import zhTW from '../../public/i18n/zh-TW.json';
 import { escapeHtml } from './html';
 
 export type Translate = (key: string) => string;
 
-const DICTIONARY: Record<string, string> = en;
+export type Locale = 'en' | 'zh-CN' | 'zh-TW';
 
-// English labels for the server-rendered markup, matching the SPA dictionary.
-// A missing key falls back to the key itself, exactly like the client.
-export const serverTranslate: Translate = (key) => DICTIONARY[key] ?? key;
+// The source repository credited in the footer, matching the SPA footer.
+const SOURCE_REPOSITORY_URL = 'https://github.com/qianhujia/chinapoll';
+
+// The same three dictionaries the SPA ships, so the server-rendered first paint
+// is in the site's default language instead of always English.
+const DICTIONARIES: Record<Locale, Record<string, string>> = {
+  en,
+  'zh-CN': zh,
+  'zh-TW': zhTW
+};
+
+const ENGLISH: Record<string, string> = en;
+
+// The locale setting is stored in a few spellings; normalize them to the three
+// dictionaries above (mirrors src/i18n.ts resolveLocale).
+export function normalizeLocale(value: string | null | undefined): Locale {
+  const normalized = (value ?? '').trim().toLowerCase();
+  if (normalized === 'zh-tw' || normalized === 'zh_tw' || normalized === 'zh-hant') return 'zh-TW';
+  if (normalized === 'zh' || normalized === 'zh-cn' || normalized === 'zh_cn' || normalized === 'cn') return 'zh-CN';
+  return 'en';
+}
+
+// Labels for one locale. A key that is missing from that dictionary falls back
+// to English and then to the key itself, so a translation gap never renders an
+// empty string.
+export function translatorFor(locale: string | null | undefined): Translate {
+  const dictionary = DICTIONARIES[normalizeLocale(locale)];
+  return (key) => dictionary[key] ?? ENGLISH[key] ?? key;
+}
+
+// English labels, used as the default when a caller has no locale at hand.
+export const serverTranslate: Translate = translatorFor('en');
 
 export interface SsrSettings {
   site_name: string;
@@ -69,13 +100,7 @@ export function injectAppBody(html: string, body: string): string {
 // Sets the document language to the site's default locale so crawlers and
 // assistive technology see the right lang attribute before the client runs.
 export function applyHtmlLang(html: string, defaultLocale: string): string {
-  const short = (defaultLocale ?? 'en').toLowerCase();
-  const lang = short.startsWith('zh-tw') || short.startsWith('zh_hant')
-    ? 'zh-TW'
-    : short.startsWith('zh')
-      ? 'zh-CN'
-      : 'en';
-  return html.replace(/<html lang="[^"]*"/, `<html lang="${lang}"`);
+  return html.replace(/<html lang="[^"]*"/, `<html lang="${normalizeLocale(defaultLocale)}"`);
 }
 
 function displayName(topic: { slug: string; name: string }, settings: SsrSettings): string {
@@ -123,8 +148,15 @@ function renderHeader(settings: SsrSettings, t: Translate, activeRoute: string):
 
 function renderFooter(settings: SsrSettings, t: Translate): string {
   const dataUrl = settings.data_repository_url;
+  // Mirrors the SPA footer: the credit names the site inside a link to the
+  // source repository.
+  const siteLink = `<a class="font-bold text-primary hover:underline" href="${SOURCE_REPOSITORY_URL}" target="_blank" rel="noopener noreferrer">${escapeHtml(settings.site_name)}</a>`;
+  // A translation that omits the placeholder still keeps the site link.
+  const credit = t('poweredBy');
+  const creditHtml = credit.includes('{name}') ? credit.replace('{name}', siteLink) : `${credit} ${siteLink}`;
+
   return `    <footer class="mt-9 flex flex-wrap items-center justify-center gap-3 text-center text-[0.9rem] text-muted">
-      <span>${escapeHtml(settings.site_name)}</span>
+      <span>${creditHtml}</span>
       ${dataUrl ? `<a class="text-primary hover:underline" href="${escapeHtml(dataUrl)}" rel="noopener noreferrer">${escapeHtml(t('dataLink'))}</a>` : ''}
     </footer>`;
 }

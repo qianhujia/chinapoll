@@ -57,6 +57,7 @@
   "proposalSubmitFailed": "Could not submit proposal:",
   "pollPrefix": "Poll",
   "dataLink": "Data",
+  "poweredBy": "Powered by {name}",
   "anonymousComment": "Anonymous comment (5–140 characters)",
   "commentToggle": "Comment",
   "commentPlaceholder": "Keep it public and avoid identifying details.",
