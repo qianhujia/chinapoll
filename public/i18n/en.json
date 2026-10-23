@@ -84,6 +84,7 @@
   "privacyNote": "We store only: salted token hash + anonymized network bucket · no names or emails · open source",
   "ctaSubmitPolls": "New Poll",
   "ctaAnonymousRules": "How It Works",
+  "turnstileLoading": "Loading verification…",
   "search": "Search",
   "searchPlaceholder": "Poll title or ID",
   "searchSubmit": "Search",

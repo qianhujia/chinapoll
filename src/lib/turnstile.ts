@@ -54,6 +54,9 @@ export async function renderTurnstile(slot: string, container: HTMLElement): Pro
     await loadScript();
     const api = window.turnstile;
     if (!api) return;
+    // Drop any placeholder the page painted so the widget fills the slot the page
+    // already reserved for it instead of stacking on top of the placeholder.
+    container.replaceChildren();
     const id = api.render(container, {
       sitekey: siteKey,
       callback: (token: string) => {

@@ -84,6 +84,7 @@
   "privacyNote": "我们只存：随机令牌哈希 + 模糊网段 · 不收姓名邮箱 · 代码开源",
   "ctaSubmitPolls": "新投票",
   "ctaAnonymousRules": "如何运作",
+  "turnstileLoading": "正在加载验证…",
   "search": "搜索",
   "searchPlaceholder": "投票标题或编号",
   "searchSubmit": "搜索",

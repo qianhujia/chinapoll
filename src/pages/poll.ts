@@ -25,6 +25,7 @@ import {
 } from '../lib/poll';
 import { getCurrentUser } from '../lib/session';
 import { getPublicSettings } from '../config';
+import { updateSeo } from '../seo';
 import { localizedTopicName } from '../../shared/categories';
 import { renderTurnstile, resetTurnstile, turnstileSiteKey, turnstileToken } from '../lib/turnstile';
 import {
@@ -261,6 +262,15 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
   // per tab session; the call is fire-and-forget.
   void recordViewOnce(poll.id);
 
+  // The route's placeholder title (for example "Poll #12") is replaced with the
+  // poll's own title and description now that they have loaded, matching the
+  // server-rendered metadata instead of leaving the generic placeholder.
+  const { site_name: siteName } = getPublicSettings();
+  updateSeo({
+    title: `${poll.title} - ${siteName}`,
+    ...(poll.description ? { description: poll.description.slice(0, 160) } : {})
+  });
+
   const token = createToken();
   // The base token identifies the browser; mixing in the poll id means the
   // server only ever sees a per-poll value, so votes on different polls cannot
@@ -379,7 +389,7 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
             </p>
           ` : ''}
 
-          ${turnstileSiteKey() ? '<div class="mx-auto mt-4 flex justify-center" data-turnstile-vote></div>' : ''}
+          ${turnstileSiteKey() ? `<div class="mx-auto mt-4 flex min-h-[65px] items-center justify-center text-center text-xs text-muted" data-turnstile-vote>${t('turnstileLoading')}</div>` : ''}
 
           ${endLine}
 
@@ -600,8 +610,11 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
   }
 
   // Render the Turnstile widget on the vote area when a site key is configured.
+  // The widget is drawn into a placeholder that already reserves its size, so the
+  // script loads in the background without blocking the page or shifting the
+  // layout below it.
   const voteWidget = document.querySelector<HTMLElement>('[data-turnstile-vote]');
-  if (voteWidget) await renderTurnstile('vote', voteWidget);
+  if (voteWidget) void renderTurnstile('vote', voteWidget);
 
   // The three-dot poll menu: the toggle opens the dropdown that hosts the report
   // entry, the backdrop closes it on a click anywhere outside, and Escape closes
