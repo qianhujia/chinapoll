@@ -1,13 +1,24 @@
 import { env, SELF } from 'cloudflare:test';
-import schema from '../../migrations/0001_initial.sql?raw';
 
 export const ORIGIN = 'https://example.com';
 
-// Every migration in order. The schema is one consolidated file, so the list holds
-// a single entry; keep every schema change in that file instead of adding new files.
-export const MIGRATIONS: ReadonlyArray<{ name: string; sql: string }> = [
-  { name: '0001_initial', sql: schema }
-];
+// Load every migration eagerly and sort by filename, matching the order wrangler
+// applies them. The baseline 0001_initial.sql is immutable; later schema changes
+// arrive as new numbered files and are picked up here automatically.
+const migrationModules = import.meta.glob('../../migrations/*.sql', {
+  query: '?raw',
+  import: 'default',
+  eager: true
+}) as Record<string, string>;
+
+export const MIGRATIONS: ReadonlyArray<{ name: string; sql: string }> = Object.entries(
+  migrationModules
+)
+  .map(([path, sql]) => ({
+    name: path.slice(path.lastIndexOf('/') + 1).replace(/\.sql$/, ''),
+    sql
+  }))
+  .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
 
 // D1's exec() rejects a batch whose first chunk is only a comment, so comment-only
 // lines are stripped and each migration is executed statement by statement. The

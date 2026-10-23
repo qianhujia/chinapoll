@@ -35,8 +35,8 @@ reads the audit log, and edits settings. For local startup and deployment, see
 
 ## Database
 
-The admin Worker shares the consolidated migration
-`migrations/0001_initial.sql`. It creates three admin tables (schema only, no
+The admin Worker shares the root `migrations/` directory. Its immutable baseline,
+`migrations/0001_initial.sql`, creates three admin tables (schema only, no
 seed or demo rows): `admin_users` (username, PBKDF2 `password_hash`, `role`,
 status, `failed_attempts`, `locked_until`, `last_login_at`), `admin_sessions`
 (SHA-256 hashed token, owning admin, `expires_at`), and `admin_audit_log`

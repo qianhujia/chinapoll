@@ -6,18 +6,27 @@ are run from the repository root.
 ## Deployments
 
 1. Apply D1 migrations: `npx wrangler d1 migrations apply chinapoll --env production --remote`.
-   `migrations/0001_initial.sql` holds the entire schema in a single consolidated
-   file, most recently consolidated on **2026-10-18** (an earlier consolidation was
-   done on 2026-10-11) because nothing had been deployed yet. All migration SQL
-   stays in that one file: never add numbered migration files, and keep every schema
-   change in `0001_initial.sql`. Only a **fresh** database is supported; create the
-   production database empty and apply `0001_initial.sql`
-   in order. The file creates the final shape of every
-   table, index, and constraint - the poll types and per-poll options,
-   `vote_selections` with `votes` reduced to a ballot row, the report and view
-   tables, the ballot/view/option-count columns of the single-format snapshot
-   chain, the `publish_state` and `publish_runs` tables, and the nullable
-   `comments.owner_hash` - so no intermediate rebuild runs on a fresh database.
+   `migrations/0001_initial.sql` is the **immutable baseline**: it creates the entire
+   schema as of the **2026-10-18** consolidation (an earlier consolidation was done on
+   2026-10-11) because nothing had been deployed when it was created. Do not edit the
+   baseline after it has been applied to a database. Every later schema change gets its
+   own numbered migration file (`0002_<summary>.sql`, `0003_<summary>.sql`, ...), and
+   wrangler applies those files in filename order. Keep each file to schema changes only.
+   The baseline creates the final shape of every table, index, and constraint - the poll
+   types and per-poll options, `vote_selections` with `votes` reduced to a ballot row, the
+   report and view tables, the ballot/view/option-count columns of the single-format
+   snapshot chain, the `publish_state` and `publish_runs` tables, and the nullable
+   `comments.owner_hash` - so no intermediate rebuild runs on a fresh database. A **fresh**
+   database is created by applying the baseline and then every later migration in order;
+   `npm run db:reset` does this locally.
+   A one-off rename of `categories` to `topics` upgraded the production database that
+   predated the baseline. It is already applied and must never be added to `migrations/`:
+   the baseline already creates `topics` and `polls.topic_id`, so replaying it fails with
+   `no such table: categories` and aborts `wrangler d1 migrations apply` - and with it
+   `npm run dev` and `npm run dev:worker`, which apply migrations before starting the Worker.
+   That rename intentionally left the legacy `categories` table and `polls.category_id`
+   column in place (its cleanup statements were never run), so a production database from
+   that lineage may still carry them; fresh and local databases do not.
 2. Set the required secret before the first deploy:
    `npx wrangler secret put SERVER_HMAC_KEY --env production` (a fresh 64-character hex value).
 3. Build the SPA: `npm run build` (outputs to `dist/web`).

@@ -17,6 +17,7 @@ This repository follows strict English-only rules for all contributor-facing tex
 
 - Keep the project runnable locally.
 - Use local D1 migrations for schema updates.
+- Treat `migrations/0001_initial.sql` as the immutable baseline. Add each later schema change as a new numbered migration file (e.g. `0002_<summary>.sql`) applied in filename order; never edit the baseline once it has been applied.
 - Keep Turnstile disabled locally unless explicitly requested for production verification. Turnstile is configured only through the `TURNSTILE_SITE_KEY` and `TURNSTILE_SECRET_KEY` environment variables and is enabled exactly when both are set.
 - Treat English-only documentation as a required repository standard, not as optional wording.
 
@@ -54,5 +55,7 @@ cannot pull in large, useless content.
   - Claude Code has no ignore file; `.claude/settings.json` lists
     `permissions.deny` `Read(...)` rules instead.
 - Those rules also exclude `node_modules/`, `dist/`, `.wrangler/`,
-  `tsconfig.tsbuildinfo`, `*.log`, and `.dev.vars`. Keep every list in sync and
-  add any new generated artifact to all of them.
+  `tsconfig.tsbuildinfo`, `logs/`, `*.log`, and `.dev.vars`. Keep every list in
+  sync and add any new generated artifact to all of them.
+- Runtime logs from `wrangler dev`, `vite preview`, and similar commands belong
+  in `logs/`, which is ignored; do not write them to the repository root.

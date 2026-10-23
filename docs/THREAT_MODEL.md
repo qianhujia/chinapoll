@@ -221,11 +221,11 @@ When it is on:
   `{ approve, oppose, neutral }` counts object is gone from every response, and the
   canonical snapshot payload is version 3 (verification still reproduces versions 1
   and 2).
-- Folded the schema back into the single consolidated `migrations/0001_initial.sql`
-  (2026-10-18) now that nothing has been deployed: the file creates the final shape
+- Folded the schema into the baseline `migrations/0001_initial.sql`
+  (2026-10-18) now that nothing had been deployed: the file creates the final shape
   of every table, index, and constraint directly, so a fresh database needs no
-  intermediate table rebuilds, and the removed incremental files are no longer part
-  of the repository.
+  intermediate table rebuilds. The baseline is now immutable; every later schema
+  change is a separate numbered migration file applied in filename order.
 - Made the snapshot chain a single format: dropped the legacy `approve`/`oppose`/
   `neutral` columns and the version 1 and 2 payloads, leaving `schemaVersion: 3`
   only. Added the Worker publisher, which replaces the GitHub Actions workflow and

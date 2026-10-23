@@ -76,7 +76,7 @@ Every setting key and value is listed in [docs/REFERENCE.md](docs/REFERENCE.md).
 | `admin/` | Admin Worker: dashboard, JSON API, and its `wrangler.toml` |
 | `shared/` | Code imported by both Workers and the front end |
 | `public/` | Static assets and the `i18n/*.json` dictionaries |
-| `migrations/` | `0001_initial.sql`, the entire consolidated schema |
+| `migrations/` | `0001_initial.sql` baseline plus numbered incremental migrations |
 | `tests/` | Node unit tests and Workers-runtime integration tests |
 | `docs/` | Reference, threat model, data map, and runbook |
 
@@ -85,8 +85,10 @@ Every setting key and value is listed in [docs/REFERENCE.md](docs/REFERENCE.md).
 - One public Worker serves the SPA from `dist/web` and `/api/*` from a single
   hostname. The admin Worker runs on a separate hostname with its own dashboard
   and shares the same D1 database.
-- All schema changes go into the single `migrations/0001_initial.sql`; only fresh
-  databases are supported (`npm run db:reset` locally). No seed data ships.
+- All schema changes use D1 migrations. `migrations/0001_initial.sql` is the immutable
+  baseline; each later change is a new numbered file applied in filename order. A fresh
+  database is built by applying every migration in order (`npm run db:reset` locally).
+  No seed data ships.
 - Three SQLite-backed Durable Objects: `RateLimiter` (rate limits),
   `PasswordHasher` (PBKDF2-HMAC-SHA256 at 100,000 iterations, sharded 16 ways),
   and `ViewCounter` (buffers poll views, flushing on a five-minute alarm). The
