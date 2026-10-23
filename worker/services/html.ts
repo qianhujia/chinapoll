@@ -21,3 +21,12 @@ export function escapeHtml(value: unknown): string {
 export function serializeJsonLd(value: unknown): string {
   return JSON.stringify(value).replace(/<\//g, '<\\/');
 }
+
+// Serializes the bootstrap island for a <script type="application/json"> block.
+// Every "<" is escaped (not just "</") because the payload carries user- and
+// admin-controlled text such as poll titles and translations, and an HTML parser
+// ends a script element at the first "</script" plus can be derailed by "<!--".
+// JSON.parse turns `\u003c` back into "<", so the client reads the original value.
+export function serializeJsonScript(value: unknown): string {
+  return JSON.stringify(value).replace(/</g, '\\u003c');
+}

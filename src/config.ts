@@ -1,4 +1,5 @@
 import { fetchJson } from './lib/poll';
+import { readBootstrap } from './bootstrap';
 
 export interface PublicSettings {
   default_locale: 'en' | 'zh-CN' | 'zh-TW';
@@ -68,38 +69,56 @@ const defaultSettings: PublicSettings = {
 
 let publicSettings = defaultSettings;
 
+// Validation shared by the bootstrap island and the API response, so a malformed
+// payload from either source is rejected instead of reaching the UI.
+export function isValidPublicSettings(value: unknown): value is PublicSettings {
+  if (typeof value !== 'object' || value === null) return false;
+  const result = value as PublicSettings;
+  return (result.default_locale === 'en' || result.default_locale === 'zh-CN' || result.default_locale === 'zh-TW')
+    && typeof result.site_name === 'string'
+    && typeof result.site_slogan === 'string'
+    && typeof result.data_repository_url === 'string'
+    && typeof result.logo === 'string'
+    && typeof result.favicon === 'string'
+    && Number.isSafeInteger(result.polls_per_page) && result.polls_per_page >= 1 && result.polls_per_page <= 100
+    && Number.isSafeInteger(result.comments_per_page) && result.comments_per_page >= 1 && result.comments_per_page <= 100
+    && Number.isSafeInteger(result.page_max_width_px) && result.page_max_width_px >= 100 && result.page_max_width_px <= 9999
+    && typeof result.hero_title === 'string'
+    && typeof result.hero_subtitle === 'string'
+    && typeof result.hero_background_color === 'string'
+    && typeof result.read_only_mode === 'boolean'
+    && typeof result.turnstile_enable === 'boolean'
+    && typeof result.turnstile_site_key === 'string'
+    && typeof result.login_badge_enable === 'boolean'
+    && typeof result.auto_approve_polls === 'boolean'
+    && Number.isSafeInteger(result.user_poll_delay_hours) && result.user_poll_delay_hours >= 0
+    && Number.isSafeInteger(result.user_comment_delay_hours) && result.user_comment_delay_hours >= 0
+    && Number.isSafeInteger(result.max_accounts_per_ip) && result.max_accounts_per_ip >= 1
+    && Number.isSafeInteger(result.login_max_failed_attempts) && result.login_max_failed_attempts >= 1
+    && Number.isSafeInteger(result.login_lock_minutes) && result.login_lock_minutes >= 1
+    && typeof result.login_rate_limit === 'string'
+    && typeof result.register_rate_limit === 'string'
+    && typeof result.report_rate_limit === 'string'
+    && typeof result.ai_enable === 'boolean'
+    && Number.isSafeInteger(result.min_votes_to_display) && result.min_votes_to_display >= 0
+    && Number.isSafeInteger(result.min_views_to_display) && result.min_views_to_display >= 0
+    && Number.isSafeInteger(result.report_auto_hide_threshold) && result.report_auto_hide_threshold >= 0
+    && Number.isSafeInteger(result.report_auto_hide_priority_threshold) && result.report_auto_hide_priority_threshold >= 0;
+}
+
 export async function loadPublicSettings(): Promise<PublicSettings> {
-  const result = await fetchJson<PublicSettings>('/api/settings/public');
-  if ((result.default_locale !== 'en' && result.default_locale !== 'zh-CN' && result.default_locale !== 'zh-TW')
-    || typeof result.site_name !== 'string'
-    || typeof result.site_slogan !== 'string'
-    || typeof result.data_repository_url !== 'string'
-    || typeof result.logo !== 'string'
-    || typeof result.favicon !== 'string'
-    || !Number.isSafeInteger(result.polls_per_page) || result.polls_per_page < 1 || result.polls_per_page > 100
-    || !Number.isSafeInteger(result.comments_per_page) || result.comments_per_page < 1 || result.comments_per_page > 100
-    || !Number.isSafeInteger(result.page_max_width_px) || result.page_max_width_px < 100 || result.page_max_width_px > 9999
-    || typeof result.hero_title !== 'string'
-    || typeof result.hero_subtitle !== 'string'
-    || typeof result.hero_background_color !== 'string'
-    || typeof result.read_only_mode !== 'boolean'
-    || typeof result.turnstile_enable !== 'boolean'
-    || typeof result.turnstile_site_key !== 'string'
-    || typeof result.login_badge_enable !== 'boolean'
-    || typeof result.auto_approve_polls !== 'boolean'
-    || !Number.isSafeInteger(result.user_poll_delay_hours) || result.user_poll_delay_hours < 0
-    || !Number.isSafeInteger(result.user_comment_delay_hours) || result.user_comment_delay_hours < 0
-    || !Number.isSafeInteger(result.max_accounts_per_ip) || result.max_accounts_per_ip < 1
-    || !Number.isSafeInteger(result.login_max_failed_attempts) || result.login_max_failed_attempts < 1
-    || !Number.isSafeInteger(result.login_lock_minutes) || result.login_lock_minutes < 1
-    || typeof result.login_rate_limit !== 'string'
-    || typeof result.register_rate_limit !== 'string'
-    || typeof result.report_rate_limit !== 'string'
-    || typeof result.ai_enable !== 'boolean'
-    || !Number.isSafeInteger(result.min_votes_to_display) || result.min_votes_to_display < 0
-    || !Number.isSafeInteger(result.min_views_to_display) || result.min_views_to_display < 0
-    || !Number.isSafeInteger(result.report_auto_hide_threshold) || result.report_auto_hide_threshold < 0
-    || !Number.isSafeInteger(result.report_auto_hide_priority_threshold) || result.report_auto_hide_priority_threshold < 0) {
+  // The document may already carry the settings (see ./bootstrap). The Worker
+  // builds them from the same stored rows and the same Turnstile environment as
+  // the endpoint, and they pass the validation below, so using them removes the
+  // /api/settings/public request on the first load.
+  const embedded = readBootstrap()?.settings;
+  if (embedded && isValidPublicSettings(embedded)) {
+    publicSettings = embedded;
+    return publicSettings;
+  }
+
+  const result: unknown = await fetchJson('/api/settings/public');
+  if (!isValidPublicSettings(result)) {
     throw new Error('Invalid public settings response.');
   }
   publicSettings = result;

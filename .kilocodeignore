@@ -13,6 +13,7 @@ dist/
 tsconfig.tsbuildinfo
 
 # Local runtime logs.
+logs/
 *.log
 
 # Local secrets and environment files (the committed .example template stays in).

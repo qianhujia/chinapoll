@@ -15,6 +15,7 @@ import {
   submitComment,
   submitReport,
   submitVote,
+  type CommentsResponse,
   type PollOption,
   type PollResults,
   type PollSummary,
@@ -24,6 +25,7 @@ import {
   type VoteResponse
 } from '../lib/poll';
 import { getCurrentUser } from '../lib/session';
+import { bootstrapPoll } from '../bootstrap';
 import { getPublicSettings } from '../config';
 import { updateSeo } from '../seo';
 import { localizedTopicName } from '../../shared/categories';
@@ -239,12 +241,25 @@ export function reportModalMarkup(): string {
 
 export async function mountVotePage(pollId: number, app: HTMLElement, bindNavigation: () => void): Promise<void> {
   const commentsPerPage = getCommentsPerPage();
+  const commentsPage = getQueryPage('commentsPage');
+  // The document may already carry this page's poll data (see
+  // worker/services/bootstrap.ts). Using it removes the detail, results, and
+  // comment requests on the first load. The anonymous vote status is never part of
+  // it, because it depends on this browser's own token, so it is always fetched.
+  const embedded = bootstrapPoll(pollId, commentsPage, commentsPerPage);
   let poll: PollSummary;
   let views: PollViewCounts | null = null;
   try {
-    const loaded = await getPoll(pollId);
-    poll = loaded.poll;
-    views = loaded.views;
+    // `detail` is the GET /api/polls/<id> body: the poll plus its view counts.
+    const loaded = embedded?.detail as { poll: PollSummary; views: PollViewCounts | null } | undefined;
+    if (loaded?.poll) {
+      poll = loaded.poll;
+      views = loaded.views ?? null;
+    } else {
+      const fetched = await getPoll(pollId);
+      poll = fetched.poll;
+      views = fetched.views;
+    }
   } catch (error) {
     const message = getErrorMessage(error);
     app.innerHTML = `
@@ -267,7 +282,7 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
   // server-rendered metadata instead of leaving the generic placeholder.
   const { site_name: siteName } = getPublicSettings();
   updateSeo({
-    title: `${poll.title} - ${siteName}`,
+    title: `P${poll.id} ${poll.title} - ${siteName}`,
     ...(poll.description ? { description: poll.description.slice(0, 160) } : {})
   });
 
@@ -278,12 +293,16 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
   const hash = await hashToken(`${token}:${poll.id}`);
   let hasVoted = hasVotedLocally(poll.id, hash);
   let voteStatusError = '';
-  let stats: Awaited<ReturnType<typeof getStats>> | null = null;
+  // The island's results payload is the same body GET /api/stats/<id> answers with.
+  let stats: Awaited<ReturnType<typeof getStats>> | null =
+    (embedded?.stats as Awaited<ReturnType<typeof getStats>> | undefined) ?? null;
   let statsError = '';
-  try {
-    stats = await getStats(poll.id);
-  } catch (error) {
-    statsError = getErrorMessage(error);
+  if (!stats) {
+    try {
+      stats = await getStats(poll.id);
+    } catch (error) {
+      statsError = getErrorMessage(error);
+    }
   }
   // The stored vote status drives the form: a returning voter sees the options
   // they already chose pre-checked, even while the counts are hidden.
@@ -300,7 +319,13 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
   }
   let commentsContent: string;
   try {
-    commentsContent = renderCommentsContent(poll.id, await getComments(poll.id, getQueryPage('commentsPage'), commentsPerPage));
+    // The island carries the comment page the document was rendered for, and only
+    // it: any other page is fetched.
+    const embeddedComments = embedded?.comments as CommentsResponse | undefined;
+    commentsContent = renderCommentsContent(
+      poll.id,
+      embeddedComments ?? await getComments(poll.id, commentsPage, commentsPerPage)
+    );
   } catch {
     commentsContent = t('commentsLoadFailed');
   }
@@ -363,8 +388,7 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
         <section class="rounded-[22px] border border-border bg-panel p-6 shadow-card">
           <div class="flex items-start justify-between gap-4">
             <div class="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
-              <span class="shrink-0 font-bold tabular-nums text-muted">#${poll.id}</span>
-              <h1 class="m-0 text-2xl font-bold">${escapeHtml(poll.title)}</h1>
+              <h1 class="m-0 text-2xl font-bold">P${poll.id} ${escapeHtml(poll.title)}</h1>
               ${renderModeBadge(poll.mode)}
               ${renderPollTypeBadge(pollType)}
               ${poll.topic

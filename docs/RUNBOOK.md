@@ -154,9 +154,11 @@ move to `SERVER_HMAC_KEY` without downtime.
   `AI` (`[ai] binding = "AI"`, repeated under `[env.production]`). The feature is
   **off** by default: `ai_enable` is a normal setting in the `settings` table and
   can be turned on from the admin Settings tab. When it is off, `/api/ai/*`
-  returns `404` and the frontend hides the buttons. `ai_model` and
-  `ai_rate_limit` stay private and are never served by the public settings
-  endpoint.
+  returns `404` and the frontend hides the buttons. `ai_model`, `ai_rate_limit`,
+  and `ai_review_prompt` stay private and are never served by the public
+  settings endpoint. The review prompt applies only when `auto_approve_polls`
+  and `ai_enable` are both on; when it is empty every auto-approved submission
+  is published immediately.
 - **Next release:** the one-release `IP_HASH_KEY` fallback is dropped. Rename the
   secret to `SERVER_HMAC_KEY` on every deployment
   (`npx wrangler secret put SERVER_HMAC_KEY --env production`) and in each

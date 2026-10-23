@@ -7,6 +7,7 @@
       "Read(./.wrangler/**)",
       "Read(./admin/.wrangler/**)",
       "Read(./tsconfig.tsbuildinfo)",
+      "Read(./logs/**)",
       "Read(./*.log)",
       "Read(./.dev.vars)",
       "Read(./admin/.dev.vars)"

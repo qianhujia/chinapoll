@@ -53,7 +53,12 @@ export async function renderTurnstile(slot: string, container: HTMLElement): Pro
   try {
     await loadScript();
     const api = window.turnstile;
-    if (!api) return;
+    // Without the API object there is no widget to draw, so the placeholder the
+    // page reserved for it is emptied rather than left showing its loading text.
+    if (!api) {
+      container.replaceChildren();
+      return;
+    }
     // Drop any placeholder the page painted so the widget fills the slot the page
     // already reserved for it instead of stacking on top of the placeholder.
     container.replaceChildren();
@@ -74,7 +79,10 @@ export async function renderTurnstile(slot: string, container: HTMLElement): Pro
     });
     widgets.set(slot, { id, token: '' });
   } catch {
-    // Ignore: a missing widget leaves the token empty and the server decides.
+    // A script that never loads leaves the token empty and the server decides
+    // whether one is required; the placeholder is emptied so a form never keeps
+    // showing a loading note for a widget that will not arrive.
+    container.replaceChildren();
   }
 }
 

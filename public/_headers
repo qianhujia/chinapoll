@@ -1,0 +1,19 @@
+# Browser caching for the static assets the public Worker serves from `dist/web`.
+#
+# The SPA bundle is fingerprinted (Vite puts a content hash in the file name), so
+# a given URL never changes content and can be cached indefinitely. The public
+# Worker deliberately does not rewrite the cache headers of these responses (it
+# only marks HTML documents, API responses, and errors `no-store`; see
+# `isPrivateResponse` in worker/index.ts), so what this file sets is what the
+# browser sees.
+#
+# The i18n dictionaries are deliberately not listed. A Worker-rendered document
+# already carries the default locale's dictionary in the bootstrap island, so the
+# client fetches `/i18n/*.json` only as a fallback (a statically served shell, a
+# direct request). Leaving them to the asset layer default means such a fetch is
+# revalidated instead of serving a dictionary that a deploy has already replaced.
+#
+# Sent by the asset layer for every environment, including local development.
+
+/assets/*
+  Cache-Control: public, max-age=31556952, immutable

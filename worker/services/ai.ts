@@ -306,6 +306,70 @@ export async function categorisePoll(
   return { ok: true, value: enabled.has(normalized) ? normalized : null };
 }
 
+const REVIEW_SCHEMA = {
+  type: 'object',
+  properties: {
+    approve: { type: 'boolean' },
+    reason: { type: 'string' }
+  },
+  required: ['approve']
+};
+
+// A dedicated system prompt for the review gate. The admin's own prompt is
+// passed as user-provided instructions, so this fixed wording can keep the
+// answer machine-readable and make clear what a rejection means.
+const REVIEW_SYSTEM_PROMPT = [
+  'You review a submitted public opinion poll against the review instructions the user provides.',
+  'You must not add facts that are not present in the submission.',
+  'Answer only with the requested JSON.',
+  'Set "approve" to true only when the submission satisfies every instruction.',
+  'Set "approve" to false otherwise, and put a short reason for the rejection in "reason".'
+].join(' ');
+
+export interface PollReviewInput {
+  title: string;
+  description?: string;
+  pollType: string;
+  options: string[];
+}
+
+// Runs the admin-defined review prompt against one submission. A missing or
+// non-boolean answer is treated as a failure, so the caller can keep the poll
+// pending rather than publish something the model did not clearly accept.
+export async function reviewPoll(
+  env: AiEnv,
+  model: string,
+  prompt: string,
+  input: PollReviewInput
+): Promise<AiResult<boolean>> {
+  const messages = [
+    { role: 'system', content: REVIEW_SYSTEM_PROMPT },
+    {
+      role: 'user',
+      content: [
+        'Review instructions:',
+        prompt,
+        '',
+        'Poll submission:',
+        `Title: ${input.title}`,
+        input.description ? `Description: ${input.description}` : 'No description.',
+        `Poll type: ${input.pollType}`,
+        `Options: ${input.options.join(', ')}`,
+        '',
+        'Return JSON: {"approve": true|false, "reason": "..."}.'
+      ].join('\n')
+    }
+  ];
+  const result = await callModel(env, model, messages, REVIEW_SCHEMA);
+  if (!result.ok) return result;
+
+  const root = readJsonField(result.value);
+  if (typeof root !== 'object' || root === null) return { ok: false, reason: 'bad_model_output' };
+  const approve = (root as Record<string, unknown>).approve;
+  if (typeof approve !== 'boolean') return { ok: false, reason: 'bad_model_output' };
+  return { ok: true, value: approve };
+}
+
 const DESCRIPTION_SCHEMA = {
   type: 'object',
   properties: {

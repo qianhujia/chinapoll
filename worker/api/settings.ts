@@ -77,6 +77,10 @@ export const DEFAULT_PUBLIC_SETTINGS = {
   // When true (and `ai_enable` is on), a submitted poll that did not choose a
   // topic is assigned a topic by the model. Admin only; never served publicly.
   ai_auto_topic: false,
+  // Admin-defined instructions for reviewing a submission when auto-approval is
+  // on. An empty prompt means every submission is approved immediately. Admin
+  // only; never served publicly.
+  ai_review_prompt: '',
   // Public audit publishing. When enabled, the hourly maintenance run copies the
   // signed snapshot chain to a data repository through the GitHub API. These
   // settings are private: none of them is served by the public settings
@@ -267,6 +271,10 @@ export async function loadPublicSettings(db: D1Database): Promise<PublicSettings
         if (!value.trim() || value.length > 100) invalid(row.key, 'must contain 1 to 100 characters');
         settings.ai_model = value;
         break;
+      case 'ai_review_prompt':
+        if (value.length > 4000) invalid(row.key, 'must not exceed 4000 characters');
+        settings.ai_review_prompt = value;
+        break;
     }
   }
 
@@ -284,6 +292,7 @@ function stripPrivateSettings(settings: PublicSettings): Record<string, unknown>
     ai_model: _aiModel,
     ai_rate_limit: _aiRateLimit,
     ai_auto_topic: _aiAutoTopic,
+    ai_review_prompt: _aiReviewPrompt,
     publish_enable: _publishEnable,
     publish_repository: _publishRepository,
     publish_branch: _publishBranch,
@@ -292,6 +301,23 @@ function stripPrivateSettings(settings: PublicSettings): Record<string, unknown>
     ...publicSettings
   } = settings;
   return publicSettings;
+}
+
+// The JSON payload `GET /api/settings/public` answers with, and the settings the
+// bootstrap island embeds. Building it in one place keeps the server-rendered
+// document and the API from drifting apart.
+export function publicSettingsPayload(
+  settings: PublicSettings,
+  env: TurnstileEnv
+): Record<string, unknown> {
+  // Turnstile is configured through environment variables instead of the
+  // settings table, so the two fields the frontend needs are derived here and
+  // are read-only: they change only when the Worker is redeployed.
+  return {
+    ...stripPrivateSettings(settings),
+    turnstile_enable: isTurnstileEnabled(env),
+    turnstile_site_key: turnstileSiteKey(env)
+  };
 }
 
 export async function handlePublicSettingsRequest(
@@ -304,14 +330,7 @@ export async function handlePublicSettingsRequest(
 
   try {
     const settings = await loadPublicSettings(env.DB);
-    // Turnstile is configured through environment variables instead of the
-    // settings table, so the two fields the frontend needs are derived here and
-    // are read-only: they change only when the Worker is redeployed.
-    return Response.json({
-      ...stripPrivateSettings(settings),
-      turnstile_enable: isTurnstileEnabled(env),
-      turnstile_site_key: turnstileSiteKey(env)
-    }, {
+    return Response.json(publicSettingsPayload(settings, env), {
       headers: { 'cache-control': 'no-store' }
     });
   } catch (error) {

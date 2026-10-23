@@ -63,6 +63,7 @@ beforeAll(async () => {
     env.DB.prepare("INSERT INTO settings (key, value) VALUES ('user_poll_delay_hours', '0')"),
     env.DB.prepare("INSERT INTO settings (key, value) VALUES ('register_rate_limit', '1000/d')"),
     env.DB.prepare("INSERT INTO settings (key, value) VALUES ('ai_model', 'test-model')"),
+    env.DB.prepare("INSERT INTO settings (key, value) VALUES ('ai_review_prompt', 'private review instructions')"),
     // The feature is on for every request made in this isolate.
     env.DB.prepare("INSERT INTO settings (key, value) VALUES ('ai_enable', 'true')")
   ]);
@@ -225,5 +226,8 @@ describe('AI failure handling', () => {
     expect(publicSettings.ai_enable).toBe(true);
     expect(publicSettings.ai_model).toBeUndefined();
     expect(publicSettings.ai_rate_limit).toBeUndefined();
+    expect(publicSettings.ai_review_prompt).toBeUndefined();
+    expect(JSON.stringify(publicSettings)).not.toContain('private review instructions');
+    expect(publicSettings.ai_review_prompt).toBeUndefined();
   });
 });

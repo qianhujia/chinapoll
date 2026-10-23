@@ -112,6 +112,10 @@ export const scriptSettings = `  var SETTINGS_IMAGE_TYPES = ['image/png', 'image
         '<label class="small muted" for="' + urlInputId + '">Or paste an image URL</label>' +
         '<input type="url" id="' + urlInputId + '" data-image-url-for="' + esc(item.key) + '" value="' + esc(pastedUrl) + '" placeholder="https://example.com/logo.png">' +
         '</div>';
+    } else if (item.type === 'text') {
+      // A multi-line setting (for example the AI review prompt) keeps its line
+      // breaks, so it is edited in a textarea instead of a single-line input.
+      inputHtml = '<textarea id="setting-' + esc(item.key) + '" data-key="' + esc(item.key) + '" rows="6" placeholder="' + esc(placeholder) + '"' + (item.max !== undefined ? ' maxlength="' + item.max + '"' : '') + '>' + esc(value) + '</textarea>';
     } else {
       inputHtml = '<input id="setting-' + esc(item.key) + '" type="' + type + '" data-key="' + esc(item.key) + '" value="' + esc(value) + '" placeholder="' + esc(placeholder) + '"' + (item.min !== undefined ? ' min="' + item.min + '"' : '') + (item.max !== undefined ? ' max="' + item.max + '"' : '') + '>';
     }

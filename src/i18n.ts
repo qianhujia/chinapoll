@@ -1,5 +1,7 @@
 export type Locale = 'en' | 'zh-CN' | 'zh-TW';
 
+import { readBootstrap } from './bootstrap';
+
 export function resolveLocale(value?: string | null): Locale {
   const normalized = (value ?? '').trim().toLowerCase();
   if (normalized === 'zh-tw' || normalized === 'zh_tw' || normalized === 'zh-hant') {
@@ -25,7 +27,28 @@ const LOCALE_FILES: Record<Locale, string> = {
   'zh-TW': '/i18n/zh-TW.json'
 };
 
+// The dictionary the document already carries, or null when the island is absent
+// or holds a different locale (the server embeds only the default locale, which is
+// the one the client loads). Values are checked like the fetched file, so a
+// malformed island falls back to the request.
+function embeddedDictionary(locale: Locale): Record<string, string> | null {
+  const island = readBootstrap();
+  if (!island || island.locale !== locale || !island.i18n) return null;
+  const dictionary: Record<string, string> = {};
+  for (const [key, value] of Object.entries(island.i18n)) {
+    if (typeof value !== 'string') return null;
+    dictionary[key] = value;
+  }
+  return dictionary;
+}
+
 export async function loadTranslations(locale: Locale): Promise<void> {
+  const embedded = embeddedDictionary(locale);
+  if (embedded) {
+    translations[locale] = embedded;
+    return;
+  }
+
   const path = LOCALE_FILES[locale];
   const response = await fetch(path);
   if (!response.ok) {

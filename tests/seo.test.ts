@@ -110,6 +110,8 @@ describe('route contexts', () => {
       ORIGIN
     );
     expect(seo.canonical).toBe(`${ORIGIN}/poll/42`);
+    // The poll number prefixes the document title.
+    expect(seo.title).toBe(`P42 Bike lanes - ${settings.site_name}`);
     expect(seo.ogType).toBe('article');
     expect(Array.isArray(seo.jsonLd)).toBe(true);
     expect(seo.jsonLd).toHaveLength(2);

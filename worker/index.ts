@@ -23,6 +23,11 @@ import {
   handlePublicSettingsRequest,
   type PublicSettings
 } from './api/settings';
+import {
+  buildBootstrapPayload,
+  injectBootstrapScript,
+  renderBootstrapScript
+} from './services/bootstrap';
 import { handleAuthRequest } from './api/auth';
 import { handleUserRequest } from './api/user';
 import { brandingKeyFromPath, handleBrandingRequest } from './api/branding';
@@ -111,11 +116,23 @@ function buildSha(env: Env): string {
    "frame-ancestors 'none'"
  ].join('; ');
 
- // Privacy headers applied to HTML and API responses. Static assets keep their
- // original cache headers (hashed assets are immutable).
- function withSecurityHeaders(response: Response, isHtmlOrApi: boolean): Response {
+ // True for the responses that must never be stored by a browser or an
+ // intermediary: an HTML document (it carries the viewer's settings and the
+ // bootstrap island), a JSON API response (per-viewer answers), or an error. A
+ // static asset keeps whatever the asset layer sent - the SPA bundle is
+ // content-hashed and the dictionaries are stable - so a repeat visit reuses them
+ // instead of downloading the bundle again.
+ function isPrivateResponse(response: Response, pathname: string): boolean {
+   if (pathname.startsWith('/api/')) return true;
+   if ((response.headers.get('content-type') ?? '').includes('text/html')) return true;
+   return response.status >= 400;
+ }
+
+ // Privacy headers applied to every response; `noStore` also removes the ability
+ // to store it.
+ function withSecurityHeaders(response: Response, noStore: boolean): Response {
    const headers = new Headers(response.headers);
-   if (isHtmlOrApi) {
+   if (noStore) {
      headers.set('cache-control', 'no-store');
    }
    headers.set('referrer-policy', 'no-referrer');
@@ -151,8 +168,8 @@ interface PublicPage {
   status: number;
 }
 
-function readPageParam(search: URLSearchParams): number {
-  const page = Number(search.get('page') ?? '1');
+function readPageParam(search: URLSearchParams, key = 'page'): number {
+  const page = Number(search.get(key) ?? '1');
   return Number.isSafeInteger(page) && page > 0 ? page : 1;
 }
 
@@ -320,7 +337,29 @@ async function withSeoMetadata(
   const page = await buildPublicPage(url.pathname, url.searchParams, settings, origin, env);
   const metaTags = buildMetaTags(page.seo, settings, origin);
   const shell = applyHtmlLang(await response.text(), settings.default_locale);
-  const html = injectAppBody(injectSeoIntoHtml(shell, metaTags, page.seo.title), page.body);
+  const rendered = injectAppBody(injectSeoIntoHtml(shell, metaTags, page.seo.title), page.body);
+
+  // The bootstrap island carries the settings, the translation dictionary, and -
+  // on a poll page that was found - the poll data, so the client does not issue
+  // those requests right after the document. A poll page that answered 404 has no
+  // data to embed.
+  const pollPath = page.status === 200 ? /^\/(?:poll|vote)\/(\d+)$/.exec(url.pathname) : null;
+  const envWithSettings: HandlerEnv = { ...env, ...settings };
+  // `settings` is passed on its own: the merged environment also holds the bindings
+  // and the server secret, which must never be serialized into the document.
+  const payload = await buildBootstrapPayload(
+    envWithSettings,
+    settings,
+    origin,
+    pollPath
+      ? {
+        id: Number(pollPath[1]),
+        commentsPage: readPageParam(url.searchParams, 'commentsPage'),
+        commentsPageSize: settings.comments_per_page
+      }
+      : undefined
+  );
+  const html = injectBootstrapScript(rendered, renderBootstrapScript(payload));
 
   return new Response(html, {
     status: page.status,
@@ -386,7 +425,6 @@ async function handleHealth(env: Env, settingsError: boolean): Promise<Response>
 }
 
 async function route(request: Request, env: Env): Promise<Response> {
-  console.log('[DEBUG] route:', new URL(request.url).pathname);
   const url = new URL(request.url);
   const origin = url.origin;
 
@@ -534,22 +572,23 @@ ${polls.map(entry).join('\n')}
   const assetsResponse = await env.ASSETS.fetch(request);
   const withCsp = withHtmlCsp(assetsResponse);
   const withSeo = await withSeoMetadata(withCsp, request, settings, origin, env);
-  
-  const isHtml = (withSeo.headers.get('content-type') ?? '').includes('text/html');
-  const isApi = url.pathname.startsWith('/api/');
-  return withSecurityHeaders(withSeo, isHtml || isApi);
+
+  return withSecurityHeaders(withSeo, isPrivateResponse(withSeo, url.pathname));
 }
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-    console.log('[DEBUG] fetch:', request.url);
     try {
+      const url = new URL(request.url);
       const response = await route(request, env);
-      // A branding image is the one cacheable response: it carries its own
-      // immutable cache headers and a version query (see api/branding.ts), so the
-      // wrapper must not rewrite it to no-store.
-      if (brandingKeyFromPath(new URL(request.url).pathname)) return response;
-      return withSecurityHeaders(response, true);
+      // A branding image is answered with its own immutable cache headers and a
+      // version query (see api/branding.ts), so the wrapper leaves it alone.
+      if (brandingKeyFromPath(url.pathname)) return response;
+      // Only HTML documents, API responses, and errors are marked no-store. A
+      // hashed asset keeps the cache headers the asset layer gave it (immutable in
+      // production), so a second visit reuses it instead of downloading the bundle
+      // again; the JSON API handlers set their own no-store.
+      return withSecurityHeaders(response, isPrivateResponse(response, url.pathname));
     } catch (error) {
       // Structured error, never logs headers, bodies, cookies, or addresses.
       console.error(JSON.stringify({

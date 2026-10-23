@@ -57,6 +57,13 @@ export function translatorFor(locale: string | null | undefined): Translate {
   return (key) => dictionary[key] ?? ENGLISH[key] ?? key;
 }
 
+// The raw dictionary for one locale, exactly as the SPA fetches it from
+// `/i18n/<locale>.json`. The bootstrap island ships it inside the document so the
+// client does not need that extra request (see ./bootstrap).
+export function dictionaryFor(locale: string | null | undefined): Record<string, string> {
+  return DICTIONARIES[normalizeLocale(locale)];
+}
+
 // English labels, used as the default when a caller has no locale at hand.
 export const serverTranslate: Translate = translatorFor('en');
 
@@ -336,12 +343,11 @@ ${renderHeader(settings, t, '/')}
       <main class="grid gap-5">
         <article class="rounded-[22px] border border-border bg-panel p-6 shadow-card">
           <div class="flex flex-wrap items-center justify-center gap-2 text-center">
-            <span class="shrink-0 font-bold tabular-nums text-muted">#${poll.id}</span>
             ${badge(modeLabel(poll.mode, t))}
             ${badge(pollTypeLabel(poll.pollType, t))}
             ${topic}
           </div>
-          <h1 class="mt-3 mb-2 text-center text-2xl font-bold">${escapeHtml(poll.title)}</h1>
+          <h1 class="mt-3 mb-2 text-center text-2xl font-bold">P${poll.id} ${escapeHtml(poll.title)}</h1>
           ${poll.description ? `<p class="mx-auto mb-0 max-w-2xl text-center text-ink line-clamp-2">${escapeHtml(poll.description)}</p>` : ''}
           <h2 class="mt-6 mb-2 text-lg font-bold">${escapeHtml(t('optionsLabel'))}</h2>
 ${options}

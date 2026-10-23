@@ -35,7 +35,10 @@ Public keys: `default_locale` (`en`, `zh-CN`, or `zh-TW`), `site_name`,
 - `/api/settings/public` also returns the read-only `turnstile_enable` and
   `turnstile_site_key` from the Worker environment; they cannot be changed from
   the settings table.
-- Translations load from `public/i18n/en.json`, `zh.json`, and `zh-TW.json`.
+- Translations live in `public/i18n/en.json`, `zh.json`, and `zh-TW.json`. The
+  document embeds the default locale's dictionary in the bootstrap island (see
+  "Server-rendered documents and the bootstrap island"), so the client fetches the
+  file only as a fallback.
 
 Account keys (same table and endpoint): `user_poll_delay_hours` (48) and
 `user_comment_delay_hours` (24) gate new accounts; `max_accounts_per_ip` (4)
@@ -46,8 +49,9 @@ caps accounts per network bucket; `login_max_failed_attempts` (5) and
 sign-up links; `auto_approve_polls` (`false`) publishes submissions immediately
 instead of leaving them pending.
 
-Private keys (never served publicly): `ai_model`, `ai_rate_limit`, and
-`github_token`. The Turnstile secret is an environment variable, not a setting.
+Private keys (never served publicly): `ai_model`, `ai_rate_limit`,
+`ai_review_prompt`, and `github_token`. The Turnstile secret is an environment
+variable, not a setting.
 
 ## Poll types and options
 
@@ -108,10 +112,15 @@ so a poll that waited for review still gets its full duration.
 ## Proposal approval
 
 Pending submissions are reviewed from the dashboard's Polls tab: set a poll's
-status to `open` to approve it or `closed` to reject it. A poll keeps the same id
-from submission through approval. Approving a poll that has no options is refused
-(`422`). Options can be corrected with `PUT /api/admin/polls/:id/options` while a
-poll is still pending and has no ballots: the label set is replaced by position.
+status to `open` to approve it or `closed` to reject it. When
+`auto_approve_polls` is enabled, a submission is published immediately unless
+both `ai_enable` is on and `ai_review_prompt` is not empty: in that case the AI
+model reviews the submission against the admin prompt and publishes it only when
+the review approves. A rejected, failed, or unusable review leaves the poll
+pending for an admin. A poll keeps the same id from submission through approval.
+Approving a poll that has no options is refused (`422`). Options can be corrected
+with `PUT /api/admin/polls/:id/options` while a poll is still pending and has no
+ballots: the label set is replaced by position.
 Once a poll is open (or has ballots) the option set is frozen, since it is part
 of the published question and of its counts.
 
@@ -233,6 +242,7 @@ the two endpoints answer `404` and the front end does not render the buttons.
 | `ai_enable` | `false` | yes (only this flag is exposed) |
 | `ai_model` | `@cf/qwen/qwen3-30b-a3b-fp8` | no |
 | `ai_rate_limit` | `10/h` | no |
+| `ai_review_prompt` | empty (up to 4000 characters) | no |
 
 Both endpoints require a signed-in account, pass the same account-age gate as
 proposals, enforce the Origin check, verify Turnstile when it is enabled, and are
@@ -279,6 +289,59 @@ next to the English text it always returned:
 - `tests/apiError.test.ts` checks the parsing, the per-locale output, the
   interpolation, the legacy fallbacks, and that every code has a translation in
   all three dictionaries.
+
+## Server-rendered documents and the bootstrap island
+
+The public Worker answers every HTML route itself: it fills `#app` with crawlable
+markup (`worker/services/ssr.ts`) and injects the route's `<head>` metadata
+(`worker/services/seo.ts`), so the first response already carries the headings, poll
+titles, and copy.
+
+The client bundle re-renders that container, so the data it needs travels with the
+document instead of being fetched again. `worker/services/bootstrap.ts` serializes
+the settings, the locale dictionary, and (on a poll page) the poll detail, its
+results, and the requested comment page into an inert
+`<script type="application/json" id="bootstrap">` element:
+
+- The settings are exactly the body of `GET /api/settings/public`
+  (`publicSettingsPayload` in `worker/api/settings.ts`), so no Worker binding and no
+  server secret can reach the document in place of the private setting rows that
+  are stripped. `tests/bootstrap.test.ts` locks the key set.
+- `src/bootstrap.ts` reads the island; `src/config.ts`, `src/i18n.ts`, and
+  `src/pages/poll.ts` consume it, validating it like an API response and falling
+  back to the request when it is missing or describes another view (a client-side
+  route change, or a comment page other than the one embedded).
+- The anonymous vote status is deliberately absent: it is derived from the
+  browser's own vote token, which the server never sees while rendering, so
+  `POST /api/vote/status` stays a client call.
+- `serializeJsonScript` (`worker/services/html.ts`) escapes every `<` so a poll
+  title or translation cannot close the element, and the element is never
+  executed, so the strict `script-src 'self'` policy holds without
+  `'unsafe-inline'`.
+
+## Caching
+
+The public Worker answers every request, so it decides what a browser may store:
+
+- HTML documents, `/api/*` responses, and any error are sent with
+  `Cache-Control: no-store` (`isPrivateResponse` in `worker/index.ts`): a document
+  carries the viewer's settings and bootstrap island, and API answers are per
+  viewer, so neither may be reused.
+- Static assets keep the headers of the asset layer, and `public/_headers`
+  overrides them for the folders that are safe to cache. Vite copies that file
+  into `dist/web`. `/assets/*` is the fingerprinted bundle
+  (`public, max-age=31556952, immutable`), so a repeat visit reuses it instead of
+  downloading it again. The `/i18n/*` dictionaries are deliberately not listed:
+  a Worker-rendered document embeds the default locale's dictionary in the
+  bootstrap island, so the file is fetched only as a fallback, and the asset layer
+  default (revalidate) then beats a cache that a deploy has already replaced.
+  Without the Worker passing these headers through, every response was wrapped in
+  `no-store` and a repeat visit downloaded the whole bundle again.
+- An uploaded branding image is served from `/image/<key>.<ext>?v=<updated_at>`
+  with its own immutable cache header (`worker/api/branding.ts`), so replacing the
+  image produces a new URL.
+- `tests/integration/cacheHeaders.test.ts` keeps the document, the API, an error,
+  the bundle, and the dictionaries pinned to those headers.
 
 ## Privacy and cryptography
 

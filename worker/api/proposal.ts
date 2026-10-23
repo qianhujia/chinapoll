@@ -23,7 +23,7 @@ import {
   type PollDuration
 } from '../enums';
 import { validatePollOptions, type ParsedOption } from '../services/pollType';
-import { DEFAULT_AI_MODEL, categorisePoll } from '../services/ai';
+import { DEFAULT_AI_MODEL, categorisePoll, reviewPoll } from '../services/ai';
 import { loadEnabledTopics } from './categories';
 import { TOPIC_SLUG_PATTERN, topicNames } from '../../shared/categories';
 import { checkRateLimit } from '../services/rateLimit';
@@ -107,9 +107,19 @@ export async function handleProposalRequest(request: Request, env: HandlerEnv): 
     topicId = await suggestTopic(env, title, description);
   }
 
-  // With auto-approval enabled a submitted poll is published immediately;
-  // otherwise it stays pending until an admin approves it.
-  const autoApprove = env.auto_approve_polls === true;
+  // With auto-approval enabled a submitted poll is published immediately, unless
+  // the admin configured an AI review prompt and AI is enabled: then the model
+  // decides, and a rejected or failed review leaves the poll pending for an admin.
+  const reviewPrompt = (env.ai_review_prompt ?? '').trim();
+  let autoApprove = env.auto_approve_polls === true;
+  if (autoApprove && env.ai_enable === true && reviewPrompt) {
+    autoApprove = await reviewProposal(env, reviewPrompt, {
+      title,
+      description,
+      pollType: getPollTypeLabel(pollType),
+      options: options.map((option) => option.label)
+    });
+  }
 
   // `start_at` is no longer written: a new poll has no start time and its end
   // date is stamped when it opens. An auto-approved deadline poll opens in the
@@ -161,6 +171,28 @@ export async function handleProposalRequest(request: Request, env: HandlerEnv): 
     pollType: getPollTypeLabel(pollType),
     status: autoApprove ? 'open' : 'pending'
   }, { status: 201 });
+}
+
+// Runs the admin-defined review prompt against a submission. Any failure (model
+// error, timeout, or unusable answer) is treated as "not approved" so the poll
+// stays pending for a human instead of being published unreviewed.
+async function reviewProposal(
+  env: HandlerEnv,
+  prompt: string,
+  input: { title: string; description: string | null; pollType: string; options: string[] }
+): Promise<boolean> {
+  const result = await reviewPoll(
+    env,
+    env.ai_model?.trim() || DEFAULT_AI_MODEL,
+    prompt,
+    {
+      title: input.title,
+      description: input.description ?? undefined,
+      pollType: input.pollType,
+      options: input.options
+    }
+  );
+  return result.ok && result.value === true;
 }
 
 // Asks the categoriser for a slug and maps it to an enabled topic id. Any

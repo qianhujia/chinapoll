@@ -5,6 +5,8 @@
 
 export type SettingType =
   | 'string'
+  // A multi-line text value, rendered as a textarea in the admin dashboard.
+  | 'text'
   | 'integer'
   | 'boolean'
   | 'enum'
@@ -480,6 +482,17 @@ export const SETTING_SCHEMAS: SettingSchema[] = [
     description: 'When enabled, submitted polls without a topic are assigned a topic by the AI model. Admin only.',
     defaultValue: false,
     required: true,
+    public: false,
+  },
+  {
+    key: 'ai_review_prompt',
+    type: 'text',
+    category: 'ai',
+    label: 'AI review prompt',
+    description: 'Instructions the AI follows when auto-approval is on. When AI is enabled and this prompt is not empty, a submission is published only if the AI review passes. Leave empty to publish every submission immediately. Admin only.',
+    defaultValue: '',
+    required: false,
+    max: 4000,
     public: false,
   },
 
