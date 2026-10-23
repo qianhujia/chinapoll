@@ -30,6 +30,11 @@ export default defineConfig({
     })
   ],
   test: {
-    include: ['tests/integration/**/*.test.ts']
+    include: ['tests/integration/**/*.test.ts'],
+    // The Worker console output (route and fetch debug lines, the "Using
+    // secrets defined in .dev.vars" notice) is large and adds no signal once a
+    // test passes. Keep it only for failing tests so the captured output stays
+    // small for humans and AI tools that read it.
+    silent: 'passed-only'
   }
 });

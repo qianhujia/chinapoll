@@ -6,3 +6,4 @@ dist/
 .env
 .dev.vars
 tsconfig.tsbuildinfo
+.claude/settings.local.json

@@ -1,0 +1,20 @@
+# Files excluded from AI tools to keep their context (and token usage) small.
+# Nothing listed here is hand-edited or needed while writing code: it is
+# generated, vendored, or local runtime output. This complements .gitignore and
+# also covers the lock file that is deliberately tracked in git.
+
+# Dependencies and the generated lock file (about 200 KB).
+node_modules/
+package-lock.json
+
+# Build and dev-server output.
+dist/
+.wrangler/
+tsconfig.tsbuildinfo
+
+# Local runtime logs.
+*.log
+
+# Local secrets and environment files (the committed .example template stays in).
+.dev.vars
+.env

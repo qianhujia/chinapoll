@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "deny": [
+      "Read(./package-lock.json)",
+      "Read(./node_modules/**)",
+      "Read(./dist/**)",
+      "Read(./.wrangler/**)",
+      "Read(./admin/.wrangler/**)",
+      "Read(./tsconfig.tsbuildinfo)",
+      "Read(./*.log)",
+      "Read(./.dev.vars)",
+      "Read(./admin/.dev.vars)"
+    ]
+  }
+}

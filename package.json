@@ -23,9 +23,10 @@
     "deploy": "npm run db:migrate:remote && npx wrangler deploy --env production",
     "preview": "vite preview --host 0.0.0.0 --port 4173",
     "lint": "tsc --noEmit",
-    "test": "vitest run && vitest run --config vitest.workers.config.ts",
-    "test:unit": "vitest run",
-    "test:workers": "vitest run --config vitest.workers.config.ts",
+    "test": "vitest run --no-color && vitest run --config vitest.workers.config.ts --no-color",
+    "test:unit": "vitest run --no-color",
+    "test:workers": "vitest run --config vitest.workers.config.ts --no-color",
+    "test:sanity": "npm run lint && vitest run --no-color",
     "worker:dev": "npm run dev:worker"
   },
   "cloudflare": {

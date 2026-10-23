@@ -1,9 +1,11 @@
 # ChinaPoll Admin Worker
 
-The admin Worker is a standalone Cloudflare Worker that shares the main
-application's D1 database. It serves a browser dashboard and a JSON API used to
-review submissions, adjust polls, moderate comments, manage admin users, review
-an audit log, and update application settings.
+A standalone Cloudflare Worker that serves the admin dashboard and a JSON API and
+shares the public application's D1 database. It reviews submissions, adjusts
+polls, resolves reports, moderates comments, manages admins and public users,
+reads the audit log, and edits settings. For local startup and deployment, see
+[../README.md](../README.md); feature behavior is described in
+[../docs/REFERENCE.md](../docs/REFERENCE.md).
 
 ## Layout
 
@@ -26,83 +28,57 @@ an audit log, and update application settings.
 | `lib/audit.ts` | Audit log writer (never records client IPs) |
 | `lib/settings.ts` | Setting validation shared by the dashboard API |
 | `ui.ts` | Dashboard HTML shell (embedded styles and assembled client script) |
-| `dashboard/icons.ts` | Lucide SVG markup for the sidebar's root menu items, rendered Worker-side and injected into the embedded script |
+| `dashboard/icons.ts` | Lucide SVG markup for the sidebar's root menu items |
 | `dashboard/styles.ts` | Embedded dashboard CSS |
-| `dashboard/script/*` | Client script fragments: `script/index.ts` assembles `core`, `auth`, `shell`, and one module per page under `script/pages/` |
+| `dashboard/script/*` | Client script fragments; `script/index.ts` assembles `core`, `auth`, `shell`, and one module per page under `script/pages/` |
 | `wrangler.toml` | Worker configuration and shared D1 binding |
 
 ## Database
 
-The consolidated migration `migrations/0001_initial.sql` creates three admin
-tables. Migrations contain schema changes only; no seed or demo rows are inserted.
-
-| Table | Purpose |
-| --- | --- |
-| `admin_users` | Username, PBKDF2 `password_hash`, `role` (admin or super admin), status, `failed_attempts`, `locked_until`, `last_login_at` |
-| `admin_sessions` | SHA-256 hashed session token, owning admin, `expires_at` (30-minute sliding window) |
-| `admin_audit_log` | Actor, action, target, JSON details, timestamp (no client IP) |
-
-The same consolidated migration also creates the `users`, `user_sessions`, and
-`auth_attempts` tables that back public accounts; the Users tab in the dashboard
-manages rows in `users`.
-
-The Reports tab reads the `poll_reports` table and the view counters read the
-`poll_views` table; the consolidated `migrations/0001_initial.sql` creates both,
-together with the `views` column of `stats_snapshots`. Every migration in this
-repository contains schema changes only.
-
-Apply it with the project migration command:
-
-```bash
-npm run db:migrate
-```
+The admin Worker shares the consolidated migration
+`migrations/0001_initial.sql`. It creates three admin tables (schema only, no
+seed or demo rows): `admin_users` (username, PBKDF2 `password_hash`, `role`,
+status, `failed_attempts`, `locked_until`, `last_login_at`), `admin_sessions`
+(SHA-256 hashed token, owning admin, `expires_at`), and `admin_audit_log`
+(actor, action, target, JSON details, timestamp; no client IP). The same file
+creates the `users`, `user_sessions`, and `auth_attempts` tables for public
+accounts, plus `poll_reports`, `poll_views`, and the `views` column of
+`stats_snapshots`. Apply it with `npm run db:migrate`.
 
 ## Configuration
 
-The Worker binds to the same D1 database as the public application. The
-`[env.production]` environment declares that binding by database name only
-(`DB` -> `chinapoll`), so no database UUID is committed; wrangler resolves it
-through the API at deploy time.
+The Worker binds to the same D1 database as the public application.
+`[env.production]` declares that binding by database name only
+(`DB` -> `chinapoll`), so no database UUID is committed; wrangler resolves it at
+deploy time.
 
 | Variable | Required | Purpose |
 | --- | --- | --- |
 | `TURNSTILE_SITE_KEY` | No | Public Turnstile site key rendered on the login form |
-| `TURNSTILE_SECRET_KEY` | No | Private Turnstile key used to verify login tokens; the login check runs only when both keys are set |
+| `TURNSTILE_SECRET_KEY` | No | Private key that verifies login tokens; the check runs only when both keys are set |
 | `ADMIN_ORIGIN` | No | Extra origin allowed for cookie-authenticated mutations |
-| `PUBLIC_SITE_ORIGIN` | No | Origin of the public site (for example `https://chinapoll.org`). Used to link a report row to its poll and to show the branding image URL in full; while it is unset that URL is shown as a path. |
-
-Turnstile verification runs only when both `TURNSTILE_SITE_KEY` and
-`TURNSTILE_SECRET_KEY` are set. The keys are environment variables, never
-settings, so local development stays usable without keys.
+| `PUBLIC_SITE_ORIGIN` | No | Origin of the public site, used to link a report row to its poll and to show branding image URLs in full |
 
 ## Authentication
 
-- New installs with no admin users show a setup form. `POST /api/admin/setup`
-  creates the first account as a **super admin** and is disabled once any admin
+- A fresh install with no admins shows a setup form; `POST /api/admin/setup`
+  creates the first account as the **super admin** and is disabled once any admin
   exists.
-- **Roles**: the first account is a super admin; accounts created from the panel
-  are regular admins unless a super admin grants the super admin role. Only super
-  admins can read the audit log, and only super admins can create, modify, or
-  delete other super admins.
-- Passwords are hashed with PBKDF2-HMAC-SHA256 (100,000 iterations) and stored as
+- Accounts created from the panel are regular admins unless a super admin grants
+  the super admin role. Only super admins can read the audit log and create,
+  modify, or delete other super admins.
+- Passwords are PBKDF2-HMAC-SHA256 (100,000 iterations), stored as
   `pbkdf2$iterations$salt$hash`.
-- Five consecutive failed sign-ins lock an account for fifteen minutes. An admin
+- Five consecutive failed sign-ins lock an account for fifteen minutes; an admin
   can clear the lock from the Admins tab.
 - Sessions live in `admin_sessions` with a thirty-minute sliding expiry, and an
-  admin holds a single active session: logging in elsewhere ends the previous one.
-  A password reset, a role change, a disable, or a delete ends every session of
+  admin holds a single active session: signing in elsewhere ends the previous
+  one. A password reset, role change, disable, or delete ends every session of
   that admin.
-
-## Local development
-
-```bash
-npm run db:migrate
-npm run admin:worker:dev
-```
-
-This starts the admin Worker on http://127.0.0.1:8788 using the same local D1
-database under `.wrangler` as the public Worker. Wrangler reads `.dev.vars` from
-the directory that contains the Worker configuration file.
+- Cookie-authenticated mutations must include an `Origin` matching the Worker
+  origin (or `ADMIN_ORIGIN`); other requests receive `403`. An admin cannot
+  disable or delete their own account, and the last active admin cannot be
+  removed.
 
 ## Endpoints
 
@@ -112,23 +88,19 @@ login endpoint) or an `Authorization: Bearer <session-token>` header.
 | Method | Path | Description |
 | --- | --- | --- |
 | `GET` | `/`, `/overview` | Overview dashboard HTML |
-| `GET` | `/polls` | Polls dashboard HTML |
-| `GET` | `/comments` | Comments dashboard HTML |
-| `GET` | `/users` | Users dashboard HTML |
-| `GET` | `/admins` | Admins dashboard HTML |
-| `GET` | `/audit` | Audit log dashboard HTML (super admins only) |
-| `GET` | `/settings`, `/settings/<category>` | Settings dashboard HTML, one page per category (`general`, `appearance`, `polls`, `auth`, `reports`, `ai`, `publishing`, `advanced`) |
+| `GET` | `/polls`, `/comments`, `/users`, `/admins`, `/audit` | Dashboard HTML |
+| `GET` | `/settings`, `/settings/<category>` | Settings dashboard HTML (`general`, `appearance`, `polls`, `auth`, `reports`, `ai`, `publishing`, `advanced`) |
 | `GET` | `/api/health` | Heartbeat |
 | `GET` | `/api/admin/session` | Session state, setup flag, Turnstile config |
 | `POST` | `/api/admin/session` | Login with `{ username, password, turnstileToken? }` |
 | `DELETE` | `/api/admin/session` | Logout |
 | `POST` | `/api/admin/setup` | Create the first admin user when none exist |
 | `GET` | `/api/admin/overview` | Dashboard counts and recent submissions |
-| `GET` | `/api/admin/polls` | List polls including pending submissions (`status`, `page`, `pageSize`, `q`); each row carries `pollType`, `durationSeconds`, `ballots`, and the option list with a count per option |
+| `GET` | `/api/admin/polls` | List polls including pending (`status`, `page`, `pageSize`, `q`); each row carries `pollType`, `durationSeconds`, `ballots`, and the options with a count each |
 | `POST` | `/api/admin/polls/:id/status` | Set poll status (`{ "status": "open" }`); opening a deadline poll stamps `end_at` from `duration_seconds` |
-| `PUT` | `/api/admin/polls/:id/options` | Replace the option set of a **pending** poll (`{ "options": [{ "position": 1, "label": "…" }] }`); rejected when the poll is not pending or already has ballots (`409`); writes a `poll.options` audit entry |
+| `PUT` | `/api/admin/polls/:id/options` | Replace the option set of a **pending** poll; `409` when it is not pending or already has ballots; writes a `poll.options` audit entry |
 | `GET` | `/api/admin/reports` | List polls with reports, priority first (`status=open\|resolved\|all`, `page`, `pageSize`) |
-| `POST` | `/api/admin/reports/:pollId/resolve` | Resolve every open report for a poll (`{ "resolution": "dismissed" \| "action_taken" }`) |
+| `POST` | `/api/admin/reports/:pollId/resolve` | Resolve every open report for a poll (`{ "resolution": "dismissed"\|"action_taken" }`) |
 | `GET` | `/api/admin/comments` | List comments (`pollId`, `page`, `pageSize`, `q`) |
 | `DELETE` | `/api/admin/comments/:id` | Delete a comment |
 | `GET` | `/api/admin/users` | List public users (`status`, `page`, `pageSize`, `q`) |
@@ -149,111 +121,33 @@ login endpoint) or an `Authorization: Bearer <session-token>` header.
 | `POST` | `/api/admin/settings/publish/test` | Read the configured repository through the GitHub API and report write permission |
 | `POST` | `/api/admin/settings/publish/run` | Run one publisher pass on demand |
 
-Cookie-authenticated mutations must include an `Origin` header that matches the
-Worker origin (or `ADMIN_ORIGIN`); other requests receive `403`. Self-lockout is
-prevented: an admin cannot disable or delete their own account, and the last
-active admin cannot be removed.
+## Dashboard
 
-### Dashboard URLs
-
-The dashboard is a single page that gives every view its own URL: `/overview`
-(also `/`), `/polls`, `/reports`, `/comments`, `/users`, `/admins`, `/audit`, and
-`/settings`. The sidebar links are real anchors, and switching views updates the address bar, so
-views can be bookmarked, shared, refreshed, and reached with the browser back and
-forward buttons. The Worker serves the same dashboard HTML for each of these
-paths; any view that a visitor is not allowed to open (for example `/audit` for a
-regular admin) or is not signed in for falls back to the overview or the login
-screen. Paths outside this set return `404`.
-
-Each root menu item carries a Lucide icon shape. The markup is rendered by the
-Worker (`dashboard/icons.ts`) and injected into the embedded script as a string
-map, so the dashboard stays one self-contained document with no build step and no
-runtime dependency. Colors come from `currentColor`, so an icon follows its
-link's normal, hover, and active states.
-
-Settings is split into one page per category. The sidebar lists them as
-sub-items under **Settings** while that section is open, and each page has its own
-URL (`/settings/general`, `/settings/appearance`, `/settings/polls`,
-`/settings/auth`, `/settings/reports`, `/settings/ai`, `/settings/publishing`,
-`/settings/advanced`). The bare `/settings` path resolves to General. A save
-button applies to the whole page, and the page is reloaded from the API
-afterwards.
-
-### Branding
-
-The **Appearance** page holds two image settings:
-
-| Setting | Meaning |
-| --- | --- |
-| `logo` | Header logo. A set logo replaces the site-name wordmark in the header on every public page. |
-| `favicon` | Browser tab icon. |
-
-Each row offers both ways to set the image, and the row always shows the URL the
-public site uses:
-
-- **Upload** a PNG, JPEG, SVG, WebP, or ICO file (up to 700 KB). The file is
-  stored in the `settings` table as a base64 data URI — a D1 row is capped at
-  2 MB, so larger files are rejected by the validator — and the public Worker
-  serves it from `/image/logo.<extension>` or `/image/favicon.<extension>`, where
-  the extension comes from the uploaded file (`png`, `jpg`, `svg`, `webp`, `ico`).
-- **Or paste an image URL.** The value must be `https:` and is stored as it is;
-  the public pages reference it directly.
-- **Remove** clears the setting.
-
-The URL line under the preview shows the resolved image URL, marked *uploaded*
-(`/image/logo.png?v=<updated_at>`, where the version query makes a replaced image
-a new URL) or *external URL* (the pasted one), and can be opened or copied.
-A row with an uploaded image seeds the URL field empty, because the data URI is
-not something to edit by hand; typing in the field replaces the upload, and
-choosing a file clears the field. The field carries the value that a save stores,
-so one save button covers both cases.
-
-Both settings are public: `/api/settings/public` returns the resolved URL (never
-the base64 payload), and the server-rendered pages and the SPA use it for the
-header logo and the `<link rel="icon">`. The public CSP therefore allows images
-over `https:` in addition to this origin. Image values are recorded in the audit
-log as a size summary rather than the payload.
+Every view has its own URL: `/overview` (also `/`), `/polls`, `/reports`,
+`/comments`, `/users`, `/admins`, `/audit`, and `/settings`. Sidebar links are
+real anchors, so views can be bookmarked, shared, refreshed, and reached with the
+browser back and forward buttons. Any view the visitor may not open (for example
+`/audit` for a regular admin) or is not signed in for falls back to the overview
+or the login screen; paths outside the set return `404`. Icons are Lucide SVG
+markup rendered Worker-side (`dashboard/icons.ts`), so the dashboard stays one
+self-contained document with no build step and no runtime dependency. Settings is
+split into one page per category, each with its own URL.
 
 ## Audit log
 
-The audit log is visible to super admins only. Every state change is recorded
-with the acting username, action, target, and JSON details: login
-success/failure/lock, logout, poll status changes (including approving or
-rejecting submissions), comment deletion, setting updates (including publish
-connection tests and on-demand publish runs), public user status
-changes, unlocks and deletions, admin user management, and report resolution
-(`report.resolved`). The public Worker also writes `poll.auto_hidden` (with no
-actor) when a poll trips an automatic report-hide threshold. Secret setting values
-are never written. Client IP addresses are never stored.
+Visible to super admins only. Every state change is recorded with the acting
+username, action, target, and JSON details: login success/failure/lock, logout,
+poll status changes, comment deletion, setting updates (including publish
+connection tests and on-demand runs), public user and admin management, and
+report resolution (`report.resolved`). The public Worker also writes
+`poll.auto_hidden` with no actor. Secret values and client IP addresses are never
+written.
 
-## Polls
+## Settings cache
 
-The Polls tab lists every poll, pending submissions first when the status filter
-is set to `pending`. Each row shows the poll type (verdict, single choice, or
-multiple choice) next to the mode, and a one-line option summary with the count per option.
-A **Show options** toggle opens an editor that replaces the position/label pairs;
-saving calls `PUT /api/admin/polls/:id/options` and writes a `poll.options` audit
-entry. Editing is only allowed while the poll is still **pending and has no
-ballots**: once a poll is open (or has votes) its options are part of the
-published question and of the counts that the signed snapshot chain covers.
-Setting a poll to `open` is refused with `422` when it has no options.
-
-Opening a deadline poll stamps `end_at` as `duration_seconds` after the moment it
-opens (unless an end date already exists), so a poll that waited for review still
-gets its full duration. There is no separate "scheduled" state: new polls carry a
-duration rather than a start time.
-
-## Reports
-The Reports tab lists one row per poll that has reports. Each row shows the poll
-title, the open and total report counts, an eight-label reason breakdown sorted by
-count, and the newest free-text notes for the `other` reason. Polls with an open
-high-priority report (personal information, harassment, or illegal content) carry
-a red priority badge and sort first, followed by open-count order. The two resolve
-buttons mark every open report for that poll as `action_taken` or `dismissed` and
-write a `report.resolved` audit entry; resolving reports never changes the poll
-status, which is changed from the Polls tab. Both regular admins and super admins
-can view and resolve reports. Resolved reports are deleted 90 days after
-`resolved_at`.
+The public Worker caches its merged settings in memory for 30 seconds, so a change
+made here can take up to half a minute to reach the public site. Restarting or
+redeploying the Worker applies changes immediately.
 
 ## Deployment
 
@@ -263,57 +157,7 @@ npm run deploy:admin
 ```
 
 `deploy:admin` deploys `[env.production]`, which declares the D1 binding by
-database name only (`DB` -> `chinapoll`), so no database UUID is committed. Wrangler
-resolves the real UUID at deploy time; apply the shared schema with
-`npx wrangler d1 migrations apply chinapoll --env production --remote`.
-
-Or deploy from the repository root with the admin Deploy to Cloudflare button in
-`README.md`: name the second Worker application (for example
-`chinapoll-admin-worker`), bind the same D1 database as the public Worker, and use
-`npm run deploy:admin:remote` as its deploy command.
-
+database name only, so no database UUID is committed; apply the shared schema
+with `npx wrangler d1 migrations apply chinapoll --env production --remote`.
 Because this Worker can publish polls, delete comments, and manage other admins,
-put it behind Cloudflare Access or another access control layer in production.
-
-## Public audit repository
-
-The **Audit Publishing** settings page controls the Worker publisher, which
-copies the signed snapshot chain to a GitHub data repository once an hour. It has
-four fields plus a secret:
-
-| Setting | Meaning |
-| --- | --- |
-| `publish_enable` | Boolean, default `false`. Turns the hourly publisher on. |
-| `publish_repository` | The data repository in `owner/name` form; validated with `^[\w.-]+/[\w.-]+$`. |
-| `publish_branch` | Branch to update, default `main`. |
-| `publish_path` | Directory inside the repository, default `snapshots`. |
-| `github_token` | Secret, masked in the API and dashboard. |
-
-**Token scope.** `github_token` must be a **fine-grained personal access token**
-limited to the one data repository with **Contents: Read and write** only and no
-other permission. Do not use a classic token with a broad scope.
-
-**Storage.** The token is a normal secret `settings` row: it is stored in the
-`settings` table, masked by
-`GET /api/admin/settings`, never returned by `/api/settings/public`, and never
-written to the audit log. The Settings tab shows a password field; leaving it
-blank keeps the current value.
-
-**Rotating it.** Paste a new value into the `github_token` field and save. The
-new value replaces the old one and the next run uses it; delete the old token on
-GitHub afterwards. Nothing else needs to change.
-
-Every change to one of these settings writes a `setting.update` audit entry that
-records the key but never the token. **Test connection** calls the GitHub API to
-read the repository and reports whether the token has write permission, and
-**Publish now** runs one pass immediately. Both write an audit entry
-(`setting.publish_test` and `setting.publish_run`). See
-[../docs/RUNBOOK.md](../docs/RUNBOOK.md) for what to do when `publishError` is
-true.
-
-## Settings cache
-
-The public Worker caches its merged settings in memory for 30 seconds, so a
-change made here (or from this dashboard's Settings tab) can take up to half a
-minute to be seen by the public site. Restarting or redeploying the Worker
-applies changes immediately.
+put it behind Cloudflare Access or another access-control layer in production.

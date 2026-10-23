@@ -1,0 +1,301 @@
+# ChinaPoll reference
+
+Technical reference for the public Worker, the D1 schema, and the shared
+services. For the overview and local setup, see [../README.md](../README.md).
+
+## Settings
+
+Application settings are rows in the D1 `settings` table, served publicly by
+`/api/settings/public`, and edited from the admin dashboard. Missing or invalid
+values fall back to built-in defaults; the admin Settings tab can insert any
+missing defaults. `.dev.vars` holds Worker secrets, not settings.
+
+Public keys: `default_locale` (`en`, `zh-CN`, or `zh-TW`), `site_name`,
+`site_slogan`, `data_repository_url`, `polls_per_page`, `comments_per_page`,
+`page_max_width_px`, `hero_title`, `hero_subtitle`, `hero_background_color`
+(a CSS color or gradient; empty means none), `read_only_mode`,
+`min_votes_to_display`, `min_views_to_display`, `report_rate_limit`,
+`report_auto_hide_threshold`, `report_auto_hide_priority_threshold`,
+`vote_rate_limit`, `comment_rate_limit`, `proposal_rate_limit`, and `ai_enable`.
+
+- Page sizes are 1-100; the page width is in pixels.
+- `min_votes_to_display` (default 10) hides result counts until a poll reaches
+  that many votes. The threshold hides results only, so voting is always
+  possible on an open poll.
+- `min_views_to_display` (default 20) hides view totals until a poll reaches
+  that many views.
+- Rate limits use `"<count>/<unit>"` with unit `w|d|h|m|s`.
+- `hero_background_color` accepts any CSS color (hex, rgb/a, hsl/a, or named) or
+  gradient.
+- The header logo and favicon (`logo`, `favicon`) each hold an `https` URL or an
+  uploaded base64 data URI; `/api/settings/public` returns the URL to use. An
+  uploaded image is served from `/image/logo.<ext>` or `/image/favicon.<ext>`,
+  versioned by the row's update time, so the payload never travels in the
+  settings document.
+- `/api/settings/public` also returns the read-only `turnstile_enable` and
+  `turnstile_site_key` from the Worker environment; they cannot be changed from
+  the settings table.
+- Translations load from `public/i18n/en.json`, `zh.json`, and `zh-TW.json`.
+
+Account keys (same table and endpoint): `user_poll_delay_hours` (48) and
+`user_comment_delay_hours` (24) gate new accounts; `max_accounts_per_ip` (4)
+caps accounts per network bucket; `login_max_failed_attempts` (5) and
+`login_lock_minutes` (15) control the lock; `login_rate_limit` (`10/h`) and
+`register_rate_limit` (`5/d`) limit sign-in and sign-up per bucket;
+`login_badge_enable` (`false`) shows an optional badge next to the login and
+sign-up links; `auto_approve_polls` (`false`) publishes submissions immediately
+instead of leaving them pending.
+
+Private keys (never served publicly): `ai_model`, `ai_rate_limit`, and
+`github_token`. The Turnstile secret is an environment variable, not a setting.
+
+## Poll types and options
+
+A poll is one of three ballot shapes in `polls.poll_type`:
+
+| Code | `poll_type` | Options | Selections per ballot |
+| --- | --- | --- | --- |
+| 1 | `verdict` | three pre-filled rows (Approve, Neutral, Oppose) | exactly 1 |
+| 2 | `single_choice` | 2 to 7 rows | exactly 1 |
+| 3 | `multi_choice` | 2 to 7 rows | 1 to all |
+
+A verdict poll behaves like a single choice poll; the only difference is how the
+proposal form builds its options. Options are plain labels in `poll_options`;
+there is no preset, virtual, or translated column, and the type is kept so a
+verdict poll stays identifiable.
+
+One engine, `worker/services/options.ts`, serves every type:
+
+- `getPollOptions` reads `poll_options` ordered by position; options are
+  identified by `id`.
+- `validateSelections` accepts `{ optionIds: number[] }` (exactly 1 for verdict
+  and single choice, 1-7 distinct for multiple choice); every id must belong to
+  the poll.
+- `countBallots` returns `{ ballots, counts }` from two aggregate queries: the
+  ballot total from `votes` and per-option counts from `vote_selections` grouped
+  by `(poll_id, option_id)`.
+- `toPublicResults` returns `{ pollType, ballots, hidden, threshold, options }`;
+  each option carries its own `count`. Below the threshold every count is
+  withheld together while the ballot total is still returned.
+
+`votes` is a ballot table only (`id`, `poll_id`, `voter_token_hash`,
+`created_at`) and holds no choice data; each ballot writes one `votes` row and
+its `vote_selections` rows, rolling back if the second step fails. A unique
+index keeps one ballot per `(poll, token)`.
+
+Endpoints: `POST /api/vote` (`{ pollId, tokenHash, turnstileToken?, optionIds }`),
+`POST /api/vote/status` (returns `optionIds`), `GET /api/stats/:id`,
+`GET /api/polls/:id`, and the poll list return `pollType`, `options`, and the
+results shape. Which options were chosen together is never published.
+
+## Duration model
+
+The proposal form carries a duration, mapped in `worker/enums.ts` and shared
+with the front end through `src/lib/poll.ts`:
+
+| Label | Duration | Mode |
+| --- | --- | --- |
+| `none` | no end date | `evergreen` |
+| `1d` / `3d` / `7d` / `14d` | 1 / 3 / 7 / 14 days | `deadline` |
+| `1m` / `6m` / `1y` | 30 / 180 / 365 days | `deadline` |
+
+`mode` is derived from the label and `duration_seconds` stores the length (or
+`NULL`). `start_at` is no longer written. `end_at` is computed when the poll
+opens as `unixepoch() + duration_seconds` (in the admin status update,
+auto-approval, and the hourly task for any open deadline poll with no end date),
+so a poll that waited for review still gets its full duration.
+
+## Proposal approval
+
+Pending submissions are reviewed from the dashboard's Polls tab: set a poll's
+status to `open` to approve it or `closed` to reject it. A poll keeps the same id
+from submission through approval. Approving a poll that has no options is refused
+(`422`). Options can be corrected with `PUT /api/admin/polls/:id/options` while a
+poll is still pending and has no ballots: the label set is replaced by position.
+Once a poll is open (or has ballots) the option set is frozen, since it is part
+of the published question and of its counts.
+
+## User accounts
+
+Voting stays anonymous, but submitting a poll and posting a comment require an
+account. Users sign up with a username and password only; there is no email or
+recovery channel, so credentials must be kept safe like a crypto recovery phrase.
+
+- Passwords are PBKDF2-HMAC-SHA256 (100,000 iterations, `PBKDF2_ITERATIONS` in
+  `shared/password.ts`) stored in `users` as `pbkdf2$iterations$salt$hash`.
+- Sessions live in `user_sessions` with a thirty-day sliding expiry in an
+  HttpOnly, SameSite=Strict cookie; only the SHA-256 hash of the token is kept.
+- New accounts can submit a poll after `user_poll_delay_hours` and comment after
+  `user_comment_delay_hours`, so brand-new accounts cannot post immediately.
+- Repeated failed sign-ins lock the account after `login_max_failed_attempts` for
+  `login_lock_minutes` minutes.
+- Sign-up and sign-in are rate limited per anonymized network bucket, and one
+  bucket may register `max_accounts_per_ip` accounts. The bucket is a 32-bit
+  integer (`ip_prefix`): a dotted IPv4 address is reduced to its `/24` network
+  and other addresses are folded with a hash, so no full IP address is stored.
+- Each account receives one single-use recovery code at sign-up, shown once;
+  only its SHA-256 hash is stored. It resets a forgotten password from `/reset`,
+  rotating as it is consumed, clearing the failed-attempt lock, and signing out
+  every session. A fresh code can be generated from `/account`.
+- Signing in on a new device keeps other devices signed in; "Sign out of all
+  devices" on `/account` ends them all, and password recovery signs out
+  everywhere.
+- Submitting a poll and posting a comment both require an account; new polls stay
+  pending until an admin approves them unless `auto_approve_polls` is enabled.
+
+Endpoints: `/api/auth` (session state, register, login, logout, recovery) and
+`/api/user` (`GET /api/user/polls?ids=`, `GET /api/user/comments?ids=`,
+`POST /api/user/polls/:id/close`, `DELETE /api/user/polls/:id`,
+`DELETE /api/user/comments/:id`, and `GET`/`POST /api/user/recovery-code`).
+
+## Snapshot chain
+
+The hourly snapshot chain is the tamper-evident record of published results.
+There is a single canonical payload, `schemaVersion: 3`. Each record's hash
+covers the poll id, the hour, the number of ballots, the per-option counts, the
+cumulative view total, and the previous record's hash, so rewriting any published
+count is detectable. `optionCounts` carries the per-position counts as JSON in
+`stats_snapshots.option_counts`, `ballots` is the ballot count at that hour, and
+`views` is the cumulative view total. `makeSnapshot`, `verifySnapshotHash`,
+`/api/snapshots/:id`, the `/api/snapshots/:id/verify` walk, and the publisher all
+use this one format.
+
+## Audit publishing
+
+The hourly maintenance run copies the signed chain to a public GitHub data
+repository, so the published counts are copied outside the operator's database.
+Configure it in the admin Settings tab under **Public audit repository**:
+
+- `publish_enable` (default `false`) turns the publisher on.
+- `publish_repository` is the data repository in `owner/name` form.
+- `publish_branch` (default `main`) and `publish_path` (default `snapshots`)
+  select where files are written.
+- `github_token` is a fine-grained personal access token limited to that one
+  repository with **Contents: Read and write** only. It is stored as a secret
+  `settings` row, masked in the admin API and dashboard, and never returned
+  publicly or written to the audit log.
+
+The publisher runs after the snapshots are written: it lists every open poll and
+every poll closed in the last 35 days, reads the snapshot rows newer than the
+last published hour for each, re-reads the closing hour while the stored last row
+is not final, and merges the rows into the existing poll file by hour. One commit
+per run is created through the Git Data API as `chinapoll-bot`. The
+`publish_state` table stores the per-poll cursor, and the last 50 runs are kept in
+`publish_runs`. `/api/health` reports `lastPublishAt` and `publishError`, and the
+admin Overview lists the last five runs. See [RUNBOOK.md](RUNBOOK.md) for the
+token and what to do when `publishError` is true.
+
+## Poll reports and view counts
+
+Visitors can report a poll without an account from the three-dot menu at the top
+right of the poll title. `POST /api/polls/:id/report` accepts
+`{ "reason": "<label>", "note"?: "<text>" }`. The reason labels are `spam`,
+`inappropriate`, `misleading`, `copyright`, `personal_info`, `harassment`,
+`illegal`, and `other`; a note is accepted only with `other` and is limited to
+300 characters. The endpoint is rate limited with `report_rate_limit` (default
+`3/d`) using the keyed, daily-rotated network hash, and it stores no reporter
+identifier, address, network bucket, or exact timestamp (the creation time is
+coarsened to the hour).
+
+`personal_info`, `harassment`, and `illegal` are high priority. After each report
+the open counts are checked against `report_auto_hide_threshold` (default 5) and
+`report_auto_hide_priority_threshold` (default 2); when either is reached the poll
+is set back to pending with `reviewed_at` cleared so it leaves public listings
+until an admin reviews it, and a `poll.auto_hidden` audit entry is written.
+Setting a threshold to `0` disables that rule.
+
+`POST /api/polls/:id/view` increments one per-poll, per-UTC-day counter
+(`poll_views`); the browser calls it once per tab session. It is a single call to
+the poll's `ViewCounter` Durable Object, which enforces the `60/h` per-network
+limit in its own memory and buffers the count, flushing to D1 on a five-minute
+alarm, so an active poll costs at most twelve writes an hour instead of one per
+view; an object evicted between flushes loses up to five minutes of views (counts
+are approximate by design). The endpoint always answers `204` so the response
+reveals nothing. `GET /api/polls/:id` and the poll list report
+`views: { total, last7Days } | null`, where the value is `null` below
+`min_views_to_display` (default 20). Cumulative views are included in the signed
+hourly snapshot chain.
+
+Retention: resolved reports are deleted 90 days after `resolved_at`, and view
+rows older than 90 days are rolled up into a single per-poll row so long-term
+totals survive while daily resolution is dropped. Both are removed with the poll
+by the foreign-key cascade.
+
+## AI assistance
+
+Optional AI assistance uses Cloudflare Workers AI through the `AI` binding
+(`[ai] binding = "AI"` in `wrangler.toml`, repeated under `[env.production]`).
+It is **off by default**: `ai_enable` defaults to `false`, and while it is off
+the two endpoints answer `404` and the front end does not render the buttons.
+
+| Setting | Default | Public? |
+| --- | --- | --- |
+| `ai_enable` | `false` | yes (only this flag is exposed) |
+| `ai_model` | `@cf/qwen/qwen3-30b-a3b-fp8` | no |
+| `ai_rate_limit` | `10/h` | no |
+
+Both endpoints require a signed-in account, pass the same account-age gate as
+proposals, enforce the Origin check, verify Turnstile when it is enabled, and are
+rate limited per account with scope `ai` and key `user:<id>`:
+
+- `POST /api/ai/enhance-title` with `{ title, description?, locale }` returns
+  `{ suggestions: string[] }` (up to 3 alternatives, each at most 200 characters).
+- `POST /api/ai/suggest-options` with
+  `{ title, description?, pollType, count?, locale }` returns
+  `{ options: string[] }` (2 to 7 options, each at most 80 characters).
+
+The title must be 10 to 200 characters after trimming and the description at most
+2000; anything else is rejected with `400`. The model is asked for structured JSON
+through `response_format` and the answer passes a strict parser (array type, item
+count, string type, trimmed length, no markdown, no duplicates). A malformed
+answer is `502`; a model that does not answer within 15 seconds is `504`. The
+prompt and the response are never logged and never written to D1.
+
+## API errors and translations
+
+Every application-controlled error from the public Worker carries a stable code
+next to the English text it always returned:
+
+```json
+{
+  "error": { "code": "USERNAME_TAKEN", "params": {} },
+  "message": "username is already taken"
+}
+```
+
+- Codes and their canonical English text live in `shared/errors.ts`
+  (`ERROR_MESSAGES`); the Worker builds responses with
+  `apiError(code, status, { params, extra })` from `shared/http.ts`. `message` is
+  kept for backward compatibility, and `params` carries the values of a templated
+  message (for example `{ "hours": 48 }` for an account-age gate).
+- The front end never shows the backend text. `src/lib/apiError.ts` parses the
+  response, translates the code with the i18n dictionary (`errors.<CODE>`) and
+  interpolates the params; `getErrorMessage` in `src/ui.ts` is the single entry
+  point every form, toast, and dialog calls.
+- Older shapes (`{ "detail": { "code": ... } }`, `{ "detail": "text" }`,
+  `{ "message": "text" }`, a bare string, a validation array) are still accepted.
+  Anything that cannot be identified reliably becomes one localized generic
+  message instead of leaking internal text.
+- `tests/apiError.test.ts` checks the parsing, the per-locale output, the
+  interpolation, the legacy fallbacks, and that every code has a translation in
+  all three dictionaries.
+
+## Privacy and cryptography
+
+- Vote and comment timestamps are coarsened to the hour, network buckets are
+  stored only as keyed daily-rotated hashes, and account deletion is self-service
+  from `/account` (content is kept but carries no account link).
+- Two deliberate trade-offs are documented in [THREAT_MODEL.md](THREAT_MODEL.md):
+  the account-cap hash is linkable within a calendar month, and the browser vote
+  token rotates every 30 days (which lets a returning browser vote again on an
+  evergreen poll).
+- Every password hash is produced and checked by the `PasswordHasher` Durable
+  Object, which runs the CPU-heavy PBKDF2 derivation with its own CPU budget so
+  the request Worker only pays for the round trip; the raw primitives in
+  `shared/password.ts` are never called directly. Hashing is sharded across 16
+  instances by a hash of the username. The 100,000-iteration count is the maximum
+  Cloudflare's production WebCrypto accepts for PBKDF2 (a higher count throws
+  `NotSupportedError`), so keep `PBKDF2_ITERATIONS` at or below that ceiling.
+- All Durable Object classes are SQLite-backed (`new_sqlite_classes`): the public
+  Worker declares `RateLimiter`, `PasswordHasher`, and `ViewCounter`; the admin
+  Worker declares `RateLimiter` and `PasswordHasher`.

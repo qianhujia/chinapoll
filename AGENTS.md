@@ -19,3 +19,40 @@ This repository follows strict English-only rules for all contributor-facing tex
 - Use local D1 migrations for schema updates.
 - Keep Turnstile disabled locally unless explicitly requested for production verification. Turnstile is configured only through the `TURNSTILE_SITE_KEY` and `TURNSTILE_SECRET_KEY` environment variables and is enabled exactly when both are set.
 - Treat English-only documentation as a required repository standard, not as optional wording.
+
+## Testing workflow
+
+Full-suite runs are expensive to read: `npm test` prints roughly 90k characters
+(about 22k tokens), most of it per-test Worker debug logging. Do not run the
+full suite after every change.
+
+- After a code change, run the sanity check only: `npm run test:sanity` (a type
+  check plus the fast Node unit tests). It is quiet and small.
+- When a change touches one area, run just the matching test file, for example
+  `npx vitest run tests/unit.test.ts` or
+  `npx vitest run --config vitest.workers.config.ts tests/integration/votes.test.ts`.
+- Run the Workers-runtime integration suite (`npm run test:workers`) only when
+  the change touches Worker, API, D1, or Durable Object code, and prefer a
+  single file while iterating.
+- The full `npm test` runs in CI (`.github/workflows/ci.yml`) on every push and
+  pull request. Reserve a local full run for a pre-merge check or when the
+  change touches shared infrastructure.
+- Both Vitest projects set `silent: 'passed-only'`, so passing tests stay quiet
+  and only failures print their logs. Keep that behavior when editing the
+  Vitest configs.
+
+## AI context hygiene
+
+Generated and local files are kept out of AI tool context so a search or a read
+cannot pull in large, useless content.
+
+- `package-lock.json` is auto-generated and about 200 KB (roughly 51k tokens). It
+  is tracked in git, so `.gitignore` cannot exclude it and each AI tool needs its
+  own rule:
+  - `.clineignore`, `.cursorignore`, and `.kilocodeignore` are identical files
+    that use `.gitignore` syntax.
+  - Claude Code has no ignore file; `.claude/settings.json` lists
+    `permissions.deny` `Read(...)` rules instead.
+- Those rules also exclude `node_modules/`, `dist/`, `.wrangler/`,
+  `tsconfig.tsbuildinfo`, `*.log`, and `.dev.vars`. Keep every list in sync and
+  add any new generated artifact to all of them.
