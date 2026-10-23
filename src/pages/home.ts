@@ -13,6 +13,7 @@ import {
   renderPollTypeBadge,
   renderToast,
   t,
+  plusIconMarkup,
   viewIconMarkup
 } from '../ui';
 
@@ -222,7 +223,7 @@ export async function mountHome(app: HTMLElement, page: number, bindNavigation: 
         <h1 class="m-0 max-w-[22ch] text-[clamp(1.875rem,4vw,2.75rem)] leading-[1.15] font-extrabold tracking-[-0.02em] text-balance max-[700px]:max-w-none">${escapeHtml(heroTitle)}</h1>
         <p class="m-0 mt-4 max-w-2xl text-[clamp(0.95rem,1.8vw,1.1rem)] leading-[1.5] ${heroSubtleClass}">${escapeHtml(heroSubtitle)}</p>
         <div class="mt-6 flex flex-wrap items-center justify-center gap-3">
-          <a class="rounded-lg px-6 py-2.5 text-sm transition-all ${primaryCtaClass}" href="/submit" data-route="/submit">${t('ctaSubmitPolls')}</a>
+          <a class="inline-flex items-center gap-2 rounded-lg px-6 py-2.5 text-sm transition-all ${primaryCtaClass}" href="/submit" data-route="/submit">${plusIconMarkup('h-4 w-4')}${t('ctaSubmitPolls')}</a>
           <a class="rounded-lg px-6 py-2.5 text-sm transition-colors ${secondaryCtaClass}" href="/about" data-route="/about">${t('ctaAnonymousRules')}</a>
         </div>
 

@@ -4,11 +4,15 @@ import {
   buildMetaTags,
   buildPollListJsonLd,
   buildWebsiteJsonLd,
+  getAboutSeoContext,
   getHomeSeoContext,
   getPollSeoContext,
+  getSubmitSeoContext,
   injectSeoIntoHtml,
   type PublicSettingsSeo
 } from '../worker/services/seo';
+import { translatorFor } from '../worker/services/ssr';
+import zhDictionary from '../public/i18n/zh.json';
 
 const settings: PublicSettingsSeo = {
   site_name: 'ChinaPoll & Co',
@@ -115,6 +119,26 @@ describe('route contexts', () => {
     const seo = getHomeSeoContext(settings, ORIGIN);
     expect(seo.canonical).toBe(`${ORIGIN}/`);
     expect((seo.jsonLd as Record<string, unknown>)['@type']).toBe('WebSite');
+  });
+
+  it('translates the about and submit titles and descriptions', () => {
+    const en = translatorFor('en');
+    const zh = translatorFor('zh-CN');
+
+    // English keeps the same wording as before, now sourced from the dictionary.
+    expect(getAboutSeoContext(settings, ORIGIN, en).title).toBe(`About - ${settings.site_name}`);
+    expect(getSubmitSeoContext(settings, ORIGIN, en).title).toBe(`New Poll - ${settings.site_name}`);
+
+    // The Chinese locale swaps in the translated label and description.
+    const about = getAboutSeoContext(settings, ORIGIN, zh);
+    expect(about.title).toBe(`${zhDictionary.seoAboutTitle} - ${settings.site_name}`);
+    expect(about.description).toContain(settings.site_name);
+
+    const submit = getSubmitSeoContext(settings, ORIGIN, zh);
+    expect(submit.title).toBe(`${zhDictionary.seoSubmitTitle} - ${settings.site_name}`);
+    expect(submit.description).toContain(settings.site_name);
+    // The submit page stays out of the index in every locale.
+    expect(submit.robots).toBe('noindex, follow');
   });
 });
 

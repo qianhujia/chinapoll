@@ -199,7 +199,10 @@ async function buildPublicPage(
         page: data?.page ?? page,
         totalPages: data?.totalPages ?? 1,
         query,
-        activeTopic
+        activeTopic,
+        totalPolls: data?.totalPolls ?? 0,
+        totalVotes: data?.totalVotes ?? 0,
+        showHero: (data?.page ?? page) === 1 && query === '' && activeTopic === ''
       }, t),
       status: 200
     };
@@ -245,7 +248,10 @@ async function buildPublicPage(
         page: data?.page ?? page,
         totalPages: data?.totalPages ?? 1,
         query: '',
-        activeTopic: topicSlug
+        activeTopic: topicSlug,
+        totalPolls: data?.totalPolls ?? 0,
+        totalVotes: data?.totalVotes ?? 0,
+        showHero: (data?.page ?? page) === 1 && topicSlug === ''
       }, t),
       status: 200
     };
@@ -276,11 +282,11 @@ async function buildPublicPage(
   }
 
   if (pathname === '/about') {
-    return { seo: getAboutSeoContext(settings, origin), body: renderAboutBody(settings, t), status: 200 };
+    return { seo: getAboutSeoContext(settings, origin, t), body: renderAboutBody(settings, t), status: 200 };
   }
 
   if (pathname === '/submit') {
-    return { seo: getSubmitSeoContext(settings, origin), body: '', status: 200 };
+    return { seo: getSubmitSeoContext(settings, origin, t), body: '', status: 200 };
   }
 
   if (pathname === '/login' || pathname === '/register' || pathname === '/reset') {

@@ -74,7 +74,10 @@ describe('server-side poll list', () => {
       page: 1,
       totalPages: 2,
       query: '',
-      activeTopic: ''
+      activeTopic: '',
+      totalPolls: 12,
+      totalVotes: 340,
+      showHero: true
     });
 
     expect(html).toContain('href="/poll/12" data-route="/poll/12"');
@@ -82,6 +85,13 @@ describe('server-side poll list', () => {
     expect(html).toContain('href="/topic/politics"');
     expect(html).toContain('href="/about"');
     expect(html).toContain('page=2');
+    // The hero statistics are part of the first paint instead of being fetched
+    // by the SPA after load.
+    expect(html).toContain('>12</dd>');
+    expect(html).toContain('data-total-votes>340<');
+    // The call to action is the "New Poll" link with its plus icon.
+    expect(html).toContain(serverTranslate('ctaSubmitPolls'));
+    expect(html).toContain('<path d="M5 12h14" />');
   });
 
   it('shows the empty message when no poll matches', () => {
@@ -93,7 +103,10 @@ describe('server-side poll list', () => {
       page: 1,
       totalPages: 1,
       query: '',
-      activeTopic: ''
+      activeTopic: '',
+      totalPolls: 0,
+      totalVotes: 0,
+      showHero: true
     });
 
     expect(html).toContain(serverTranslate('noPolls'));
@@ -108,7 +121,10 @@ describe('server-side poll list', () => {
       page: 1,
       totalPages: 1,
       query: '',
-      activeTopic: ''
+      activeTopic: '',
+      totalPolls: 0,
+      totalVotes: 0,
+      showHero: false
     });
 
     expect(html).not.toContain('<img src=x');
@@ -199,7 +215,10 @@ describe('locale-aware translator', () => {
       page: 1,
       totalPages: 1,
       query: '',
-      activeTopic: ''
+      activeTopic: '',
+      totalPolls: 0,
+      totalVotes: 0,
+      showHero: true
     }, translatorFor('zh-CN'));
 
     expect(html).toContain(zhDictionary.noPolls);
@@ -208,5 +227,9 @@ describe('locale-aware translator', () => {
     expect(html).toContain(zhDictionary.poweredBy.split('{name}')[0]);
     expect(html).toContain(zhDictionary.poweredBy.split('{name}')[1]);
     expect(html).not.toContain('Powered by');
+    // The hero call to action and its statistics labels follow the locale.
+    expect(html).toContain(zhDictionary.ctaSubmitPolls);
+    expect(html).toContain(zhDictionary.totalVotesCount);
+    expect(html).not.toContain(serverTranslate('ctaSubmitPolls'));
   });
 });

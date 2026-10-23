@@ -6,6 +6,7 @@
 // during client-side navigation.
 
 import { getPublicSettings } from './config';
+import { t } from './ui';
 
 export interface SeoData {
   title: string;
@@ -122,15 +123,19 @@ export function getSeoForRoute(route: string, settings: { site_name: string; sit
     case '/about':
       return {
         ...base,
-        title: `About - ${settings.site_name}`,
-        description: `Learn about ${settings.site_name}: ${settings.site_slogan}`
+        title: `${t('seoAboutTitle')} - ${settings.site_name}`,
+        description: t('seoAboutDescription')
+          .replace('{name}', settings.site_name)
+          .replace('{slogan}', settings.site_slogan)
       };
 
     case '/submit':
       return {
         ...base,
-        title: `Submit a Poll - ${settings.site_name}`,
-        description: `Create a new poll on ${settings.site_name}. ${settings.site_slogan}`,
+        title: `${t('seoSubmitTitle')} - ${settings.site_name}`,
+        description: t('seoSubmitDescription')
+          .replace('{name}', settings.site_name)
+          .replace('{slogan}', settings.site_slogan),
         robots: 'noindex, follow'
       };
 
@@ -171,7 +176,7 @@ export function getSeoForRoute(route: string, settings: { site_name: string; sit
         const pollId = route.split('/').pop();
         return {
           ...base,
-          title: `Poll #${pollId} - ${settings.site_name}`,
+          title: `${t('pollPrefix')} #${pollId} - ${settings.site_name}`,
           description: `Vote on poll #${pollId} on ${settings.site_name}.`,
           ogType: 'article',
           canonical: `${origin}/poll/${pollId}`
@@ -181,7 +186,7 @@ export function getSeoForRoute(route: string, settings: { site_name: string; sit
         const pollId = route.split('/').pop();
         return {
           ...base,
-          title: `Poll #${pollId} - ${settings.site_name}`,
+          title: `${t('pollPrefix')} #${pollId} - ${settings.site_name}`,
           description: `Vote on poll #${pollId} on ${settings.site_name}.`,
           ogType: 'article',
           canonical: `${origin}/poll/${pollId}`

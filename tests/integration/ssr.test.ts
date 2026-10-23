@@ -28,6 +28,9 @@ describe('server-rendered pages', () => {
     expect(html).toContain('name="description"');
     expect(html).toContain('property="og:locale"');
     expect(html).toContain('application/ld+json');
+    // The hero statistics are rendered server-side instead of being fetched by
+    // the SPA after the page loads.
+    expect(html).toContain('data-total-votes');
     // The shell's placeholder <title> and description are replaced, not kept
     // alongside the injected ones.
     expect(html).not.toContain('<title>ChinaPoll</title>');

@@ -26,6 +26,10 @@ export type Locale = 'en' | 'zh-CN' | 'zh-TW';
 // The source repository credited in the footer, matching the SPA footer.
 const SOURCE_REPOSITORY_URL = 'https://github.com/qianhujia/chinapoll';
 
+// The Lucide plus icon that prefixes the "New Poll" call to action, inlined so
+// the server-rendered hero matches the icon the SPA draws.
+const PLUS_ICON = '<svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14" /><path d="M12 5v14" /></svg>';
+
 // The same three dictionaries the SPA ships, so the server-rendered first paint
 // is in the site's default language instead of always English.
 const DICTIONARIES: Record<Locale, Record<string, string>> = {
@@ -237,12 +241,17 @@ export interface HomeBodyInput {
   totalPages: number;
   query: string;
   activeTopic: string;
+  /** Site-wide totals shown in the hero statistics. */
+  totalPolls: number;
+  totalVotes: number;
+  /** Whether the hero (with its call to action and statistics) is shown. */
+  showHero: boolean;
 }
 
 // The home page, the polls list, and a topic page share one server-rendered
 // shape: header, hero, topic chips, the poll list, and paging.
 export function renderHomeBody(input: HomeBodyInput, t: Translate = serverTranslate): string {
-  const { settings, topics, topicTotal, polls, page, totalPages, query, activeTopic } = input;
+  const { settings, topics, topicTotal, polls, page, totalPages, query, activeTopic, totalPolls, totalVotes, showHero } = input;
 
   const list = polls.length
     ? polls.map((poll) => renderPollRow(poll, settings, t)).join('')
@@ -265,17 +274,40 @@ export function renderHomeBody(input: HomeBodyInput, t: Translate = serverTransl
     return `/?${params.toString()}`;
   };
 
-  return `    <div class="mx-auto max-w-[var(--page-width)] px-5 pt-6">
-${renderHeader(settings, t, '/')}
-    </div>
-
+  // The hero carries the call to action and the site-wide statistics. It is
+  // shown only on the first page with no search or topic filter, matching the
+  // SPA, so a filtered or paged listing goes straight to the polls.
+  const hero = showHero ? `
     <section class="px-5 pt-10 pb-12 max-[700px]:pt-6 max-[700px]:pb-8">
       <div class="mx-auto flex max-w-[var(--page-width)] flex-col items-center text-center">
         <h1 class="m-0 max-w-[22ch] text-[clamp(1.875rem,4vw,2.75rem)] leading-[1.15] font-extrabold tracking-[-0.02em] text-balance max-[700px]:max-w-none">${escapeHtml(settings.hero_title || settings.site_slogan)}</h1>
         <p class="m-0 mt-4 max-w-2xl text-[clamp(0.95rem,1.8vw,1.1rem)] leading-[1.5] text-muted">${escapeHtml(settings.hero_subtitle || settings.site_slogan)}</p>
-      </div>
-    </section>
+        <div class="mt-6 flex flex-wrap items-center justify-center gap-3">
+          <a class="inline-flex items-center gap-2 rounded-lg bg-primary px-6 py-2.5 text-sm text-white transition-all hover:opacity-90" href="/submit" data-route="/submit">${PLUS_ICON}${escapeHtml(t('ctaSubmitPolls'))}</a>
+          <a class="rounded-lg border border-border bg-panel px-6 py-2.5 text-sm text-ink transition-colors hover:border-primary hover:text-primary" href="/about" data-route="/about">${escapeHtml(t('ctaAnonymousRules'))}</a>
+        </div>
 
+        <dl class="m-0 mt-12 flex flex-wrap items-start justify-center gap-x-16 gap-y-8 max-[700px]:mt-8 max-[700px]:gap-x-10">
+          <div class="flex min-w-[110px] flex-col items-center gap-2">
+            <dd class="order-1 m-0 text-[clamp(2rem,4vw,2.75rem)] leading-none tracking-[-0.02em] tabular-nums">${totalPolls}</dd>
+            <dt class="order-2 text-xs font-normal text-muted">${escapeHtml(t('totalPolls'))}</dt>
+          </div>
+          <div class="flex min-w-[110px] flex-col items-center gap-2">
+            <dd class="order-1 m-0 text-[clamp(2rem,4vw,2.75rem)] leading-none tracking-[-0.02em] tabular-nums">${topicTotal}</dd>
+            <dt class="order-2 text-xs font-normal text-muted">${escapeHtml(t('openPolls'))}</dt>
+          </div>
+          <div class="flex min-w-[110px] flex-col items-center gap-2">
+            <dd class="order-1 m-0 text-[clamp(2rem,4vw,2.75rem)] leading-none tracking-[-0.02em] tabular-nums" data-total-votes>${totalVotes}</dd>
+            <dt class="order-2 text-xs font-normal text-muted">${escapeHtml(t('totalVotesCount'))}</dt>
+          </div>
+        </dl>
+      </div>
+    </section>` : '';
+
+  return `    <div class="mx-auto max-w-[var(--page-width)] px-5 pt-6">
+${renderHeader(settings, t, '/')}
+    </div>
+${hero}
     <div class="mx-auto max-w-[var(--page-width)] px-5 pt-6 pb-16">
       <main class="grid gap-5">${searchNote}
 ${renderTopicChips(topics, topicTotal, activeTopic, settings, t)}
@@ -370,6 +402,10 @@ export interface HomeSsrData {
   totalPages: number;
   topics: SsrTopic[];
   topicTotal: number;
+  /** Every poll that can be listed, matching the API's `totalPolls`. */
+  totalPolls: number;
+  /** Site-wide vote total, matching the API's `totalVotes`. */
+  totalVotes: number;
 }
 
 // The poll list for the home, polls, and topic routes. It mirrors the ordering
@@ -419,6 +455,20 @@ export async function loadHomeSsrData(
 
   const { topics, total: topicTotal } = await loadSsrTopics(db);
 
+  // The two hero statistics that do not depend on the current filter: every
+  // listable poll, and the site-wide vote total read from the latest snapshot
+  // per poll (mirrors GET /api/polls).
+  const [allPollsRow, voteTotalRow] = await Promise.all([
+    db.prepare('SELECT COUNT(*) AS total FROM polls WHERE mode IN (?, ?)')
+      .bind(PollMode.Deadline, PollMode.Evergreen).first<{ total: number }>(),
+    db.prepare(
+      `SELECT COALESCE(SUM(s.ballots), 0) AS total
+       FROM stats_snapshots s
+       JOIN (SELECT poll_id, MAX(ts_hour) AS ts_hour FROM stats_snapshots GROUP BY poll_id) latest
+         ON latest.poll_id = s.poll_id AND latest.ts_hour = s.ts_hour`
+    ).first<{ total: number }>()
+  ]);
+
   const polls: SsrPollCard[] = (rows.results ?? []).map((row) => ({
     id: Number(row.id),
     title: row.title,
@@ -430,7 +480,15 @@ export async function loadHomeSsrData(
       : null
   }));
 
-  return { polls, page, totalPages, topics, topicTotal };
+  return {
+    polls,
+    page,
+    totalPages,
+    topics,
+    topicTotal,
+    totalPolls: Number(allPollsRow?.total ?? 0),
+    totalVotes: Number(voteTotalRow?.total ?? 0)
+  };
 }
 
 // The enabled topics with their open-poll counts, used for the chip row. This

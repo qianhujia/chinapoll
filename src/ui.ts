@@ -1,4 +1,4 @@
-import { CircleAlert, CircleCheck, EllipsisVertical, Eye, Search, X, type IconNode } from 'lucide';
+import { CircleAlert, CircleCheck, EllipsisVertical, Eye, Plus, Search, X, type IconNode } from 'lucide';
 import { DEFAULT_LOCALE, getLocaleText } from './i18n';
 import { getComments, type CommentsResponse, type PollSummary } from './lib/poll';
 import { getCurrentUser } from './lib/session';
@@ -33,6 +33,11 @@ export function viewIconMarkup(cssClass: string): string {
 // Vertical three-dot icon used by a "more actions" menu button.
 export function moreIconMarkup(cssClass: string): string {
   return iconMarkup(EllipsisVertical, cssClass);
+}
+
+// Plus icon used by the "New Poll" call to action on the home hero.
+export function plusIconMarkup(cssClass: string): string {
+  return iconMarkup(Plus, cssClass);
 }
 
 const toastIcons: Record<'success' | 'error', IconNode> = {

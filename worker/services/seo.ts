@@ -6,6 +6,7 @@
 // document (see withSeoMetadata in ../index).
 
 import { escapeHtml, serializeJsonLd } from './html';
+import type { Translate } from './ssr';
 
 export interface SeoContext {
   title: string;
@@ -239,18 +240,22 @@ export function getPollsListSeoContext(settings: PublicSettingsSeo, origin: stri
   });
 }
 
-export function getAboutSeoContext(settings: PublicSettingsSeo, origin: string): SeoContext {
+export function getAboutSeoContext(settings: PublicSettingsSeo, origin: string, t: Translate): SeoContext {
   return buildSeoContext('/about', settings, origin, {
-    title: `About - ${settings.site_name}`,
-    description: `Learn about ${settings.site_name}: ${settings.site_slogan}`,
+    title: `${t('seoAboutTitle')} - ${settings.site_name}`,
+    description: t('seoAboutDescription')
+      .replace('{name}', settings.site_name)
+      .replace('{slogan}', settings.site_slogan),
     ogType: 'website'
   });
 }
 
-export function getSubmitSeoContext(settings: PublicSettingsSeo, origin: string): SeoContext {
+export function getSubmitSeoContext(settings: PublicSettingsSeo, origin: string, t: Translate): SeoContext {
   return buildSeoContext('/submit', settings, origin, {
-    title: `Submit a Poll - ${settings.site_name}`,
-    description: `Create a new poll on ${settings.site_name}. ${settings.site_slogan}`,
+    title: `${t('seoSubmitTitle')} - ${settings.site_name}`,
+    description: t('seoSubmitDescription')
+      .replace('{name}', settings.site_name)
+      .replace('{slogan}', settings.site_slogan),
     ogType: 'website',
     robots: 'noindex, follow'
   });
