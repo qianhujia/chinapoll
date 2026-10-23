@@ -6,7 +6,7 @@ import { ORIGIN, applySchema } from './helpers';
 // object whose `run` returns canned JSON. `runModel` in worker/services/ai.ts is
 // the only place the binding is touched, so this covers the whole path.
 //
-// `ai_enable` is written in `beforeAll`, before the first request, because the
+// `ai_provider` is written in `beforeAll`, before the first request, because the
 // Worker caches its merged settings in memory for 30 seconds.
 interface StubAi {
   run: (model: string, options: unknown) => Promise<unknown>;
@@ -65,7 +65,7 @@ beforeAll(async () => {
     env.DB.prepare("INSERT INTO settings (key, value) VALUES ('ai_model', 'test-model')"),
     env.DB.prepare("INSERT INTO settings (key, value) VALUES ('ai_review_prompt', 'private review instructions')"),
     // The feature is on for every request made in this isolate.
-    env.DB.prepare("INSERT INTO settings (key, value) VALUES ('ai_enable', 'true')")
+    env.DB.prepare("INSERT INTO settings (key, value) VALUES ('ai_provider', 'cloudflare')")
   ]);
 });
 
@@ -76,11 +76,11 @@ afterEach(() => {
 });
 
 describe('AI assistance endpoints', () => {
-  // The Worker caches the merged settings per isolate, so the `ai_enable: false`
-  // case cannot share an isolate with the `ai_enable: true` cases. The handler is
-  // called directly with the defaults instead, which is exactly the state before
-  // the feature is switched on.
-  it('answers 404 while the ai_enable setting is off', async () => {
+  // The Worker caches the merged settings per isolate, so the provider-off case
+  // cannot share an isolate with the enabled cases. The handler is called
+  // directly with the defaults instead, which is exactly the state before an
+  // admin selects a provider.
+  it('answers 404 while the AI provider is off', async () => {
     const { handleAiRequest } = await import('../../worker/api/ai');
     const { DEFAULT_PUBLIC_SETTINGS } = await import('../../worker/api/settings');
     const request = new Request(`${ORIGIN}/api/ai/enhance-title`, {
@@ -96,6 +96,7 @@ describe('AI assistance endpoints', () => {
     expect(result.status).toBe(404);
     expect(await result.json()).toMatchObject({ message: 'not found' });
     expect(DEFAULT_PUBLIC_SETTINGS.ai_enable).toBe(false);
+    expect(DEFAULT_PUBLIC_SETTINGS.ai_provider).toBe('off');
   });
 
   it('answers 401 without a session', async () => {
@@ -224,6 +225,9 @@ describe('AI failure handling', () => {
 
     const publicSettings = await (await SELF.fetch(`${ORIGIN}/api/settings/public`)).json() as any;
     expect(publicSettings.ai_enable).toBe(true);
+    expect(publicSettings.ai_provider).toBeUndefined();
+    expect(publicSettings.ai_api_url).toBeUndefined();
+    expect(publicSettings.ai_api_key).toBeUndefined();
     expect(publicSettings.ai_model).toBeUndefined();
     expect(publicSettings.ai_rate_limit).toBeUndefined();
     expect(publicSettings.ai_review_prompt).toBeUndefined();

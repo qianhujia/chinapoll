@@ -103,7 +103,7 @@ export async function handleProposalRequest(request: Request, env: HandlerEnv): 
     }
     topicId = match.id;
   }
-  if (topicId === null && env.ai_auto_topic === true && env.ai_enable === true) {
+  if (topicId === null && env.ai_auto_topic === true && env.ai_provider !== 'off') {
     topicId = await suggestTopic(env, title, description);
   }
 
@@ -112,7 +112,7 @@ export async function handleProposalRequest(request: Request, env: HandlerEnv): 
   // decides, and a rejected or failed review leaves the poll pending for an admin.
   const reviewPrompt = (env.ai_review_prompt ?? '').trim();
   let autoApprove = env.auto_approve_polls === true;
-  if (autoApprove && env.ai_enable === true && reviewPrompt) {
+  if (autoApprove && env.ai_provider !== 'off' && reviewPrompt) {
     autoApprove = await reviewProposal(env, reviewPrompt, {
       title,
       description,

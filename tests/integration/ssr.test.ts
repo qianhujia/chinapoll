@@ -132,6 +132,9 @@ describe('server-rendered pages', () => {
       turnstile_site_key: ''
     });
     expect(payload!.settings).not.toHaveProperty('github_token');
+    expect(payload!.settings).not.toHaveProperty('ai_provider');
+    expect(payload!.settings).not.toHaveProperty('ai_api_url');
+    expect(payload!.settings).not.toHaveProperty('ai_api_key');
     expect(payload!.settings).not.toHaveProperty('ai_model');
     expect(payload!.settings).not.toHaveProperty('publish_repository');
     // No Worker binding or server secret travels with the document: the island's

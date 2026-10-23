@@ -127,18 +127,26 @@ async function listSettings(env: AdminEnv): Promise<Response> {
 
   const categoryMap = new Map(categories.map((c) => [c.category, c]));
 
+  // Before the provider dropdown existed, `ai_enable = true` meant Workers AI.
+  // The public loader still honours that legacy row, so the admin list shows the
+  // same effective provider instead of displaying Off and overwriting it on the
+  // next save.
+  const legacyAiEnabled = stored.get('ai_enable')?.value === 'true';
+
   const settings = SETTING_KEYS.map((key) => {
     const row = stored.get(key);
     const schema = getSettingSchema(key);
+    const legacyProvider = key === 'ai_provider' && row === undefined && legacyAiEnabled;
+    const value = legacyProvider ? 'cloudflare' : row?.value ?? null;
     const detail: SettingDetail = {
       key,
       label: getSettingLabel(key),
       description: getSettingDescription(key),
       type: getSettingType(key) ?? 'string',
       category: getSettingCategory(key) ?? 'advanced',
-      value: row?.value ?? null,
-      maskedValue: maskSettingValue(key, row?.value ?? null),
-      isSet: row !== undefined,
+      value,
+      maskedValue: maskSettingValue(key, value),
+      isSet: row !== undefined || legacyProvider,
       isSecret: isSettingSecretApi(key),
       isPublic: isSettingPublicApi(key),
       defaultValue: getSettingDefaultApi(key) ?? '',
@@ -183,8 +191,18 @@ async function bulkUpdateSettings(request: Request, env: AdminEnv, actor: AdminA
       continue;
     }
 
-    // If value is empty, use the default value (auto-initialize missing settings)
     let valueToValidate = String(rawValue);
+
+    // A secret field is rendered empty because the stored value is masked, so an
+    // empty submission means "leave it unchanged" rather than "clear it". This
+    // matters for the AI API key: saving the AI settings page must not wipe a
+    // configured key just because the admin did not retype it.
+    if (valueToValidate === '' && isSettingSecretApi(key)) {
+      results.push({ key, ok: true, message: `${key} left unchanged.` });
+      continue;
+    }
+
+    // If value is empty, use the default value (auto-initialize missing settings)
     if (valueToValidate === '') {
       const defaultVal = getSettingDefaultApi(key);
       valueToValidate = defaultVal !== undefined ? String(defaultVal) : '';
@@ -263,8 +281,20 @@ async function updateSetting(key: string, request: Request, env: AdminEnv, actor
 }
 
 async function initializeSettings(env: AdminEnv, actor: AdminActor): Promise<Response> {
+  // Preserve an installation that enabled AI before the provider setting
+  // existed: initializing the missing keys must not write `ai_provider = off`
+  // over an `ai_enable = true` row.
+  const legacyAi = await env.DB.prepare("SELECT value FROM settings WHERE key = 'ai_enable'")
+    .first<{ value: string | null }>();
+  const legacyAiEnabled = legacyAi?.value === 'true';
+
   const insert = env.DB.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)');
-  const statements = SETTING_KEYS.map((key) => insert.bind(key, String(getSettingDefaultApi(key) ?? '')));
+  const statements = SETTING_KEYS.map((key) => {
+    const value = key === 'ai_provider' && legacyAiEnabled
+      ? 'cloudflare'
+      : String(getSettingDefaultApi(key) ?? '');
+    return insert.bind(key, value);
+  });
   const results = await env.DB.batch(statements);
   const inserted = results.reduce((total, result) => total + Number(result.meta.changes ?? 0), 0);
 

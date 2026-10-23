@@ -1,9 +1,10 @@
 // Client for the optional AI assistance endpoints.
 //
-// The endpoints are only available when the `ai_enable` setting is on; when it
-// is off they answer 404 and the buttons are not rendered at all. The draft is
-// sent to the Worker, which forwards it to Cloudflare Workers AI; nothing is
-// stored on either side.
+// The endpoints are only available when the derived `ai_enable` flag is true
+// (the private `ai_provider` setting is not off); when it is false they answer
+// 404 and the buttons are not rendered at all. The draft is sent to the Worker,
+// which forwards it to the configured AI provider; nothing is stored on either
+// side.
 
 import { fetchJson, type PollType } from './poll';
 

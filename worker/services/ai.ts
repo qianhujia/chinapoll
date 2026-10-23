@@ -1,13 +1,16 @@
-// Cloudflare Workers AI assistance for drafting polls.
+// AI assistance for drafting polls through either Cloudflare Workers AI or an
+// OpenAI-compatible HTTP endpoint.
 //
 // Privacy: the prompt and the model response are never logged and never written
-// to D1. The draft the user typed is sent to the model and the validated result
-// goes straight back to the caller.
+// to D1. The draft the user typed is sent to the provider and the validated
+// result goes straight back to the caller.
 //
-// The model is asked for structured JSON through `response_format`, and the
-// result is passed through a strict parser: array type, item count, string
-// type, trimmed length, no markdown, and no duplicates. Anything that does not
-// match is rejected so a caller never sees a malformed suggestion.
+// The model is asked for structured JSON, and the result is passed through a
+// strict parser: array type, item count, string type, trimmed length, no
+// markdown, and no duplicates. Anything that does not match is rejected so a
+// caller never sees a malformed suggestion.
+
+import type { AiProvider } from '../../shared/settings';
 
 const TIMEOUT_MS = 15_000;
 
@@ -38,6 +41,9 @@ export type AiLocale = 'en' | 'zh-CN' | 'zh-TW';
 
 export interface AiEnv {
   AI: Ai;
+  ai_provider: AiProvider;
+  ai_api_url: string;
+  ai_api_key: string;
 }
 
 // The language the model must answer in, spelled out for the prompt.
@@ -59,7 +65,61 @@ const SYSTEM_PROMPT = [
 export type AiFailure = 'bad_model_output' | 'timeout' | 'model_error';
 export type AiResult<T> = { ok: true; value: T } | { ok: false; reason: AiFailure };
 
-// Calls the model binding. Kept as a single seam so tests can stub `env.AI`.
+// Builds the chat-completions URL from either a base URL or a full endpoint.
+// A base URL such as https://api.openai.com/v1 becomes
+// https://api.openai.com/v1/chat/completions; an already complete endpoint is
+// left unchanged.
+export function openAiChatCompletionsUrl(baseUrl: string): string {
+  const trimmed = baseUrl.trim();
+  if (!trimmed) throw new Error('OpenAI-compatible API URL is not configured');
+  const url = new URL(trimmed);
+  if (!/\/chat\/completions\/?$/i.test(url.pathname)) {
+    url.pathname = `${url.pathname.replace(/\/+$/, '')}/chat/completions`;
+  }
+  return url.toString();
+}
+
+// Calls an OpenAI-compatible chat-completions endpoint. The response format is
+// JSON object mode, which compatible servers commonly support; the prompts
+// themselves already spell out the exact JSON shape and the caller validates it
+// strictly. The API key is optional and is sent as a bearer token when present.
+async function runOpenAiCompatibleModel(
+  env: AiEnv,
+  model: string,
+  messages: Array<{ role: string; content: string }>,
+  signal: AbortSignal
+): Promise<unknown> {
+  const headers: Record<string, string> = { 'content-type': 'application/json' };
+  const apiKey = env.ai_api_key?.trim();
+  if (apiKey) headers.authorization = `Bearer ${apiKey}`;
+
+  const response = await fetch(openAiChatCompletionsUrl(env.ai_api_url), {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      model,
+      messages,
+      response_format: { type: 'json_object' }
+    }),
+    signal
+  });
+  if (!response.ok) {
+    // The body is never logged or returned: it can contain provider details.
+    throw new Error(`OpenAI-compatible API answered ${response.status}`);
+  }
+
+  const payload = await response.json() as {
+    choices?: Array<{ message?: { content?: unknown } }>;
+  };
+  const content = payload.choices?.[0]?.message?.content;
+  if (typeof content === 'string' || (typeof content === 'object' && content !== null)) {
+    return content;
+  }
+  throw new Error('OpenAI-compatible API returned no message content');
+}
+
+// Calls the configured provider. Kept as a single seam so tests can stub
+// `env.AI` for Workers AI or the global `fetch` for an OpenAI-compatible API.
 export async function runModel(
   env: AiEnv,
   model: string,
@@ -67,6 +127,12 @@ export async function runModel(
   jsonSchema: Record<string, unknown>,
   signal: AbortSignal
 ): Promise<unknown> {
+  if (env.ai_provider === 'openai_compatible') {
+    return runOpenAiCompatibleModel(env, model, messages, signal);
+  }
+  if (env.ai_provider !== 'cloudflare') {
+    throw new Error('AI provider is not configured');
+  }
   return env.AI.run(model, {
     messages,
     response_format: { type: 'json_schema', json_schema: jsonSchema },

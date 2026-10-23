@@ -2,7 +2,7 @@
 //
 // Every endpoint requires a signed-in account, passes the same account-age gate
 // as proposals, enforces the Origin check, verifies Turnstile when it is enabled,
-// and rate limits with scope `ai` and key `user:<id>`. When the `ai_enable`
+// and rate limits with scope `ai` and key `user:<id>`. When the `ai_provider`
 // setting is off they answer 404, exactly as if they did not exist.
 //
 // Privacy: the draft is sent to the model and the validated suggestions go
@@ -44,8 +44,8 @@ function isLocale(value: unknown): value is AiLocale {
 }
 
 export async function handleAiRequest(request: Request, url: URL, env: HandlerEnv): Promise<Response> {
-  // With the feature off the endpoints behave as if they did not exist.
-  if (env.ai_enable !== true) {
+  // With the provider off the endpoints behave as if they did not exist.
+  if (env.ai_provider === 'off') {
     return apiError('RESOURCE_NOT_FOUND', 404);
   }
 

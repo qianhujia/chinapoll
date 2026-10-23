@@ -3,7 +3,7 @@
 
 import { isTurnstileEnabled, turnstileSiteKey, type TurnstileEnv } from '../services/turnstile';
 import { apiError } from '../../shared/http';
-import { imageDataUriExtension, imageSettingError } from '../../shared/settings';
+import { imageDataUriExtension, imageSettingError, type AiProvider } from '../../shared/settings';
 
 interface SettingRow {
   key: string;
@@ -68,14 +68,19 @@ export const DEFAULT_PUBLIC_SETTINGS = {
   // Setting a threshold to 0 disables that rule.
   report_auto_hide_threshold: 5,
   report_auto_hide_priority_threshold: 2,
-  // Optional AI assistance. `ai_enable` is off by default, so the /api/ai
-  // endpoints answer 404 and the frontend hides the buttons. Only `ai_enable`
-  // is exposed publicly; the model and the rate limit stay in the database.
+  // Optional AI assistance. The provider is off by default, so the /api/ai
+  // endpoints answer 404 and the frontend hides the buttons. `ai_enable` is a
+  // derived compatibility flag for the public payload (see loadPublicSettings);
+  // a legacy stored `ai_enable` row only selects Workers AI when no provider row
+  // exists yet. The endpoint URL, key, model, and rate limit stay private.
   ai_enable: false,
+  ai_provider: 'off' as AiProvider,
+  ai_api_url: '',
+  ai_api_key: '',
   ai_model: '@cf/qwen/qwen3-30b-a3b-fp8',
   ai_rate_limit: '10/h',
-  // When true (and `ai_enable` is on), a submitted poll that did not choose a
-  // topic is assigned a topic by the model. Admin only; never served publicly.
+  // When true (and AI is on), a submitted poll that did not choose a topic is
+  // assigned a topic by the model. Admin only; never served publicly.
   ai_auto_topic: false,
   // Admin-defined instructions for reviewing a submission when auto-approval is
   // on. An empty prompt means every submission is approved immediately. Admin
@@ -267,6 +272,22 @@ export async function loadPublicSettings(db: D1Database): Promise<PublicSettings
         }
         settings.github_token = value;
         break;
+      case 'ai_provider':
+        if (value !== 'off' && value !== 'cloudflare' && value !== 'openai_compatible') {
+          invalid(row.key, 'must be "off", "cloudflare", or "openai_compatible"');
+        }
+        settings.ai_provider = value;
+        break;
+      case 'ai_api_url': {
+        const url = value.trim();
+        if (url && !isHttpsUrl(url)) invalid(row.key, 'must be an HTTPS URL or empty');
+        settings.ai_api_url = url;
+        break;
+      }
+      case 'ai_api_key':
+        if (value.length > 500) invalid(row.key, 'must not exceed 500 characters');
+        settings.ai_api_key = value;
+        break;
       case 'ai_model':
         if (!value.trim() || value.length > 100) invalid(row.key, 'must contain 1 to 100 characters');
         settings.ai_model = value;
@@ -278,17 +299,28 @@ export async function loadPublicSettings(db: D1Database): Promise<PublicSettings
     }
   }
 
+  // Compatibility with an existing installation: before the provider dropdown
+  // existed, `ai_enable = true` meant Workers AI. If no provider row has been
+  // written yet, that legacy flag selects Workers AI. The public flag is always
+  // derived from the provider, so the frontend keeps its single boolean check.
+  const hasProviderRow = (result.results ?? []).some((row) => row.key === 'ai_provider');
+  if (!hasProviderRow && settings.ai_enable === true) settings.ai_provider = 'cloudflare';
+  settings.ai_enable = settings.ai_provider !== 'off';
+
   return settings;
 }
 
 // Secrets stay in the database for the Worker only; they are never served
-// publicly. The `ai_enable` flag is public because the frontend needs it to show
-// or hide the AI buttons; `ai_model`, `ai_rate_limit`, the publish settings, and
-// the GitHub token stay private. Turnstile is not a setting at all: the site key
-// and the enabled flag are derived from the Worker environment and merged in by
-// the handler below.
+// publicly. The derived `ai_enable` flag is public because the frontend needs it
+// to show or hide the AI buttons; the provider, endpoint URL, API key, model,
+// rate limit, publish settings, and GitHub token stay private. Turnstile is not
+// a setting at all: the site key and the enabled flag are derived from the
+// Worker environment and merged in by the handler below.
 function stripPrivateSettings(settings: PublicSettings): Record<string, unknown> {
   const {
+    ai_provider: _aiProvider,
+    ai_api_url: _aiApiUrl,
+    ai_api_key: _aiApiKey,
     ai_model: _aiModel,
     ai_rate_limit: _aiRateLimit,
     ai_auto_topic: _aiAutoTopic,

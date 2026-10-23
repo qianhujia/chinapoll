@@ -1,6 +1,6 @@
 // AI button behaviour for the proposal form.
 //
-// Both buttons are hidden entirely when the `ai_enable` setting is off, and
+// Both buttons are hidden entirely when the derived `ai_enable` flag is false, and
 // disabled until the title has at least 10 characters. A title suggestion is
 // applied only when the user clicks it; an option suggestion fills empty rows
 // and keeps a subtle "AI" tag until the row is edited or the poll is submitted.

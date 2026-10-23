@@ -6,7 +6,7 @@ import { PollStatus } from '../../worker/enums';
 import type { HandlerEnv } from '../../worker/index';
 
 // The proposal handler is called directly with an explicit settings object, so
-// each test can change `auto_approve_polls`, `ai_enable`, and the review prompt
+// each test can change `auto_approve_polls`, the AI provider, and the review prompt
 // without waiting for the Worker's 30 second settings cache. Only one account is
 // registered, because the tests share a network bucket.
 let cookie = '';
@@ -59,6 +59,7 @@ function handlerEnv(overrides: Record<string, unknown>): HandlerEnv {
     // The real binding needs a remote connection, so every call in this file
     // uses the canned answer instead.
     AI: stubAI,
+    ai_provider: 'cloudflare',
     ai_model: 'test-model',
     ai_rate_limit: '1000/h',
     proposal_rate_limit: '1000/d',
@@ -140,7 +141,7 @@ describe('AI review of auto-approved proposals', () => {
   it('publishes immediately when AI is off even if a prompt is stored', async () => {
     const response = await propose({
       auto_approve_polls: true,
-      ai_enable: false,
+      ai_provider: 'off',
       ai_review_prompt: 'Publish factual polls only.'
     }, 'AI off review poll');
 

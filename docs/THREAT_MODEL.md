@@ -151,25 +151,27 @@ falsely reported as tampered with. The version is included in the
 `/api/snapshots/:id` response and in the published JSON file, so an external
 verifier can tell which payload a given chain was hashed with.
 
-## Workers AI data flow
+## AI provider data flow
 
-AI assistance is optional and off by default (`ai_enable` defaults to `false`).
+AI assistance is optional and off by default (`ai_provider` defaults to `off`).
 When it is on:
 
 - The draft the user typed (title and optional description) is sent from the
   browser to `POST /api/ai/enhance-title` or `POST /api/ai/suggest-options`, and
-  the Worker forwards it to Cloudflare Workers AI through the `AI` binding. The
-  validated suggestions are returned straight to the caller.
+  the Worker forwards it to the configured provider: Cloudflare Workers AI
+  through the `AI` binding, or the admin-configured OpenAI-compatible endpoint.
+  The validated suggestions are returned straight to the caller.
 - **Nothing is stored.** The prompt and the model response are never logged and
   never written to D1. There is no prompt table, no response table, and no cache.
 - The endpoints require a signed-in account, pass the same account-age gate as
   proposals, enforce the same Origin check, verify Turnstile when it is enabled,
   and are rate limited per account with scope `ai`.
-- Workers AI is a third-party service. Turning `ai_enable` on therefore means the
-  draft text leaves the operator's own systems and is processed by Cloudflare's
-  model runtime under Cloudflare's terms; that is the same trade-off the threat
-  model already documents for Turnstile, and the frontend states it in one line
-  under the AI buttons.
+- Workers AI and any configured OpenAI-compatible endpoint are third-party
+  services. Turning AI on therefore means the draft text leaves the operator's
+  own systems and is processed by the selected provider under that provider's
+  terms; the frontend states this in one line under the AI buttons. The
+  OpenAI-compatible API key is stored as a secret setting and is only sent to
+  the configured endpoint.
 
 ## Explicit non-goals
 
@@ -205,7 +207,7 @@ When it is on:
 - Added poll types (verdict, single choice, multiple choice) with per-poll options,
   replaced the proposal start/end times with a fixed duration, and extended the
   snapshot hash to cover ballots and per-option counts. Documented the
-  combination-per-anonymous-ballot exposure and the optional Workers AI data flow.
+  combination-per-anonymous-ballot exposure and the optional AI provider data flow.
 - Unified the three poll types behind one options engine, so a verdict poll now
   exposes three options and a verdict ballot still stores only a single small
   integer. Added `schemaVersion` to the canonical snapshot payload (version 2) and

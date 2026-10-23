@@ -75,6 +75,7 @@ function aiEnv(extra: Record<string, unknown> = {}): HandlerEnv {
     user_poll_delay_hours: 0,
     proposal_rate_limit: '200/d',
     ai_enable: true,
+    ai_provider: 'cloudflare',
     ai_model: 'test-model',
     ai_rate_limit: '1000/h',
     ai_auto_topic: true,

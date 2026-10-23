@@ -115,6 +115,7 @@ describe('bootstrap island payload', () => {
     const payload = await buildBootstrapPayload(merged, settings, 'https://example.com');
 
     const privateKeys = [
+      'ai_provider', 'ai_api_url', 'ai_api_key',
       'ai_model', 'ai_rate_limit', 'ai_auto_topic', 'ai_review_prompt',
       'publish_enable', 'publish_repository', 'publish_branch', 'publish_path',
       'github_token'

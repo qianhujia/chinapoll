@@ -17,6 +17,11 @@ export type SettingType =
   // produced by an upload (see imageSettingError).
   | 'image';
 
+// The model backend used by every AI feature. `off` disables the AI endpoints
+// and the frontend buttons; the other values select the Workers AI binding or an
+// OpenAI-compatible HTTP endpoint.
+export type AiProvider = 'off' | 'cloudflare' | 'openai_compatible';
+
 export type SettingCategory =
   | 'general'
   | 'appearance'
@@ -455,21 +460,48 @@ export const SETTING_SCHEMAS: SettingSchema[] = [
 
   // AI
   {
-    key: 'ai_enable',
-    type: 'boolean',
+    key: 'ai_provider',
+    type: 'enum',
     category: 'ai',
-    label: 'Enable AI assistance',
-    description: 'When enabled, AI-powered features (categorization, etc.) are available. Requires Workers AI binding.',
-    defaultValue: false,
+    label: 'AI provider',
+    description: 'Choose Off to disable AI features, Cloudflare Workers AI to use the Workers AI binding, or OpenAI-compatible API to call your own compatible endpoint.',
+    defaultValue: 'off',
     required: true,
-    public: true,
+    enumOptions: [
+      { value: 'off', label: 'Off - disable all AI features' },
+      { value: 'cloudflare', label: 'Cloudflare Workers AI - use the Workers AI binding' },
+      { value: 'openai_compatible', label: 'OpenAI-compatible API - use a custom endpoint' },
+    ],
+    public: false,
+  },
+  {
+    key: 'ai_api_url',
+    type: 'url',
+    category: 'ai',
+    label: 'OpenAI-compatible API URL',
+    description: 'Base URL of the OpenAI-compatible API, for example https://api.openai.com/v1. The Worker calls <url>/chat/completions. Used only when the provider is OpenAI-compatible API.',
+    defaultValue: '',
+    required: false,
+    public: false,
+  },
+  {
+    key: 'ai_api_key',
+    type: 'string',
+    category: 'ai',
+    label: 'OpenAI-compatible API key',
+    description: 'Optional bearer token sent to the OpenAI-compatible API. Leave empty when the endpoint does not require authentication.',
+    defaultValue: '',
+    required: false,
+    max: 500,
+    secret: true,
+    public: false,
   },
   {
     key: 'ai_model',
     type: 'string',
     category: 'ai',
     label: 'AI model',
-    description: 'Workers AI model to use for AI features.',
+    description: 'Model name used for every AI feature. Use a Workers AI model name for Cloudflare Workers AI, or a model name supported by your OpenAI-compatible endpoint.',
     defaultValue: '@cf/qwen/qwen3-30b-a3b-fp8',
     required: true,
     public: false,
@@ -586,7 +618,7 @@ export const SETTING_CATEGORIES: Record<SettingCategory, { label: string; descri
   },
   ai: {
     label: 'AI Features',
-    description: 'AI-powered categorization and assistance (requires Workers AI).',
+    description: 'AI-powered assistance, categorization, and review through Workers AI or an OpenAI-compatible endpoint.',
   },
   publishing: {
     label: 'Audit Publishing',

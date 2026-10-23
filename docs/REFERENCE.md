@@ -16,7 +16,8 @@ Public keys: `default_locale` (`en`, `zh-CN`, or `zh-TW`), `site_name`,
 (a CSS color or gradient; empty means none), `read_only_mode`,
 `min_votes_to_display`, `min_views_to_display`, `report_rate_limit`,
 `report_auto_hide_threshold`, `report_auto_hide_priority_threshold`,
-`vote_rate_limit`, `comment_rate_limit`, `proposal_rate_limit`, and `ai_enable`.
+`vote_rate_limit`, `comment_rate_limit`, `proposal_rate_limit`, and the derived
+`ai_enable` flag (true whenever the private `ai_provider` is not `off`).
 
 - Page sizes are 1-100; the page width is in pixels.
 - `min_votes_to_display` (default 10) hides result counts until a poll reaches
@@ -49,9 +50,9 @@ caps accounts per network bucket; `login_max_failed_attempts` (5) and
 sign-up links; `auto_approve_polls` (`false`) publishes submissions immediately
 instead of leaving them pending.
 
-Private keys (never served publicly): `ai_model`, `ai_rate_limit`,
-`ai_review_prompt`, and `github_token`. The Turnstile secret is an environment
-variable, not a setting.
+Private keys (never served publicly): `ai_provider`, `ai_api_url`, `ai_api_key`,
+`ai_model`, `ai_rate_limit`, `ai_review_prompt`, and `github_token`. The Turnstile
+secret is an environment variable, not a setting.
 
 ## Poll types and options
 
@@ -114,11 +115,12 @@ so a poll that waited for review still gets its full duration.
 Pending submissions are reviewed from the dashboard's Polls tab: set a poll's
 status to `open` to approve it or `closed` to reject it. When
 `auto_approve_polls` is enabled, a submission is published immediately unless
-both `ai_enable` is on and `ai_review_prompt` is not empty: in that case the AI
-model reviews the submission against the admin prompt and publishes it only when
-the review approves. A rejected, failed, or unusable review leaves the poll
-pending for an admin. A poll keeps the same id from submission through approval.
-Approving a poll that has no options is refused (`422`). Options can be corrected
+both AI is on (`ai_provider` is not `off`) and `ai_review_prompt` is not empty: in
+that case the AI model reviews the submission against the admin prompt and
+publishes it only when the review approves. A rejected, failed, or unusable
+review leaves the poll pending for an admin. A poll keeps the same id from
+submission through approval. Approving a poll that has no options is refused
+(`422`). Options can be corrected
 with `PUT /api/admin/polls/:id/options` while a poll is still pending and has no
 ballots: the label set is replaced by position.
 Once a poll is open (or has ballots) the option set is frozen, since it is part
@@ -232,17 +234,30 @@ by the foreign-key cascade.
 
 ## AI assistance
 
-Optional AI assistance uses Cloudflare Workers AI through the `AI` binding
-(`[ai] binding = "AI"` in `wrangler.toml`, repeated under `[env.production]`).
-It is **off by default**: `ai_enable` defaults to `false`, and while it is off
-the two endpoints answer `404` and the front end does not render the buttons.
+Optional AI assistance is configured with `ai_provider`:
+
+| Provider | Behaviour |
+| --- | --- |
+| `off` | AI endpoints answer `404` and the front end hides the buttons. This is the default. |
+| `cloudflare` | Calls Cloudflare Workers AI through the `AI` binding (`[ai] binding = "AI"` in `wrangler.toml`, repeated under `[env.production]`). |
+| `openai_compatible` | Calls `<ai_api_url>/chat/completions` with the shared `ai_model`. If the URL already ends in `/chat/completions`, it is used as-is. `ai_api_key`, when set, is sent as `Authorization: Bearer <key>`. |
+
+One `ai_model` is used for every AI feature and both providers. Set it to a
+Workers AI model name for `cloudflare`, or to a model supported by the
+OpenAI-compatible endpoint.
 
 | Setting | Default | Public? |
 | --- | --- | --- |
-| `ai_enable` | `false` | yes (only this flag is exposed) |
+| `ai_provider` | `off` (`off`, `cloudflare`, `openai_compatible`) | no |
+| `ai_api_url` | empty (HTTPS URL) | no |
+| `ai_api_key` | empty | no |
 | `ai_model` | `@cf/qwen/qwen3-30b-a3b-fp8` | no |
 | `ai_rate_limit` | `10/h` | no |
 | `ai_review_prompt` | empty (up to 4000 characters) | no |
+| derived `ai_enable` | `false` | yes |
+
+An existing installation that stored `ai_enable = true` before the provider
+setting existed keeps using Workers AI until an `ai_provider` row is written.
 
 Both endpoints require a signed-in account, pass the same account-age gate as
 proposals, enforce the Origin check, verify Turnstile when it is enabled, and are
@@ -255,11 +270,12 @@ rate limited per account with scope `ai` and key `user:<id>`:
   `{ options: string[] }` (2 to 7 options, each at most 80 characters).
 
 The title must be 10 to 200 characters after trimming and the description at most
-2000; anything else is rejected with `400`. The model is asked for structured JSON
-through `response_format` and the answer passes a strict parser (array type, item
-count, string type, trimmed length, no markdown, no duplicates). A malformed
-answer is `502`; a model that does not answer within 15 seconds is `504`. The
-prompt and the response are never logged and never written to D1.
+2000; anything else is rejected with `400`. Workers AI is asked for structured
+JSON through a JSON schema; the OpenAI-compatible provider uses JSON object mode.
+Either answer passes a strict parser (array type, item count, string type, trimmed
+length, no markdown, no duplicates). A malformed answer is `502`; a provider that
+does not answer within 15 seconds is `504`. The prompt and the response are never
+logged and never written to D1.
 
 ## API errors and translations
 
