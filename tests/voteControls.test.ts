@@ -6,7 +6,7 @@
 // directly.
 
 import { describe, expect, it } from 'vitest';
-import { renderChoiceInputs, renderResults } from '../src/pages/poll';
+import { renderChoiceInputs, renderPollNav, renderResults } from '../src/pages/poll';
 import type { PollOption } from '../src/lib/poll';
 
 // Two stored options, shaped like the poll detail response. Translations are not
@@ -111,5 +111,38 @@ describe('renderResults', () => {
   it('renders nothing when the poll has no options', () => {
     expect(renderResults({ ...results, options: [] })).toBe('');
     expect(renderResults({ ...results, options: null })).toBe('');
+  });
+});
+
+describe('renderPollNav', () => {
+  it('renders nothing when the poll has no neighbor in either direction', () => {
+    expect(renderPollNav(null, null)).toBe('');
+  });
+
+  it('links the previous and next poll with their numbers and titles', () => {
+    const markup = renderPollNav({ id: 10, title: 'Older poll' }, { id: 14, title: 'Newer poll' });
+
+    expect(markup).toContain('href="/poll/10"');
+    expect(markup).toContain('#10 Older poll');
+    expect(markup).toContain('href="/poll/14"');
+    expect(markup).toContain('#14 Newer poll');
+    // Translations are not loaded here, so `t()` falls back to the i18n key.
+    expect(markup).toContain('pollNavLabel');
+    expect(markup).toContain('prevPoll');
+    expect(markup).toContain('nextPoll');
+  });
+
+  it('renders only the direction that exists', () => {
+    const markup = renderPollNav(null, { id: 14, title: 'Newer poll' });
+
+    expect(markup).toContain('href="/poll/14"');
+    expect(markup).not.toContain('prevPoll');
+  });
+
+  it('escapes a neighbour title', () => {
+    const markup = renderPollNav(null, { id: 14, title: '<b>Newer</b>' });
+
+    expect(markup).not.toContain('<b>');
+    expect(markup).toContain('&lt;b&gt;');
   });
 });

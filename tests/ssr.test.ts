@@ -31,7 +31,6 @@ const poll: SsrPollCard = {
   title: 'Should the city build more bike lanes?',
   mode: PollMode.Evergreen,
   pollType: 2,
-  optionCount: 3,
   topic: { slug: 'politics', name: 'Politics' }
 };
 
@@ -133,21 +132,53 @@ describe('server-side poll list', () => {
 });
 
 describe('server-side poll page', () => {
-  it('renders the title, description, and option labels', () => {
-    const detail: SsrPollDetail = {
-      ...poll,
-      description: 'A short summary.',
-      status: 1,
-      options: [{ label: 'Yes' }, { label: 'No' }]
-    };
+  const detail: SsrPollDetail = {
+    ...poll,
+    description: 'A short summary.',
+    status: 1,
+    options: [{ label: 'Yes' }, { label: 'No' }],
+    prev: null,
+    next: null
+  };
 
+  it('renders the title, description, and option labels', () => {
     const html = renderPollBody(detail, settings);
-    // The detail page heading is prefixed with the poll number as "#1".
+
+    // The detail page heading is prefixed with the poll number as "#12".
     expect(html).toContain(`#${detail.id} Should the city build more bike lanes?`);
     expect(html).toContain('Should the city build more bike lanes?');
     expect(html).toContain('A short summary.');
     expect(html).toContain('Yes');
     expect(html).toContain('No');
+    // A poll with no neighbors renders no navigation block at all.
+    expect(html).not.toContain('Poll navigation');
+  });
+
+  it('links the previous and next poll with their numbers and titles', () => {
+    const html = renderPollBody({
+      ...detail,
+      prev: { id: 10, title: 'Older poll' },
+      next: { id: 14, title: 'Newer poll' }
+    }, settings);
+
+    expect(html).toContain('Poll navigation');
+    expect(html).toContain('Previous poll');
+    expect(html).toContain('Next poll');
+    // Each link carries the poll number and title and points at its route.
+    expect(html).toContain('href="/poll/10"');
+    expect(html).toContain('#10 Older poll');
+    expect(html).toContain('href="/poll/14"');
+    expect(html).toContain('#14 Newer poll');
+  });
+
+  it('escapes a neighbor title', () => {
+    const html = renderPollBody({
+      ...detail,
+      next: { id: 14, title: '<script>alert(1)</script>' }
+    }, settings);
+
+    expect(html).not.toContain('<script>');
+    expect(html).toContain('&lt;script&gt;');
   });
 });
 

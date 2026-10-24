@@ -16,6 +16,7 @@ import {
   submitReport,
   submitVote,
   type CommentsResponse,
+  type PollNeighbor,
   type PollOption,
   type PollResults,
   type PollSummary,
@@ -86,6 +87,27 @@ export function renderChoiceInputs(
       <button class="mx-auto cursor-pointer rounded-full border border-primary bg-primary px-4 py-2.5 text-white disabled:cursor-not-allowed disabled:opacity-60" type="submit" data-choice-submit ${hasVoted ? 'disabled' : ''}>${t('submitVote')}</button>
     </form>
   `;
+}
+
+// The previous/next links for the detail page, each showing the poll number and
+// title. Returns an empty string when the poll sits at both ends of the list, so
+// no empty navigation is rendered. The markup mirrors the server-rendered nav in
+// worker/services/ssr.ts so the first paint and the client paint look alike.
+export function renderPollNav(prev: PollNeighbor | null, next: PollNeighbor | null): string {
+  if (!prev && !next) return '';
+  const link = (neighbor: PollNeighbor, label: string, align: string): string => {
+    const href = `/poll/${neighbor.id}`;
+    return `
+      <a class="flex min-w-0 max-w-full flex-col gap-0.5 rounded-[14px] border border-border bg-[#f9fbff] px-3.5 py-2.5 no-underline hover:border-primary sm:max-w-[48%] ${align}" href="${href}" data-route="${href}">
+        <span class="text-xs text-muted">${escapeHtml(label)}</span>
+        <span class="truncate text-sm text-ink">${escapeHtml(`#${neighbor.id} ${neighbor.title}`)}</span>
+      </a>`;
+  };
+  const prevLink = prev ? link(prev, `← ${t('prevPoll')}`, '') : '';
+  const nextLink = next ? link(next, `${t('nextPoll')} →`, 'ml-auto items-end text-right') : '';
+  return `
+      <nav class="flex flex-wrap items-stretch justify-between gap-3" aria-label="${escapeHtml(t('pollNavLabel'))}">${prevLink}${nextLink}
+      </nav>`;
 }
 
 // One horizontal bar per option, sorted by position, showing the count and the
@@ -465,6 +487,8 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
     : ''}</p>
           <small class="mt-3.5 block text-center text-xs text-muted">${t('privacyText')}</small>
         </section>
+
+        ${renderPollNav(poll.prev ?? null, poll.next ?? null)}
 
         ${renderCommentForm(canComment)}
 

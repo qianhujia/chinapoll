@@ -99,6 +99,12 @@ Endpoints: `POST /api/vote` (`{ pollId, tokenHash, turnstileToken?, optionIds }`
 `POST /api/vote/status` (returns `optionIds`), `GET /api/stats/:id`,
 `GET /api/polls/:id`, and the poll list return `pollType`, `options`, and the
 results shape. Which options were chosen together is never published.
+`GET /api/polls/:id` additionally returns `prev` and `next`
+(`{ id, title } | null`), the public polls on either side of it in the list
+ordering (`created_at DESC, id DESC`), which the detail page renders as its
+previous/next links. They are derived from the ordering rather than stored as
+`prev_poll_id`/`next_poll_id` columns, so they cannot drift when a poll is added,
+deleted, or changes status.
 
 ## Duration model
 

@@ -100,6 +100,12 @@ export interface PollTopicRef {
   name: string;
 }
 
+// A poll adjacent to the one shown, for the detail page's previous/next links.
+export interface PollNeighbor {
+  id: number;
+  title: string;
+}
+
 export interface PollSummary {
   id: number;
   title: string;
@@ -112,6 +118,9 @@ export interface PollSummary {
   status: 'open' | 'closed' | 'archived';
   /** The poll's topic, or null/absent when it is untopicalized. */
   topic?: PollTopicRef | null;
+  /** The older/newer public poll, or null when there is none that way. */
+  prev?: PollNeighbor | null;
+  next?: PollNeighbor | null;
 }
 
 // An enabled topic from `GET /api/topics`, with its name for each locale

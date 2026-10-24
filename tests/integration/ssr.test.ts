@@ -5,7 +5,7 @@
 
 import { beforeAll, describe, expect, it } from 'vitest';
 import { env, SELF } from 'cloudflare:test';
-import { ORIGIN, applySchema, seedOptions, seedPoll } from './helpers';
+import { ORIGIN, applySchema, lastId, seedOptions, seedPoll } from './helpers';
 import zhDictionary from '../../public/i18n/zh.json';
 
 // The bootstrap island the document carries, or null when the response has none.
@@ -19,7 +19,13 @@ interface IslandPayload {
     id: number;
     commentsPage: number;
     commentsPageSize: number;
-    detail?: { poll: { title: string } };
+    detail?: {
+      poll: {
+        title: string;
+        prev: { id: number; title: string } | null;
+        next: { id: number; title: string } | null;
+      };
+    };
     stats?: { pollId: number; ballots: number; hidden: boolean };
     comments?: { pollId: number; total: number; comments: unknown[] };
   };
@@ -28,6 +34,18 @@ interface IslandPayload {
 function islandFrom(html: string): IslandPayload | null {
   const match = html.match(/<script type="application\/json" id="bootstrap">([\s\S]*?)<\/script>/);
   return match ? JSON.parse(match[1]) as IslandPayload : null;
+}
+
+// Inserts an open poll with an explicit creation time. seedPoll uses the current
+// time, so a neighbor assertion that needs a deterministic order sets the time
+// itself and the two polls share one distinctly old timestamp (ordering then
+// falls back to the id).
+async function seedPollAt(title: string, createdAt: number): Promise<number> {
+  await env.DB.prepare(
+    `INSERT INTO polls (title, description, mode, status, created_at)
+     VALUES (?, 'A description that is long enough to pass.', 2, 1, ?)`
+  ).bind(title, createdAt).run();
+  return lastId();
 }
 
 beforeAll(async () => {
@@ -170,5 +188,30 @@ describe('server-rendered pages', () => {
 
     expect(response.status).toBe(404);
     expect(islandFrom(await response.text())?.poll).toBeUndefined();
+  });
+
+  // The detail page links the polls next to it in the list ordering, so a visitor
+  // can keep reading without going back to the list.
+  it('links the previous and next poll on the detail page', async () => {
+    // One distinctly old timestamp keeps the pair at the oldest end of the list,
+    // so the older of the two has no previous poll and links to the newer one.
+    const olderId = await seedPollAt('Older navigation poll', 1000000000);
+    const newerId = await seedPollAt('Newer navigation poll', 1000000000);
+
+    const response = await SELF.fetch(`${ORIGIN}/poll/${olderId}`);
+    const html = await response.text();
+    const payload = islandFrom(html);
+
+    expect(response.status).toBe(200);
+    // The server-rendered navigation links to the newer poll with its number and
+    // title, labelled in the site default locale.
+    expect(html).toContain(`href="/poll/${newerId}"`);
+    expect(html).toContain(`#${newerId} Newer navigation poll`);
+    expect(html).toContain(`${zhDictionary.nextPoll} →`);
+    // The bootstrap island carries the same neighbors the API computes, and the
+    // oldest poll has none behind it.
+    expect(payload!.poll?.detail?.poll.prev).toBeNull();
+    expect(payload!.poll?.detail?.poll.next)
+      .toMatchObject({ id: newerId, title: 'Newer navigation poll' });
   });
 });

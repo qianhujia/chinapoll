@@ -15,6 +15,7 @@ import {
   type PollOption
 } from '../services/options.js';
 import { loadViewCounts, publicViews } from './views';
+import { loadPollNeighbors } from '../services/pollNav';
 import { TOPIC_SLUG_PATTERN } from '../../shared/categories';
 import { apiError } from '../../shared/http';
 
@@ -245,7 +246,8 @@ async function getPoll(pollIdText: string, env: HandlerEnv): Promise<Response> {
 
   const poll = await env.DB.prepare(
     `SELECT p.id, p.title, p.description, p.mode, p.poll_type, p.start_at, p.end_at,
-            p.duration_seconds, p.status, t.slug AS topic_slug, t.name AS topic_name
+            p.duration_seconds, p.status, p.created_at,
+            t.slug AS topic_slug, t.name AS topic_name
      FROM polls p
      LEFT JOIN topics t ON t.id = p.topic_id
      WHERE p.id = ? AND p.mode IN (?, ?) AND p.status IN (?, ?, ?)`
@@ -263,6 +265,7 @@ async function getPoll(pollIdText: string, env: HandlerEnv): Promise<Response> {
     end_at: number | null;
     duration_seconds: number | null;
     status: PollStatus;
+    created_at: number;
     topic_slug: string | null;
     topic_name: string | null;
   }>();
@@ -279,7 +282,12 @@ async function getPoll(pollIdText: string, env: HandlerEnv): Promise<Response> {
   const options = await getOptionsForPolls(env, [{ id: pollId, poll_type: poll.poll_type }]);
   const pollOptions = options.get(pollId) ?? [];
 
-  const { topic_slug: topicSlugValue, topic_name: topicNameValue, ...pollFields } = poll;
+  const { topic_slug: topicSlugValue, topic_name: topicNameValue, created_at: createdAt, ...pollFields } = poll;
+
+  // The previous and next public polls, so the detail page can offer that
+  // navigation without a second request. Computed from the same ordering as the
+  // list instead of stored columns (see ../services/pollNav).
+  const neighbors = await loadPollNeighbors(env.DB, pollId, Number(createdAt));
 
   return Response.json({ poll: {
     ...pollFields,
@@ -291,7 +299,9 @@ async function getPoll(pollIdText: string, env: HandlerEnv): Promise<Response> {
     options: pollOptions.map(publicOption),
     start_at: toIsoDate(poll.start_at),
     end_at: toIsoDate(poll.end_at),
-    status: getPollStatusLabel(poll.status)
+    status: getPollStatusLabel(poll.status),
+    prev: neighbors.prev,
+    next: neighbors.next
   }, views }, {
     headers: { 'cache-control': 'no-store' }
   });

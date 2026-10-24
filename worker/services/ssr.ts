@@ -18,6 +18,7 @@ import en from '../../public/i18n/en.json';
 import zh from '../../public/i18n/zh.json';
 import zhTW from '../../public/i18n/zh-TW.json';
 import { escapeHtml } from './html';
+import { loadPollNeighbors, type PollNeighbor } from './pollNav';
 
 export type Translate = (key: string) => string;
 
@@ -90,7 +91,6 @@ export interface SsrPollCard {
   title: string;
   mode: PollMode;
   pollType: number;
-  optionCount: number;
   topic: { slug: string; name: string } | null;
 }
 
@@ -98,6 +98,9 @@ export interface SsrPollDetail extends SsrPollCard {
   description: string | null;
   status: PollStatus;
   options: ReadonlyArray<{ label: string }>;
+  /** The older/newer public poll, for the detail page's navigation links. */
+  prev: PollNeighbor | null;
+  next: PollNeighbor | null;
 }
 
 // The document shell contains this empty container; it is the SPA mount point.
@@ -206,9 +209,7 @@ function renderTopicChips(
 function renderPollRow(poll: SsrPollCard, settings: SsrSettings, t: Translate): string {
   const href = `/poll/${poll.id}`;
   const topic = poll.topic ? topicBadge(poll.topic, settings) : '';
-  const typeLabel = poll.optionCount > 0
-    ? `${pollTypeLabel(poll.pollType, t)} · ${poll.optionCount} ${t('options')}`
-    : pollTypeLabel(poll.pollType, t);
+  const typeLabel = pollTypeLabel(poll.pollType, t);
   return `
         <article class="grid grid-cols-[minmax(0,1fr)_minmax(190px,240px)] items-center gap-x-8 border-b border-border py-[22px] max-[700px]:grid-cols-1 max-[700px]:gap-y-3" data-poll-row="${poll.id}">
           <div class="col-start-1 flex flex-wrap items-center gap-2">
@@ -327,6 +328,26 @@ ${renderFooter(settings, t)}
     </div>`;
 }
 
+// The previous/next links for a poll page, each carrying the poll number and
+// title. The whole block is omitted when the poll sits at both ends of the list,
+// so a poll with no neighbors adds no empty navigation.
+function pollNavMarkup(poll: SsrPollDetail, t: Translate): string {
+  if (!poll.prev && !poll.next) return '';
+  const link = (neighbor: PollNeighbor, label: string, align: string): string => {
+    const href = `/poll/${neighbor.id}`;
+    return `
+          <a class="flex min-w-0 max-w-full flex-col gap-0.5 rounded-[14px] border border-border bg-[#f9fbff] px-3.5 py-2.5 no-underline hover:border-primary sm:max-w-[48%] ${align}" href="${href}" data-route="${href}">
+            <span class="text-xs text-muted">${escapeHtml(label)}</span>
+            <span class="truncate text-sm text-ink">${escapeHtml(`#${neighbor.id} ${neighbor.title}`)}</span>
+          </a>`;
+  };
+  const prev = poll.prev ? link(poll.prev, `← ${t('prevPoll')}`, '') : '';
+  const next = poll.next ? link(poll.next, `${t('nextPoll')} →`, 'ml-auto items-end text-right') : '';
+  return `
+        <nav class="flex flex-wrap items-stretch justify-between gap-3" aria-label="${escapeHtml(t('pollNavLabel'))}">${prev}${next}
+        </nav>`;
+}
+
 // A single poll page: title, description, badges, and the option labels. The
 // interactive ballot and results are added by the client bundle.
 export function renderPollBody(poll: SsrPollDetail, settings: SsrSettings, t: Translate = serverTranslate): string {
@@ -351,7 +372,7 @@ ${renderHeader(settings, t, '/')}
           ${poll.description ? `<p class="mx-auto mb-0 max-w-2xl text-center text-ink line-clamp-2">${escapeHtml(poll.description)}</p>` : ''}
           <h2 class="mt-6 mb-2 text-lg font-bold">${escapeHtml(t('optionsLabel'))}</h2>
 ${options}
-        </article>
+        </article>${pollNavMarkup(poll, t)}
       </main>
 
 ${renderFooter(settings, t)}
@@ -387,7 +408,6 @@ interface HomePollRow {
   title: string;
   mode: number;
   poll_type: number;
-  option_count: number;
   topic_slug: string | null;
   topic_name: string | null;
 }
@@ -395,6 +415,7 @@ interface HomePollRow {
 interface PollDetailRow extends HomePollRow {
   description: string | null;
   status: number;
+  created_at: number;
 }
 
 // Escapes the LIKE wildcards so a search term is matched literally.
@@ -449,7 +470,6 @@ export async function loadHomeSsrData(
        ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?
      )
      SELECT i.id, i.title, i.mode, i.poll_type,
-       (SELECT COUNT(*) FROM poll_options o WHERE o.poll_id = i.id) AS option_count,
        t.slug AS topic_slug, t.name AS topic_name
      FROM page JOIN polls i ON i.id = page.id
      LEFT JOIN topics t ON t.id = i.topic_id
@@ -480,7 +500,6 @@ export async function loadHomeSsrData(
     title: row.title,
     mode: Number(row.mode) as PollMode,
     pollType: Number(row.poll_type ?? PollType.SingleChoice),
-    optionCount: Number(row.option_count ?? 0),
     topic: row.topic_slug && row.topic_name
       ? { slug: row.topic_slug, name: row.topic_name }
       : null
@@ -529,9 +548,8 @@ export async function loadSsrTopics(db: D1Database): Promise<{ topics: SsrTopic[
 // client-rendered not-found state.
 export async function loadPollSsrData(db: D1Database, pollId: number): Promise<SsrPollDetail | null> {
   const row = await db.prepare(
-    `SELECT p.id, p.title, p.description, p.mode, p.poll_type, p.status,
-            t.slug AS topic_slug, t.name AS topic_name,
-            (SELECT COUNT(*) FROM poll_options o WHERE o.poll_id = p.id) AS option_count
+    `SELECT p.id, p.title, p.description, p.mode, p.poll_type, p.status, p.created_at,
+            t.slug AS topic_slug, t.name AS topic_name
      FROM polls p
      LEFT JOIN topics t ON t.id = p.topic_id
      WHERE p.id = ? AND p.mode IN (?, ?) AND p.status IN (?, ?, ?)`
@@ -543,9 +561,12 @@ export async function loadPollSsrData(db: D1Database, pollId: number): Promise<S
 
   if (!row) return null;
 
-  const optionRows = await db.prepare(
-    'SELECT label FROM poll_options WHERE poll_id = ? ORDER BY position ASC, id ASC'
-  ).bind(pollId).all<{ label: string }>();
+  const [optionRows, neighbors] = await Promise.all([
+    db.prepare(
+      'SELECT label FROM poll_options WHERE poll_id = ? ORDER BY position ASC, id ASC'
+    ).bind(pollId).all<{ label: string }>(),
+    loadPollNeighbors(db, pollId, Number(row.created_at))
+  ]);
 
   return {
     id: Number(row.id),
@@ -553,12 +574,13 @@ export async function loadPollSsrData(db: D1Database, pollId: number): Promise<S
     description: row.description,
     mode: Number(row.mode) as PollMode,
     pollType: Number(row.poll_type ?? PollType.SingleChoice),
-    optionCount: Number(row.option_count ?? 0),
     status: Number(row.status) as PollStatus,
     topic: row.topic_slug && row.topic_name
       ? { slug: row.topic_slug, name: row.topic_name }
       : null,
-    options: (optionRows.results ?? []).map((option) => ({ label: option.label }))
+    options: (optionRows.results ?? []).map((option) => ({ label: option.label })),
+    prev: neighbors.prev,
+    next: neighbors.next
   };
 }
 
