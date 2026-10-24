@@ -30,7 +30,7 @@ export const scriptOverview = `  function statCard(value, label) {
       statCard(o.views24h, 'Views (24h)') +
       statCard(o.views7d, 'Views (7d)') +
       statCard(o.comments, 'Total comments') +
-      reportsCard(o.openReports) +
+      reportsCard(o.openReports + o.openCommentReports) +
       statCard(o.users, 'Public users') +
       statCard(o.adminUsers, 'Admin users') +
       (isSuperAdmin() ? statCard(o.auditEntries, 'Audit entries') : '') +

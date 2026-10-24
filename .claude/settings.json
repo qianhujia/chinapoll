@@ -9,6 +9,7 @@
       "Read(./tsconfig.tsbuildinfo)",
       "Read(./logs/**)",
       "Read(./*.log)",
+      "Read(./backup/**)",
       "Read(./.dev.vars)",
       "Read(./admin/.dev.vars)"
     ]

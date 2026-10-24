@@ -50,6 +50,9 @@ export const scriptCore = `  var app = document.getElementById('app');
     auditQuery: '',
     pollPage: 1,
     reportPage: 1,
+    // The comment-report table on the Reports page pages independently of the poll
+    // table beside it.
+    commentReportPage: 1,
     commentPage: 1,
     userPage: 1,
     auditPage: 1

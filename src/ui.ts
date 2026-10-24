@@ -1,6 +1,6 @@
 import { CircleAlert, CircleCheck, EllipsisVertical, Eye, Plus, Search, X, type IconNode } from 'lucide';
 import { DEFAULT_LOCALE, getLocaleText } from './i18n';
-import { getComments, type CommentsResponse, type PollSummary } from './lib/poll';
+import { getComments, getMyCommentIds, hasCommentReportedLocally, type CommentsResponse, type PollSummary } from './lib/poll';
 import { getCurrentUser } from './lib/session';
 import { apiErrorMessage } from './lib/apiError';
 import { getPublicSettings } from './config';
@@ -271,13 +271,61 @@ export function escapeHtml(value: string): string {
   })[character] ?? character);
 }
 
-export function renderCommentsContent(pollId: number, response: CommentsResponse): string {
+// A menu entry that adds the poll or comment to the signed-in dashboard. The id is
+// already on the page, so the visitor never has to type or copy it. A signed-out
+// visitor gets the sign-in link instead, because the ownership check needs a session.
+export function claimMenuEntryMarkup(attribute: string, value: string, signedIn: boolean, claimed: boolean): string {
+  if (claimed) {
+    return `<p class="m-0 px-3 py-2 text-sm text-muted" data-claim-already>${t('claimAlready')}</p>`;
+  }
+  if (!signedIn) {
+    return `<a class="block rounded-lg px-3 py-2 text-sm text-ink no-underline transition-colors hover:bg-primary-soft hover:text-primary" href="/login" data-route="/login" role="menuitem">${t('claimSignIn')}</a>`;
+  }
+  return `<button type="button" class="w-full cursor-pointer rounded-lg px-3 py-2 text-left text-sm text-ink transition-colors hover:bg-primary-soft hover:text-primary" role="menuitem" ${attribute}="${escapeHtml(value)}">${t('claimLink')}</button>`;
+}
+
+// The entries of one comment's menu. Reporting needs no account; claiming does, so a
+// signed-out visitor sees the sign-in link in its place. A comment this browser already
+// reported shows the confirmation note in place of the report entry, exactly as the
+// poll menu does for the poll.
+export function commentMenuEntriesMarkup(publicId: string, signedIn: boolean, claimed: boolean): string {
+  const reportEntry = hasCommentReportedLocally(publicId)
+    ? `<p class="m-0 px-3 py-2 text-sm text-muted" data-comment-report-already>${t('reportCommentAlreadySent')}</p>`
+    : `<button type="button" class="w-full cursor-pointer rounded-lg px-3 py-2 text-left text-sm text-ink transition-colors hover:bg-primary-soft hover:text-primary" role="menuitem" data-comment-report-open="${escapeHtml(publicId)}">${t('reportLink')}</button>`;
+  return `        ${reportEntry}
+        ${claimMenuEntryMarkup('data-comment-claim', publicId, signedIn, claimed)}`;
+}
+
+// The three-dot menu of one comment: the same two actions the poll menu offers, for
+// the comment itself. The panel id is derived from the comment's public id so every
+// menu on the page has its own target.
+export function commentMenuMarkup(publicId: string, signedIn: boolean, claimed: boolean): string {
+  const label = escapeHtml(t('commentMoreActions'));
+  const panelId = `comment-menu-${escapeHtml(publicId)}`;
+  return `
+            <div class="relative shrink-0" data-comment-menu-root>
+              <button type="button" class="flex h-8 w-8 cursor-pointer items-center justify-center rounded-full text-muted transition-colors hover:text-primary" data-comment-menu-toggle aria-expanded="false" aria-haspopup="menu" aria-controls="${panelId}" aria-label="${label}" title="${label}">${moreIconMarkup('h-4 w-4')}</button>
+              <div class="absolute right-0 z-20 mt-1 w-44 rounded-xl border border-border bg-panel p-1 shadow-card" id="${panelId}" role="menu" aria-label="${label}" data-comment-menu hidden>
+        ${commentMenuEntriesMarkup(publicId, signedIn, claimed)}
+              </div>
+            </div>`;
+}
+
+export function renderCommentsContent(
+  pollId: number,
+  response: CommentsResponse,
+  claimedIds: readonly string[] = [],
+  signedIn: boolean = getCurrentUser() !== null
+): string {
   const totalPages = Math.ceil(response.total / response.pageSize);
   const comments = response.comments.length
-    ? `<ul class="m-0 grid list-none gap-3.5 p-0">${response.comments.map(({ comment, createdAt }) => `
-        <li class="border-b border-border py-3.5">
-          <p class="mb-2 whitespace-pre-wrap [overflow-wrap:anywhere]">${escapeHtml(comment)}</p>
-          <time class="text-xs text-muted" datetime="${escapeHtml(createdAt)}">${escapeHtml(createdAt)}</time>
+    ? `<ul class="m-0 grid list-none gap-3.5 p-0">${response.comments.map(({ id, comment, createdAt }) => `
+        <li class="flex items-start justify-between gap-3 border-b border-border py-3.5">
+          <div class="min-w-0">
+            <p class="mb-2 whitespace-pre-wrap [overflow-wrap:anywhere]">${escapeHtml(comment)}</p>
+            <time class="text-xs text-muted" datetime="${escapeHtml(createdAt)}">${escapeHtml(createdAt)}</time>
+          </div>
+          ${id ? commentMenuMarkup(id, signedIn, claimedIds.includes(id)) : ''}
         </li>
       `).join('')}</ul>`
     : `<p class="text-muted">${t('noComments')}</p>`;
@@ -291,7 +339,7 @@ export async function updateComments(pollId: number, page: number, bindNavigatio
 
   try {
     const response = await getComments(pollId, page, getCommentsPerPage());
-    content.innerHTML = renderCommentsContent(pollId, response);
+    content.innerHTML = renderCommentsContent(pollId, response, getMyCommentIds());
     bindNavigation();
   } catch {
     content.textContent = t('commentsLoadFailed');

@@ -3,7 +3,7 @@ import { env } from 'cloudflare:test';
 import type { AdminActor } from '../../admin/auth';
 import { handleReportsRequest } from '../../admin/api/reports';
 import { handleOverviewRequest } from '../../admin/api/overview';
-import { applySchema, reportRequest, seedPoll } from './helpers';
+import { applySchema, commentReportRequest, reportRequest, seedComment, seedPoll } from './helpers';
 
 // The admin Worker is deployed separately and has no test harness of its own, so
 // its handlers are exercised directly against the shared D1 binding. Auth and
@@ -151,5 +151,71 @@ describe('admin report moderation', () => {
     expect(body.overview.views24h).toBe(40);
     expect(body.overview.views7d).toBe(40);
     expect(body.overview.openReports).toBeGreaterThanOrEqual(1);
+  });
+
+  it('lists and resolves comment reports and counts them on the overview', async () => {
+    const pollId = await seedPoll({ title: 'Comment moderation poll' });
+    await seedComment(pollId, 'aaaabbbbccccdddd');
+    expect((await commentReportRequest('aaaabbbbccccdddd', 'spam')).status).toBe(201);
+
+    // The Reports payload carries the comment queue beside the poll queue.
+    const list = await handleReportsRequest(
+      new Request(listUrl('?status=open&pageSize=50').toString()),
+      listUrl('?status=open&pageSize=50'),
+      env,
+      ACTOR
+    );
+    expect(list.status).toBe(200);
+    const body = await list.json() as any;
+    const row = (body.commentReports as any[])
+      .find((entry) => entry.comment === 'A comment worth reporting');
+    expect(row).toMatchObject({ pollId, openCount: 1, totalCount: 1, priority: false });
+
+    // The overview counts comment reports separately from poll reports.
+    const overview = await handleOverviewRequest(
+      new Request('https://admin.example.com/api/admin/overview'), env
+    );
+    const overviewBody = await overview.json() as any;
+    expect(overviewBody.overview.openCommentReports).toBeGreaterThanOrEqual(1);
+
+    // Resolving every open report on the comment clears the queue and audits it.
+    const commentResolveUrl = new URL(
+      `https://admin.example.com/api/admin/comment-reports/${row.commentId}/resolve`
+    );
+    const resolve = await handleReportsRequest(
+      new Request(commentResolveUrl.toString(), {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ resolution: 'dismissed' })
+      }),
+      commentResolveUrl,
+      env,
+      ACTOR
+    );
+    expect(resolve.status).toBe(200);
+    expect(await resolve.json()).toMatchObject({
+      ok: true,
+      commentId: row.commentId,
+      resolution: 'dismissed',
+      resolved: 1
+    });
+
+    const audit = await env.DB.prepare(
+      "SELECT action, actor_username FROM admin_audit_log WHERE action = 'comment_report.resolved' AND target_id = ?"
+    ).bind(String(row.commentId)).first<{ action: string; actor_username: string }>();
+    expect(audit).toMatchObject({ action: 'comment_report.resolved', actor_username: 'admin' });
+
+    // With nothing left open, resolving again is a conflict.
+    const again = await handleReportsRequest(
+      new Request(commentResolveUrl.toString(), {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ resolution: 'dismissed' })
+      }),
+      commentResolveUrl,
+      env,
+      ACTOR
+    );
+    expect(again.status).toBe(409);
   });
 });

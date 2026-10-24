@@ -1,17 +1,21 @@
 import {
   createToken,
   getComments,
+  getMyCommentIds,
+  getMyPollIds,
   getPoll,
   getStats,
   getVoteStatus,
   hasReportedLocally,
   hasVotedLocally,
   hashToken,
+  markCommentReportedLocally,
   markReportedLocally,
   markVotedLocally,
   recordViewOnce,
   REPORT_REASONS,
   rememberMyComment,
+  rememberMyPoll,
   submitComment,
   submitReport,
   submitVote,
@@ -25,7 +29,7 @@ import {
   type ReportReason,
   type VoteResponse
 } from '../lib/poll';
-import { getCurrentUser } from '../lib/session';
+import { getCurrentUser, getUserComments, getUserPolls } from '../lib/session';
 import { bootstrapPoll } from '../bootstrap';
 import { getPublicSettings } from '../config';
 import { updateSeo } from '../seo';
@@ -33,6 +37,8 @@ import { localizedTopicName } from '../../shared/categories';
 import { renderTurnstile, resetTurnstile, revealTurnstile, turnstileSiteKey, turnstileToken } from '../lib/turnstile';
 import { apiErrorCode } from '../lib/apiError';
 import {
+  claimMenuEntryMarkup,
+  commentMenuEntriesMarkup,
   getCommentsPerPage,
   escapeHtml,
   getErrorMessage,
@@ -181,10 +187,12 @@ export function bindDescription(app: HTMLElement): void {
   });
 }
 
-// The three-dot "more actions" menu at the top right of the poll title. It hosts
-// the report entry, which opens the report dialog. A browser that already
-// reported the poll sees the confirmation note in place of the entry.
-export function renderPollMenu(alreadyReported: boolean): string {
+// The three-dot "more actions" menu at the top right of the poll title. It hosts the
+// report entry, which opens the report dialog, and the claim entry, which adds the
+// poll to the signed-in dashboard. A browser that already reported the poll sees the
+// confirmation note in place of the report entry, and one that already claimed it
+// sees the same for the claim entry.
+export function renderPollMenu(pollId: number, alreadyReported: boolean, signedIn = false, claimed = false): string {
   const label = escapeHtml(t('moreActions'));
   return `
     <div class="relative shrink-0" data-poll-menu-root>
@@ -208,15 +216,23 @@ export function renderPollMenu(alreadyReported: boolean): string {
         data-poll-menu
         hidden
       >
-        ${reportMenuEntryMarkup(alreadyReported)}
+        ${pollMenuEntriesMarkup(pollId, alreadyReported, signedIn, claimed)}
       </div>
       <div class="fixed inset-0 z-10" data-poll-menu-backdrop hidden></div>
     </div>
   `;
 }
 
-// The entries of the poll menu. Reporting is the only action for now, so a
-// browser that already reported the poll sees the confirmation note instead.
+// The entries of the poll menu. They are rebuilt in place after a report or a claim,
+// so both actions stay in step with this browser's state.
+export function pollMenuEntriesMarkup(pollId: number, alreadyReported: boolean, signedIn: boolean, claimed: boolean): string {
+  return `
+        ${reportMenuEntryMarkup(alreadyReported)}
+        ${claimMenuEntryMarkup('data-claim-poll', String(pollId), signedIn, claimed)}`;
+}
+
+// The report entry of the poll menu. A browser that already reported the poll
+// sees the confirmation note in place of the button.
 export function reportMenuEntryMarkup(alreadyReported: boolean): string {
   if (alreadyReported) {
     return `<p class="m-0 px-3 py-2 text-sm text-muted" data-report-already>${t('reportAlreadySent')}</p>`;
@@ -387,7 +403,9 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
     const embeddedComments = embedded?.comments as CommentsResponse | undefined;
     commentsContent = renderCommentsContent(
       poll.id,
-      embeddedComments ?? await getComments(poll.id, commentsPage, commentsPerPage)
+      embeddedComments ?? await getComments(poll.id, commentsPage, commentsPerPage),
+      getMyCommentIds(),
+      getCurrentUser() !== null
     );
   } catch {
     commentsContent = t('commentsLoadFailed');
@@ -436,6 +454,9 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
     ? `<span class="inline-flex items-center gap-1">${viewIconMarkup('h-3.5 w-3.5')}${views.total} ${t('views')}</span>`
     : '';
   const alreadyReported = hasReportedLocally(poll.id);
+  // The claim entries need a session, so a signed-out visitor sees a sign-in link
+  // instead of the claim button.
+  const signedIn = getCurrentUser() !== null;
   // Deadline polls show when they end (or that they never end).
   const endLine = poll.status !== 'open'
     ? ''
@@ -458,7 +479,7 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
     ? `<span class="shrink-0 rounded-full bg-[#eef3fb] px-2.5 py-1 text-xs text-muted" data-poll-topic>${escapeHtml(localizedTopicName(poll.topic.slug, poll.topic.name, (getPublicSettings().default_locale ?? 'en') as 'en' | 'zh-CN' | 'zh-TW'))}</span>`
     : ''}
             </div>
-            ${renderPollMenu(alreadyReported)}
+            ${renderPollMenu(poll.id, alreadyReported, signedIn, getMyPollIds().includes(poll.id))}
           </div>
 
           ${poll.description ? renderPollDescription(poll.description) : ''}
@@ -732,7 +753,8 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
   // on cancel or once the report is sent, so no report card is appended to the
   // page. The note field is offered only for "Other", and a submitted report is
   // remembered in localStorage so the menu entry becomes the confirmation note.
-  const openReportModal = async () => {
+  // The report dialog is shared by a poll and a comment; the caller names the target.
+  const openReportModal = async (target: { pollId: number } | { commentPublicId: string }) => {
     closeMenu();
     if (app.querySelector('[data-report-modal]')) return;
 
@@ -787,16 +809,20 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
       if (status) status.textContent = '';
       try {
         await submitReport({
-          pollId: poll.id,
+          ...('pollId' in target ? { pollId: target.pollId } : { commentId: target.commentPublicId }),
           reason,
           note: reason === 'other' ? (note?.value.trim() ?? '') : undefined,
           turnstileToken: turnstileToken('report')
         });
-        markReportedLocally(poll.id);
         close();
-        // Reporting is the only action the menu offers, so its entry becomes the
-        // confirmation note.
-        if (menuPanel) menuPanel.innerHTML = reportMenuEntryMarkup(true);
+        // The reported entry becomes the confirmation note, wherever the target was.
+        if ('pollId' in target) {
+          markReportedLocally(target.pollId);
+          refreshPollMenu();
+        } else {
+          markCommentReportedLocally(target.commentPublicId);
+          refreshCommentMenu(target.commentPublicId);
+        }
         showToast(t('reportThanks'));
       } catch (error) {
         if (status) status.textContent = `${t('submitFailed')}: ${getErrorMessage(error)}`;
@@ -812,8 +838,119 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
     if (widget) await renderTurnstile('report', widget);
     radios[0]?.focus();
   };
+  // Rebuilds the poll menu entries so they match the state this browser is now in.
+  const refreshPollMenu = () => {
+    if (menuPanel) {
+      menuPanel.innerHTML = pollMenuEntriesMarkup(
+        poll.id,
+        hasReportedLocally(poll.id),
+        signedIn,
+        getMyPollIds().includes(poll.id)
+      );
+    }
+  };
+
+  // Rebuilds one comment's menu entries without re-rendering the whole list. The
+  // comment's reported state is remembered by its public id, like a poll's.
+  const refreshCommentMenu = (publicId: string) => {
+    const panel = document.getElementById(`comment-menu-${publicId}`);
+    if (panel) {
+      panel.innerHTML = commentMenuEntriesMarkup(
+        publicId,
+        signedIn,
+        getMyCommentIds().includes(publicId)
+      );
+    }
+  };
+
+  const closeCommentMenus = () => {
+    app.querySelectorAll<HTMLElement>('[data-comment-menu]').forEach((panel) => {
+      panel.hidden = true;
+    });
+    app.querySelectorAll<HTMLButtonElement>('[data-comment-menu-toggle]').forEach((toggle) => {
+      toggle.setAttribute('aria-expanded', 'false');
+    });
+  };
+
+  // Adds the poll to the dashboard. The server confirms ownership before the id is
+  // remembered locally, so a poll the account did not submit is refused with a
+  // message that does not distinguish "not yours" from "does not exist".
+  const claimPoll = async () => {
+    closeMenu();
+    try {
+      const owned = await getUserPolls([poll.id]);
+      if (owned.length === 0) {
+        showToast(t('claimPollNotFound'), 'error');
+        return;
+      }
+      rememberMyPoll(poll.id);
+      refreshPollMenu();
+      showToast(t('claimPollSuccess'));
+    } catch (error) {
+      showToast(`${t('submitFailed')}: ${getErrorMessage(error)}`, 'error');
+    }
+  };
+
+  // Adds one comment to the dashboard, through the claim button in its own menu.
+  const claimComment = async (publicId: string) => {
+    closeCommentMenus();
+    try {
+      const owned = await getUserComments([publicId]);
+      if (owned.length === 0) {
+        showToast(t('claimCommentNotFound'), 'error');
+        return;
+      }
+      rememberMyComment(publicId);
+      refreshCommentMenu(publicId);
+      showToast(t('claimCommentSuccess'));
+    } catch (error) {
+      showToast(`${t('submitFailed')}: ${getErrorMessage(error)}`, 'error');
+    }
+  };
+
   menuPanel?.querySelector<HTMLButtonElement>('[data-report-open]')
-    ?.addEventListener('click', () => { void openReportModal(); });
+    ?.addEventListener('click', () => { void openReportModal({ pollId: poll.id }); });
+  menuPanel?.querySelector<HTMLButtonElement>('[data-claim-poll]')
+    ?.addEventListener('click', () => { void claimPoll(); });
+
+  // Every comment row carries its own menu, so the handlers are delegated from the
+  // comments host and survive the list being replaced by `updateComments`.
+  const commentsHost = app.querySelector<HTMLElement>('#comments-content');
+  commentsHost?.addEventListener('click', (event) => {
+    const clicked = event.target as HTMLElement | null;
+    if (!clicked) return;
+
+    const toggle = clicked.closest<HTMLButtonElement>('[data-comment-menu-toggle]');
+    if (toggle) {
+      const panel = toggle.parentElement?.querySelector<HTMLElement>('[data-comment-menu]');
+      if (panel) {
+        const open = panel.hidden;
+        closeCommentMenus();
+        panel.hidden = !open;
+        toggle.setAttribute('aria-expanded', String(open));
+      }
+      return;
+    }
+
+    const reportEntry = clicked.closest<HTMLButtonElement>('[data-comment-report-open]');
+    if (reportEntry) {
+      const publicId = reportEntry.dataset.commentReportOpen ?? '';
+      if (publicId) void openReportModal({ commentPublicId: publicId });
+      return;
+    }
+
+    const claimEntry = clicked.closest<HTMLButtonElement>('[data-comment-claim]');
+    if (claimEntry) {
+      const publicId = claimEntry.dataset.commentClaim ?? '';
+      if (publicId) void claimComment(publicId);
+    }
+  });
+  // A click anywhere else dismisses an open comment menu.
+  document.addEventListener('click', (event) => {
+    const clicked = event.target as HTMLElement | null;
+    if (clicked?.closest('[data-comment-menu-root]')) return;
+    closeCommentMenus();
+  });
 
   bindNavigation();
   bindDescription(app);

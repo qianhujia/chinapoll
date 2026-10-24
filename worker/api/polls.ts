@@ -100,9 +100,13 @@ export async function handlePollsRequest(request: Request, url: URL, env: Handle
     ...searchBinds, ...topicBinds
   ).first<{ total: number }>();
 
+  // The site-wide total shown as the home page's `Polls` statistic. It counts
+  // every open poll rather than this filter's matches, so the hero number never
+  // changes with a search or a topic filter. Closed, archived, and pending polls
+  // are left out because only an open poll can be voted on.
   const allPollsResult = await env.DB.prepare(
-    'SELECT COUNT(*) AS total FROM polls WHERE mode IN (?, ?)'
-  ).bind(PollMode.Deadline, PollMode.Evergreen).first<{ total: number }>();
+    'SELECT COUNT(*) AS total FROM polls WHERE status = ? AND mode IN (?, ?)'
+  ).bind(PollStatus.Open, PollMode.Deadline, PollMode.Evergreen).first<{ total: number }>();
 
   // The site-wide vote total is read from the latest snapshot per poll rather
   // than counting every vote on every request.

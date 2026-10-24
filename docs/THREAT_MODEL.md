@@ -30,8 +30,9 @@ the schema or the network handling changes.
   code hash, and lock/bookkeeping fields. Login time is rounded to the day.
 - The per-network account cap: a keyed, daily-rotated hash of the network bucket
   in `auth_attempts`. The raw address is never stored.
-- Poll reports: only the poll reference, the reason code, an optional free-text
-  note, and an hour-coarsened timestamp. There is no reporter identifier at all.
+- Poll reports and comment reports: only the reference (the poll, or the comment and
+  its poll), the reason code, an optional free-text note, and an hour-coarsened
+  timestamp. There is no reporter identifier at all, for either target.
 - Poll views: one counter per poll per UTC day. There are no per-view rows, so a
   view cannot be attributed to a viewer. Views are buffered in the poll's
   `ViewCounter` Durable Object (a pending count and nothing about the visitor) and

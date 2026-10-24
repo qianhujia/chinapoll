@@ -39,6 +39,22 @@ interface ReportPollRow {
   priority_count: number;
 }
 
+interface ReportCommentRow {
+  comment_id: number;
+  public_id: string;
+  comment: string;
+  poll_id: number;
+  poll_title: string | null;
+  total_count: number;
+  open_count: number;
+  priority_count: number;
+}
+
+// The two report tables share one shape, so the breakdown and note loaders take the
+// table and its target column rather than being written twice.
+type ReportTable = 'poll_reports' | 'comment_reports';
+type ReportTargetColumn = 'poll_id' | 'comment_id';
+
 export async function handleReportsRequest(
   request: Request,
   url: URL,
@@ -53,6 +69,16 @@ export async function handleReportsRequest(
       return noStoreJson({ message: 'invalid poll ID' }, 400);
     }
     return resolveReports(pollId, request, env, actor);
+  }
+
+  const commentResolveMatch = url.pathname.match(/^\/api\/admin\/comment-reports\/(\d+)\/resolve$/);
+  if (commentResolveMatch) {
+    if (request.method !== 'POST') return noStoreJson({ message: 'method not allowed' }, 405);
+    const commentId = Number(commentResolveMatch[1]);
+    if (!Number.isSafeInteger(commentId) || commentId < 1) {
+      return noStoreJson({ message: 'invalid comment ID' }, 400);
+    }
+    return resolveCommentReports(commentId, request, env, actor);
   }
 
   if (url.pathname !== '/api/admin/reports') {
@@ -118,8 +144,50 @@ async function listReports(url: URL, env: AdminEnv): Promise<Response> {
   const rows = result.results ?? [];
   const pollIds = rows.map((row) => Number(row.poll_id));
   const [reasonsByPoll, notesByPoll] = await Promise.all([
-    loadReasonBreakdown(env, pollIds),
-    loadNewestNotes(env, pollIds)
+    loadReasonBreakdown(env, 'poll_reports', 'poll_id', pollIds),
+    loadNewestNotes(env, 'poll_reports', 'poll_id', pollIds)
+  ]);
+
+  // Comment reports are paginated separately: the poll table and the comment table are
+  // independent lists that happen to share one page.
+  const commentPage = Number(url.searchParams.get('commentsPage') ?? '1');
+  if (!Number.isSafeInteger(commentPage) || commentPage < 1) {
+    return noStoreJson({ message: 'invalid pagination parameters' }, 400);
+  }
+  const commentAggregate = `WITH agg AS (
+       SELECT comment_id,
+              COUNT(*) AS total_count,
+              SUM(CASE WHEN resolved_at IS NULL THEN 1 ELSE 0 END) AS open_count,
+              SUM(CASE WHEN resolved_at IS NULL AND reason IN (${PRIORITY_REASON_LIST}) THEN 1 ELSE 0 END) AS priority_count
+       FROM comment_reports GROUP BY comment_id
+     )`;
+
+  const commentCountResult = await env.DB.prepare(
+    `${commentAggregate} SELECT COUNT(*) AS total FROM agg a ${statusClause}`
+  ).first<{ total: number }>();
+
+  const commentTotal = Number(commentCountResult?.total ?? 0);
+  const commentTotalPages = Math.max(1, Math.ceil(commentTotal / pageSize));
+  const currentCommentPage = Math.min(commentPage, commentTotalPages);
+  const commentOffset = (currentCommentPage - 1) * pageSize;
+
+  const commentResult = await env.DB.prepare(
+    `${commentAggregate}
+     SELECT a.comment_id, c.public_id, c.comment, c.poll_id, p.title AS poll_title,
+            a.total_count, a.open_count, a.priority_count
+     FROM agg a
+     JOIN comments c ON c.id = a.comment_id
+     LEFT JOIN polls p ON p.id = c.poll_id
+     ${statusClause}
+     ORDER BY (a.priority_count > 0) DESC, a.open_count DESC, a.comment_id DESC
+     LIMIT ? OFFSET ?`
+  ).bind(pageSize, commentOffset).all<ReportCommentRow>();
+
+  const commentRows = commentResult.results ?? [];
+  const commentIds = commentRows.map((row) => Number(row.comment_id));
+  const [reasonsByComment, notesByComment] = await Promise.all([
+    loadReasonBreakdown(env, 'comment_reports', 'comment_id', commentIds),
+    loadNewestNotes(env, 'comment_reports', 'comment_id', commentIds)
   ]);
 
   return noStoreJson({
@@ -139,31 +207,56 @@ async function listReports(url: URL, env: AdminEnv): Promise<Response> {
     pageSize,
     total,
     totalPages,
+    // A reported comment is shown with its text and its poll, so an admin can judge it
+    // without opening the poll page.
+    commentReports: commentRows.map((row) => {
+      const commentId = Number(row.comment_id);
+      return {
+        commentId,
+        publicId: row.public_id,
+        comment: row.comment,
+        pollId: Number(row.poll_id),
+        pollTitle: row.poll_title,
+        openCount: Number(row.open_count),
+        totalCount: Number(row.total_count),
+        priority: Number(row.priority_count) > 0,
+        reasons: reasonsByComment.get(commentId) ?? emptyBreakdown(),
+        notes: notesByComment.get(commentId) ?? []
+      };
+    }),
+    commentPage: currentCommentPage,
+    commentTotal,
+    commentTotalPages,
     status
   });
 }
 
-// Builds the eight-label breakdown for each poll, sorted by count then code.
-async function loadReasonBreakdown(env: AdminEnv, pollIds: number[]): Promise<Map<number, Array<{ reason: string; count: number }>>> {
+// Builds the eight-label breakdown for each target, sorted by count then code.
+async function loadReasonBreakdown(
+  env: AdminEnv,
+  table: ReportTable,
+  column: ReportTargetColumn,
+  ids: number[]
+): Promise<Map<number, Array<{ reason: string; count: number }>>> {
   const breakdowns = new Map<number, Array<{ reason: string; count: number }>>();
-  if (pollIds.length === 0) return breakdowns;
+  if (ids.length === 0) return breakdowns;
 
-  const placeholders = pollIds.map(() => '?').join(', ');
+  const placeholders = ids.map(() => '?').join(', ');
   const result = await env.DB.prepare(
-    `SELECT poll_id, reason, COUNT(*) AS count FROM poll_reports
-     WHERE poll_id IN (${placeholders}) GROUP BY poll_id, reason`
-  ).bind(...pollIds).all<{ poll_id: number; reason: number; count: number }>();
+    `SELECT ${column} AS target_id, reason, COUNT(*) AS count FROM ${table}
+     WHERE ${column} IN (${placeholders}) GROUP BY ${column}, reason`
+  ).bind(...ids).all<{ target_id: number; reason: number; count: number }>();
 
   const counts = new Map<number, Map<number, number>>();
   for (const row of result.results ?? []) {
-    const pollId = Number(row.poll_id);
-    const byReason = counts.get(pollId) ?? new Map<number, number>();
+    const targetId = Number(row.target_id);
+    const byReason = counts.get(targetId) ?? new Map<number, number>();
     byReason.set(Number(row.reason), Number(row.count));
-    counts.set(pollId, byReason);
+    counts.set(targetId, byReason);
   }
 
-  for (const pollId of pollIds) {
-    const byReason = counts.get(pollId);
+  for (const id of ids) {
+    const byReason = counts.get(id);
     // The map starts in code order, and Array.prototype.sort is stable, so ties
     // keep the canonical reason order.
     const breakdown = REPORT_REASON_CODES.map((code) => ({
@@ -171,7 +264,7 @@ async function loadReasonBreakdown(env: AdminEnv, pollIds: number[]): Promise<Ma
       count: byReason?.get(code) ?? 0
     }));
     breakdown.sort((a, b) => b.count - a.count);
-    breakdowns.set(pollId, breakdown);
+    breakdowns.set(id, breakdown);
   }
   return breakdowns;
 }
@@ -180,26 +273,31 @@ function emptyBreakdown(): Array<{ reason: string; count: number }> {
   return REPORT_REASON_CODES.map((code) => ({ reason: getPollReportReasonLabel(code), count: 0 }));
 }
 
-// Returns up to MAX_NOTES_PER_POLL newest free-text notes for each poll.
-async function loadNewestNotes(env: AdminEnv, pollIds: number[]): Promise<Map<number, string[]>> {
+// Returns up to MAX_NOTES_PER_POLL newest free-text notes for each target.
+async function loadNewestNotes(
+  env: AdminEnv,
+  table: ReportTable,
+  column: ReportTargetColumn,
+  ids: number[]
+): Promise<Map<number, string[]>> {
   const notes = new Map<number, string[]>();
-  if (pollIds.length === 0) return notes;
+  if (ids.length === 0) return notes;
 
-  const placeholders = pollIds.map(() => '?').join(', ');
+  const placeholders = ids.map(() => '?').join(', ');
   const result = await env.DB.prepare(
-    `SELECT poll_id, note FROM (
-       SELECT poll_id, note,
-              ROW_NUMBER() OVER (PARTITION BY poll_id ORDER BY created_at DESC, id DESC) AS rn
-       FROM poll_reports
-       WHERE poll_id IN (${placeholders}) AND reason = ? AND note IS NOT NULL AND note <> ''
+    `SELECT target_id, note FROM (
+       SELECT ${column} AS target_id, note,
+              ROW_NUMBER() OVER (PARTITION BY ${column} ORDER BY created_at DESC, id DESC) AS rn
+       FROM ${table}
+       WHERE ${column} IN (${placeholders}) AND reason = ? AND note IS NOT NULL AND note <> ''
      ) WHERE rn <= ?`
-  ).bind(...pollIds, PollReportReason.Other, MAX_NOTES_PER_POLL).all<{ poll_id: number; note: string }>();
+  ).bind(...ids, PollReportReason.Other, MAX_NOTES_PER_POLL).all<{ target_id: number; note: string }>();
 
   for (const row of result.results ?? []) {
-    const pollId = Number(row.poll_id);
-    const list = notes.get(pollId) ?? [];
+    const targetId = Number(row.target_id);
+    const list = notes.get(targetId) ?? [];
     list.push(row.note);
-    notes.set(pollId, list);
+    notes.set(targetId, list);
   }
   return notes;
 }
@@ -259,5 +357,63 @@ async function resolveReports(
     resolution: requested,
     resolved,
     message: `Resolved ${resolved} report(s) for poll ${pollId}.`
+  });
+}
+
+// Resolves every open report on one comment. Deleting the comment is the remedy, so
+// this only clears the queue; the admin uses the Comments tab for the delete.
+async function resolveCommentReports(
+  commentId: number,
+  request: Request,
+  env: AdminEnv,
+  actor: AdminActor
+): Promise<Response> {
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return noStoreJson({ message: 'invalid JSON' }, 400);
+  }
+
+  const requested = typeof body === 'object' && body !== null
+    ? String((body as Record<string, unknown>).resolution ?? '')
+    : '';
+  const resolution = getReportResolutionCode(requested);
+  if (resolution === null) {
+    return noStoreJson({ message: 'resolution must be one of dismissed, action_taken' }, 400);
+  }
+
+  const comment = await env.DB.prepare('SELECT id FROM comments WHERE id = ?')
+    .bind(commentId).first<{ id: number }>();
+  if (!comment) {
+    return noStoreJson({ message: `comment ${commentId} was not found` }, 404);
+  }
+
+  // Resolved timestamps are coarsened to the hour like report creation times.
+  const now = Math.floor(Date.now() / 1000);
+  const coarseNow = now - (now % 3600);
+  const update = await env.DB.prepare(
+    'UPDATE comment_reports SET resolved_at = ?, resolution = ? WHERE comment_id = ? AND resolved_at IS NULL'
+  ).bind(coarseNow, resolution, commentId).run();
+
+  const resolved = Number(update.meta.changes ?? 0);
+  if (resolved === 0) {
+    return noStoreJson({ message: `comment ${commentId} has no open reports` }, 409);
+  }
+
+  await logAudit(env, {
+    actor,
+    action: 'comment_report.resolved',
+    targetType: 'comment',
+    targetId: commentId,
+    details: { resolution: requested, resolved }
+  });
+
+  return noStoreJson({
+    ok: true,
+    commentId,
+    resolution: requested,
+    resolved,
+    message: `Resolved ${resolved} report(s) for comment ${commentId}.`
   });
 }

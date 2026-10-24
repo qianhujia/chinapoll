@@ -3,6 +3,7 @@ dist/
 .wrangler/
 logs/
 *.log
+backup/
 .DS_Store
 .env
 .dev.vars

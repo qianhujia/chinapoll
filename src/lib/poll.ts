@@ -246,13 +246,20 @@ export async function recordViewOnce(pollId: number): Promise<void> {
   }
 }
 
+// Reports a poll or a comment. Both share one endpoint shape and one rate-limit
+// budget; only the path differs, so the caller names the target with `pollId` or
+// `commentId`.
 export async function submitReport(payload: {
-  pollId: number;
+  pollId?: number;
+  commentId?: string;
   reason: ReportReason;
   note?: string;
   turnstileToken?: string;
 }): Promise<{ ok: boolean }> {
-  return fetchJson(`/api/polls/${payload.pollId}/report`, {
+  const path = payload.commentId
+    ? `/api/comments/${encodeURIComponent(payload.commentId)}/report`
+    : `/api/polls/${payload.pollId}/report`;
+  return fetchJson(path, {
     method: 'POST',
     body: JSON.stringify({
       reason: payload.reason,
@@ -273,6 +280,24 @@ export function hasReportedLocally(pollId: number): boolean {
 export function markReportedLocally(pollId: number): void {
   try {
     localStorage.setItem(`chinapoll.reported.${pollId}`, '1');
+  } catch {
+    // Ignore storage failures.
+  }
+}
+
+// A reported comment is remembered by its public id, so this browser sees the
+// confirmation note in that comment's menu without another request.
+export function hasCommentReportedLocally(publicId: string): boolean {
+  try {
+    return localStorage.getItem(`chinapoll.reported-comment.${publicId}`) === '1';
+  } catch {
+    return false;
+  }
+}
+
+export function markCommentReportedLocally(publicId: string): void {
+  try {
+    localStorage.setItem(`chinapoll.reported-comment.${publicId}`, '1');
   } catch {
     // Ignore storage failures.
   }

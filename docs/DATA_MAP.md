@@ -139,6 +139,25 @@ bucket, no user id — and the report id is never returned by the public API. Ra
 limiting uses the keyed daily network hash in the Durable Object, which is never
 written here. Reports are removed with the poll by the foreign key cascade.
 
+## comment_reports
+
+| Column | Contents | Readers | Retention |
+| --- | --- | --- | --- |
+| id | internal report id | none (never returned) | until the comment is deleted |
+| comment_id | comment reference (cascades with the comment) | Admin (aggregated) | as above |
+| reason | one of eight reason codes | Admin (aggregated) | as above |
+| note | optional free text, only with reason `other` | Admin | as above |
+| created_at | hour-coarsened timestamp | none | as above |
+| resolved_at | hour-coarsened resolution time | Admin | as above |
+| resolution | 1 dismissed, 2 action taken | Admin | as above |
+
+Note: a comment report carries **no reporter identifier** at all, exactly like a
+poll report, and shares its `report_rate_limit` budget. There is no `poll_id` column:
+the comment already carries it, and the row cascades away with the comment, so a
+report can never outlive its target. A comment report is reviewed by hand; it has no
+auto-hide threshold, because hiding a comment on a report count would be cheap to
+abuse from one network, and an admin can delete the comment directly.
+
 ## poll_views
 
 | Column | Contents | Readers | Retention |

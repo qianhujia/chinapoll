@@ -1,4 +1,4 @@
-// Poll reporting.
+// Poll and comment reporting.
 //
 // Reporting does not require an account. A report stores no reporter identifier:
 // there is no address, no network bucket, no user id, and `created_at` is
@@ -6,6 +6,11 @@
 // to a person or correlated with edge logs. Rate limiting uses the keyed,
 // daily-rotated network hash through the RateLimiter Durable Object, so no
 // IP-derived value is written to D1.
+//
+// A poll report auto-hides the poll once a threshold is reached (see
+// `applyAutoHide`). A comment report is reviewed by hand instead: the same threshold
+// would be cheap to abuse from one network on a single comment, and an admin already
+// has a direct delete for it.
 
 import type { HandlerEnv } from '../index';
 import { logAudit } from '../../admin/lib/audit';
@@ -24,7 +29,10 @@ const DEFAULT_REPORT_RATE_LIMIT = '3/d';
 const DEFAULT_AUTO_HIDE_THRESHOLD = 5;
 const DEFAULT_AUTO_HIDE_PRIORITY_THRESHOLD = 2;
 const MAX_NOTE_LENGTH = 300;
-const REPORT_PATH_PATTERN = /^\/api\/polls\/([1-9]\d*)\/report$/;
+const POLL_REPORT_PATH_PATTERN = /^\/api\/polls\/([1-9]\d*)\/report$/;
+// A comment is reported through its public id, the same random identifier the public
+// comment API returns.
+const COMMENT_REPORT_PATH_PATTERN = /^\/api\/comments\/([0-9a-f]{16})\/report$/i;
 // Reason codes that count toward the priority auto-hide threshold (5, 6, 7).
 const PRIORITY_REASON_LIST = PRIORITY_REPORT_REASONS.join(', ');
 
@@ -33,12 +41,14 @@ export async function handleReportRequest(request: Request, url: URL, env: Handl
     return apiError('POST_ONLY', 405, { extra: { ok: false } });
   }
 
-  const match = url.pathname.match(REPORT_PATH_PATTERN);
-  if (!match) {
+  const pollMatch = url.pathname.match(POLL_REPORT_PATH_PATTERN);
+  const commentMatch = pollMatch ? null : url.pathname.match(COMMENT_REPORT_PATH_PATTERN);
+  if (!pollMatch && !commentMatch) {
     return apiError('RESOURCE_NOT_FOUND', 404, { extra: { ok: false } });
   }
-  const pollId = Number(match[1]);
-  if (!Number.isSafeInteger(pollId)) {
+  const pollId = pollMatch ? Number(pollMatch[1]) : 0;
+  const commentPublicId = commentMatch ? commentMatch[1].toLowerCase() : '';
+  if (pollMatch && !Number.isSafeInteger(pollId)) {
     return apiError('INVALID_POLL_ID', 400, { extra: { ok: false } });
   }
 
@@ -76,12 +86,28 @@ export async function handleReportRequest(request: Request, url: URL, env: Handl
     }
   }
 
-  // A report targets a poll that is visible to the public: open or closed.
-  const poll = await env.DB.prepare(
-    'SELECT status FROM polls WHERE id = ?'
-  ).bind(pollId).first<{ status: number }>();
-  if (!poll || (poll.status !== PollStatus.Open && poll.status !== PollStatus.Closed)) {
-    return apiError('POLL_NOT_FOUND', 404, { extra: { ok: false } });
+  // A report targets content that is visible to the public: a poll that is open or
+  // closed, or a comment on such a poll. A comment that does not exist, or that sits
+  // on a poll the public cannot see, answers like a missing reportable target, so the
+  // endpoint never reveals which polls and comments exist.
+  let commentId = 0;
+  if (pollMatch) {
+    const poll = await env.DB.prepare(
+      'SELECT status FROM polls WHERE id = ?'
+    ).bind(pollId).first<{ status: number }>();
+    if (!poll || (poll.status !== PollStatus.Open && poll.status !== PollStatus.Closed)) {
+      return apiError('POLL_NOT_FOUND', 404, { extra: { ok: false } });
+    }
+  } else {
+    const comment = await env.DB.prepare(
+      `SELECT c.id, p.status FROM comments c
+       JOIN polls p ON p.id = c.poll_id
+       WHERE c.public_id = ?`
+    ).bind(commentPublicId).first<{ id: number; status: number }>();
+    if (!comment || (comment.status !== PollStatus.Open && comment.status !== PollStatus.Closed)) {
+      return apiError('COMMENT_NOT_FOUND', 404, { extra: { ok: false } });
+    }
+    commentId = Number(comment.id);
   }
 
   const ipHash = await hashedNetworkBucket(clientAddress(request), serverHmacKey(env));
@@ -98,11 +124,18 @@ export async function handleReportRequest(request: Request, url: URL, env: Handl
   // session or edge-log timestamp. The note is stored only for "other".
   const nowSeconds = Math.floor(Date.now() / 1000);
   const coarseNow = nowSeconds - (nowSeconds % 3600);
-  await env.DB.prepare(
-    'INSERT INTO poll_reports (poll_id, reason, note, created_at) VALUES (?, ?, ?, ?)'
-  ).bind(pollId, reason, reason === PollReportReason.Other && note.length > 0 ? note : null, coarseNow).run();
+  const storedNote = reason === PollReportReason.Other && note.length > 0 ? note : null;
+  if (pollMatch) {
+    await env.DB.prepare(
+      'INSERT INTO poll_reports (poll_id, reason, note, created_at) VALUES (?, ?, ?, ?)'
+    ).bind(pollId, reason, storedNote, coarseNow).run();
 
-  await applyAutoHide(env, pollId);
+    await applyAutoHide(env, pollId);
+  } else {
+    await env.DB.prepare(
+      'INSERT INTO comment_reports (comment_id, reason, note, created_at) VALUES (?, ?, ?, ?)'
+    ).bind(commentId, reason, storedNote, coarseNow).run();
+  }
 
   // The report id is deliberately not returned.
   return Response.json({ ok: true }, { status: 201 });

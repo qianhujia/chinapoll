@@ -534,6 +534,10 @@ ${polls.map(entry).join('\n')}
     if (url.pathname === '/api/polls' || url.pathname.startsWith('/api/polls/')) {
       return handlePollsRequest(request, url, envWithSettings);
     }
+    if (url.pathname.startsWith('/api/comments/') && url.pathname.endsWith('/report')) {
+      // The comment report shares the reporting endpoint with the poll report.
+      return handleReportRequest(request, url, envWithSettings);
+    }
     if (url.pathname === '/api/comments' || url.pathname.startsWith('/api/comments/')) {
       return handleCommentsRequest(request, url, envWithSettings);
     }

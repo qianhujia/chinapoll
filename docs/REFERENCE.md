@@ -190,7 +190,10 @@ comment id can be submitted back to the dashboard to reclaim a comment the brows
 no longer remembers (cleared browser storage, or a comment posted on another
 device). Claiming reuses the same ownership check, so a well-formed id that belongs
 to another account is answered as "not one of your comments", exactly as the id
-returned by the poll page is remembered from the post itself.
+returned by the poll page is remembered from the post itself. The poll and comment
+three-dot menus each carry a claim entry as well, so an id that is already on the page
+is added without copying it; a signed-out visitor sees a sign-in link in its place,
+because the ownership check needs a session.
 
 ## Snapshot chain
 
@@ -229,10 +232,11 @@ per run is created through the Git Data API as `chinapoll-bot`. The
 admin Overview lists the last five runs. See [RUNBOOK.md](RUNBOOK.md) for the
 token and what to do when `publishError` is true.
 
-## Poll reports and view counts
+## Reports and view counts
 
 Visitors can report a poll without an account from the three-dot menu at the top
-right of the poll title. `POST /api/polls/:id/report` accepts
+right of the poll title, and a comment from the three-dot menu in its own row.
+`POST /api/polls/:id/report` accepts
 `{ "reason": "<label>", "note"?: "<text>" }`. The reason labels are `spam`,
 `inappropriate`, `misleading`, `copyright`, `personal_info`, `harassment`,
 `illegal`, and `other`; a note is accepted only with `other` and is limited to
@@ -240,6 +244,15 @@ right of the poll title. `POST /api/polls/:id/report` accepts
 `3/d`) using the keyed, daily-rotated network hash, and it stores no reporter
 identifier, address, network bucket, or exact timestamp (the creation time is
 coarsened to the hour).
+
+`POST /api/comments/:publicId/report` accepts the same body for one comment, named by
+the random public id the comment list returns. It shares the rate-limit budget with
+poll reports and stores the same fields minus the poll column: the comment already
+carries it, and the row cascades away with the comment. A comment report never changes
+a poll's status and never hides the comment; it is reviewed by hand, because hiding a
+comment once a report count is reached would be cheap to abuse from one network, and
+an admin has a direct delete for a comment. The admin Reports tab lists the two kinds
+in separate tables, and resolving either writes an audit entry.
 
 `personal_info`, `harassment`, and `illegal` are high priority. After each report
 the open counts are checked against `report_auto_hide_threshold` (default 5) and

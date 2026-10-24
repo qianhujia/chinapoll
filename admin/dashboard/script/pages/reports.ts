@@ -42,19 +42,54 @@ export const scriptReports = `  function renderReports() {
         }).join('')
       : '<tr><td colspan="5"><div class="empty">No reports match this filter.</div></td></tr>';
 
-    view.innerHTML = '<section class="card"><h2>Reports</h2>' + toolbar +
+    var commentRows = (data.commentReports || []).length
+      ? data.commentReports.map(function (item) {
+          var reasons = item.reasons.filter(function (entry) { return entry.count > 0; })
+            .map(function (entry) { return esc(entry.reason) + ' (' + esc(entry.count) + ')'; })
+            .join(', ') || '<span class="muted">none</span>';
+          var notes = item.notes.length
+            ? '<div class="small muted">' + item.notes.map(function (note) { return esc(note); }).join('<br>') + '</div>'
+            : '';
+          var pollLink = esc(item.pollId);
+          if (state.publicSiteOrigin) {
+            pollLink = '<a href="' + esc(state.publicSiteOrigin) + '/poll/' + esc(item.pollId) + '" target="_blank" rel="noopener">' + esc(item.pollId) + '</a>';
+          }
+          var priorityBadge = item.priority ? ' <span class="badge priority">priority</span>' : '';
+          return '<tr' + (item.priority ? ' class="row-priority"' : '') + '>' +
+            '<td class="desc">' + esc(item.comment) + priorityBadge + '</td>' +
+            '<td>' + pollLink + '</td>' +
+            '<td class="small">' + esc(item.openCount) + ' / ' + esc(item.totalCount) + '</td>' +
+            '<td class="desc">' + reasons + notes + '</td>' +
+            '<td><div class="actions">' +
+              '<button class="ok" data-action="resolve-comment-report" data-id="' + esc(item.commentId) + '" data-resolution="action_taken">Action taken</button>' +
+              '<button data-action="resolve-comment-report" data-id="' + esc(item.commentId) + '" data-resolution="dismissed">Dismiss</button>' +
+            '</div></td></tr>';
+        }).join('')
+      : '<tr><td colspan="5"><div class="empty">No comment reports match this filter.</div></td></tr>';
+
+    view.innerHTML = '<section class="card"><h2>Poll reports</h2>' + toolbar +
       '<table><thead><tr><th>Poll</th><th>Title</th><th>Open / Total</th><th>Reasons</th><th>Action</th></tr></thead>' +
       '<tbody>' + rows + '</tbody></table>' +
       '<div class="pager">' +
       '<span>Page ' + esc(data.page) + ' of ' + esc(data.totalPages) + ' · ' + esc(data.total) + ' total</span>' +
       '<button data-action="report-page" data-dir="-1"' + (data.page <= 1 ? ' disabled' : '') + '>Previous</button>' +
       '<button data-action="report-page" data-dir="1"' + (data.page >= data.totalPages ? ' disabled' : '') + '>Next</button>' +
+      '</div></section>' +
+      '<section class="card mt-18"><h2>Comment reports</h2>' +
+      '<p class="small muted">A reported comment is reviewed by hand: there is no automatic threshold, because hiding a comment on a report count is cheap to abuse from one network. Delete the comment from the Comments tab when action is needed.</p>' +
+      '<table><thead><tr><th>Comment</th><th>Poll</th><th>Open / Total</th><th>Reasons</th><th>Action</th></tr></thead>' +
+      '<tbody>' + commentRows + '</tbody></table>' +
+      '<div class="pager">' +
+      '<span>Page ' + esc(data.commentPage) + ' of ' + esc(data.commentTotalPages) + ' · ' + esc(data.commentTotal) + ' total</span>' +
+      '<button data-action="comment-report-page" data-dir="-1"' + (data.commentPage <= 1 ? ' disabled' : '') + '>Previous</button>' +
+      '<button data-action="comment-report-page" data-dir="1"' + (data.commentPage >= data.commentTotalPages ? ' disabled' : '') + '>Next</button>' +
       '</div></section>';
   }
 
   function loadReports() {
     var path = '/api/admin/reports?status=' + encodeURIComponent(state.reportStatus) +
-      '&page=' + state.reportPage;
+      '&page=' + state.reportPage +
+      '&commentsPage=' + state.commentReportPage;
     return api(path).then(function (data) {
       state.reports = data;
       if (state.view === 'reports') renderReports();
@@ -64,7 +99,7 @@ export const scriptReports = `  function renderReports() {
   function handleReportsAction(action, target) {
     if (action === 'search-reports') {
       state.reportStatus = document.getElementById('report-status').value;
-      state.reportPage = 1; state.reports = null;
+      state.reportPage = 1; state.commentReportPage = 1; state.reports = null;
       renderReports();
       guard(loadReports());
       return true;
@@ -84,6 +119,27 @@ export const scriptReports = `  function renderReports() {
       guard(api('/api/admin/reports/' + pollId + '/resolve', {
         method: 'POST',
         body: JSON.stringify({ resolution: resolution })
+      }).then(function (result) {
+        toast(result.message);
+        return Promise.all([loadReports(), loadOverview()]);
+      }));
+      return true;
+    }
+    if (action === 'comment-report-page') {
+      state.commentReportPage = Math.max(1, state.commentReportPage + Number(target.getAttribute('data-dir')));
+      state.reports = null;
+      renderReports();
+      guard(loadReports());
+      return true;
+    }
+    if (action === 'resolve-comment-report') {
+      var commentId = target.getAttribute('data-id');
+      var commentResolution = target.getAttribute('data-resolution');
+      if (!window.confirm('Mark every open report for comment ' + commentId + ' as ' + commentResolution + '?')) return true;
+      target.disabled = true;
+      guard(api('/api/admin/comment-reports/' + commentId + '/resolve', {
+        method: 'POST',
+        body: JSON.stringify({ resolution: commentResolution })
       }).then(function (result) {
         toast(result.message);
         return Promise.all([loadReports(), loadOverview()]);

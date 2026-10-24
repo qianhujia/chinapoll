@@ -7,8 +7,9 @@ are run from the repository root.
 
 1. Apply D1 migrations: `npx wrangler d1 migrations apply chinapoll --env production --remote`.
    `migrations/0001_initial.sql` is the **immutable baseline**: it creates the entire
-   schema as of the **2026-10-18** consolidation (an earlier consolidation was done on
-   2026-10-11) because nothing had been deployed when it was created. Do not edit the
+   schema as of the **2026-10-24** consolidation (earlier consolidations were done
+   on 2026-10-18 and 2026-10-11) because nothing had been deployed when it was
+   created. Do not edit the
    baseline after it has been applied to a database. Every later schema change gets its
    own numbered migration file (`0002_<summary>.sql`, `0003_<summary>.sql`, ...), and
    wrangler applies those files in filename order. Keep each file to schema changes only.
@@ -146,7 +147,9 @@ hashes on polls and comments, so rotating it is not free. Values already in
 but every stored `polls.owner_hash` and `comments.owner_hash` also stops matching: no
 existing poll or comment can be attributed to its author again, so "my polls" and "my
 comments" answer empty and close, withdraw, and delete refuse for that content. That
-is irreversible, because the hashes are one-way and no second key is accepted.
+is irreversible, because the hashes are one-way and no second key is accepted. When
+the old key is known - for example a value that leaked - ownership can be preserved
+before rotating; see [SERVER_KEY_ROTATION.md](SERVER_KEY_ROTATION.md).
 Rotate the Turnstile secret by uploading a new value with
 `npx wrangler secret put TURNSTILE_SECRET_KEY`, and rotate the
 GitHub publish token the same way (see [Audit publishing](#audit-publishing)).

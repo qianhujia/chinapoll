@@ -13,7 +13,7 @@ import { REPORT_REASONS } from '../src/lib/poll';
 // i18n key and the assertions below read those keys.
 describe('renderPollMenu', () => {
   it('builds a collapsed three-dot menu that hosts the report entry', () => {
-    const markup = renderPollMenu(false);
+    const markup = renderPollMenu(7, false);
 
     // The toggle next to the title, closed by default and announced as a menu.
     expect(markup).toContain('data-poll-menu-root');
@@ -33,12 +33,17 @@ describe('renderPollMenu', () => {
     expect(panel).toContain('data-report-open');
     expect(panel).toContain('reportLink');
     expect(panel).not.toContain('data-report-already');
+    // The claim entry shares the menu. A signed-out visitor gets the sign-in link,
+    // because the ownership check needs a session.
+    expect(panel).toContain('claimSignIn');
+    expect(panel).not.toContain('data-claim-poll');
+    expect(panel).not.toContain('data-claim-already');
     expect(markup).not.toContain('data-report-form');
     expect(markup).not.toContain('data-report-dialog');
   });
 
   it('shows the confirmation note in place of the entry once the poll is reported', () => {
-    const markup = renderPollMenu(true);
+    const markup = renderPollMenu(7, true);
     const panel = markup.slice(markup.indexOf('id="poll-menu"'), markup.indexOf('data-poll-menu-backdrop'));
 
     // The menu stays available, but it no longer offers the report action.
@@ -46,6 +51,23 @@ describe('renderPollMenu', () => {
     expect(panel).toContain('data-report-already');
     expect(panel).toContain('reportAlreadySent');
     expect(panel).not.toContain('data-report-open');
+  });
+it('offers the claim entry to a signed-in visitor and the note once claimed', () => {
+    const offer = renderPollMenu(7, false, true, false);
+    const offerPanel = offer.slice(offer.indexOf('id="poll-menu"'), offer.indexOf('data-poll-menu-backdrop'));
+    expect(offerPanel).toContain('data-report-open');
+    expect(offerPanel).toContain('data-claim-poll="7"');
+    expect(offerPanel).toContain('claimLink');
+    expect(offerPanel).not.toContain('data-claim-already');
+
+    // Once the poll is in the dashboard the claim entry becomes a plain note, while
+    // the report entry stays.
+    const claimed = renderPollMenu(7, false, true, true);
+    const claimedPanel = claimed.slice(claimed.indexOf('id="poll-menu"'), claimed.indexOf('data-poll-menu-backdrop'));
+    expect(claimedPanel).toContain('data-claim-already');
+    expect(claimedPanel).toContain('claimAlready');
+    expect(claimedPanel).not.toContain('data-claim-poll');
+    expect(claimedPanel).toContain('data-report-open');
   });
 });
 

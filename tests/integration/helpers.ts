@@ -171,6 +171,25 @@ export function reportRequest(pollId: number, reason: string, note?: string): Pr
   });
 }
 
+// Inserts a comment row with no owner, so a test can exercise the comment APIs
+// without a session. The public id must be the 16 lowercase hex characters the
+// comment report route expects.
+export async function seedComment(pollId: number, publicId: string, comment = 'A comment worth reporting'): Promise<void> {
+  await env.DB.prepare(
+    'INSERT INTO comments (poll_id, comment, public_id, owner_hash) VALUES (?, ?, ?, NULL)'
+  ).bind(pollId, comment, publicId).run();
+}
+
+// Submits a comment report through the public API, naming the comment by its
+// random public id.
+export function commentReportRequest(publicId: string, reason: string, note?: string): Promise<Response> {
+  return SELF.fetch(`${ORIGIN}/api/comments/${publicId}/report`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(note === undefined ? { reason } : { reason, note })
+  });
+}
+
 // Records a poll view through the public API.
 export function viewRequest(pollId: number): Promise<Response> {
   return SELF.fetch(`${ORIGIN}/api/polls/${pollId}/view`, { method: 'POST' });

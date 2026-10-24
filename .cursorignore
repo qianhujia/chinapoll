@@ -16,6 +16,9 @@ tsconfig.tsbuildinfo
 logs/
 *.log
 
+# Local D1 backups (a dump carries the settings rows, including secrets).
+backup/
+
 # Local secrets and environment files (the committed .example template stays in).
 .dev.vars
 .env

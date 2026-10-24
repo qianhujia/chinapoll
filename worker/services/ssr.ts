@@ -429,7 +429,7 @@ export interface HomeSsrData {
   totalPages: number;
   topics: SsrTopic[];
   topicTotal: number;
-  /** Every poll that can be listed, matching the API's `totalPolls`. */
+  /** Every open poll, matching the API's `totalPolls` and `topicTotal`. */
   totalPolls: number;
   /** Site-wide vote total, matching the API's `totalVotes`. */
   totalVotes: number;
@@ -481,12 +481,13 @@ export async function loadHomeSsrData(
 
   const { topics, total: topicTotal } = await loadSsrTopics(db);
 
-  // The two hero statistics that do not depend on the current filter: every
-  // listable poll, and the site-wide vote total read from the latest snapshot
-  // per poll (mirrors GET /api/polls).
+  // The two hero statistics that do not depend on the current filter: the open
+  // polls site-wide, and the site-wide vote total read from the latest snapshot
+  // per poll (mirrors GET /api/polls). Only open polls are counted, so the
+  // `Polls` statistic matches the `Open polls` total beside it.
   const [allPollsRow, voteTotalRow] = await Promise.all([
-    db.prepare('SELECT COUNT(*) AS total FROM polls WHERE mode IN (?, ?)')
-      .bind(PollMode.Deadline, PollMode.Evergreen).first<{ total: number }>(),
+    db.prepare('SELECT COUNT(*) AS total FROM polls WHERE status = ? AND mode IN (?, ?)')
+      .bind(PollStatus.Open, PollMode.Deadline, PollMode.Evergreen).first<{ total: number }>(),
     db.prepare(
       `SELECT COALESCE(SUM(s.ballots), 0) AS total
        FROM stats_snapshots s
