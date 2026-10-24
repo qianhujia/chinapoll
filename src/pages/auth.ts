@@ -1,7 +1,8 @@
 import { loginUser, recoverPassword, registerUser } from '../lib/session';
 import { escapeHtml, getErrorMessage, renderFooter, renderHeader, renderRecoveryCode, renderToast, showToast, t, viewIconMarkup } from '../ui';
 import { getPublicSettings } from '../config';
-import { renderTurnstile, resetTurnstile, turnstileSiteKey, turnstileToken } from '../lib/turnstile';
+import { renderTurnstile, resetTurnstile, revealTurnstile, turnstileSiteKey, turnstileToken } from '../lib/turnstile';
+import { apiErrorCode } from '../lib/apiError';
 
 // Re-renders the current route after a state change by replaying the router's
 // popstate handler.
@@ -73,6 +74,9 @@ export async function mountLoginPage(app: HTMLElement, bindNavigation: () => voi
       showToast(`${t('loginSuccess')}: ${user.username}`);
       navigate('/account');
     } catch (error) {
+      // The widget is hidden by default, so a verification failure is the only
+      // case that must surface the box for the visitor to solve.
+      if (apiErrorCode(error) === 'TURNSTILE_FAILED') revealTurnstile('login');
       showToast(`${t('loginFailed')} ${getErrorMessage(error)}`, 'error');
     } finally {
       submitButton.disabled = false;
@@ -146,6 +150,9 @@ export async function mountRegisterPage(app: HTMLElement, bindNavigation: () => 
       renderRecoveryCodeStep(app, recoveryCode, t('recoveryCodeContinue'), '/account', bindNavigation);
       showToast(`${t('registerSuccess')}: ${user.username}`);
     } catch (error) {
+      // The widget is hidden by default, so a verification failure is the only
+      // case that must surface the box for the visitor to solve.
+      if (apiErrorCode(error) === 'TURNSTILE_FAILED') revealTurnstile('register');
       showToast(`${t('registerFailed')} ${getErrorMessage(error)}`, 'error');
       submitButton.disabled = false;
       resetTurnstile('register');
