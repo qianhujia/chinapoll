@@ -81,7 +81,7 @@ describe('renderPollRow', () => {
       ]
     }));
 
-    // Same row, same actions; only the type badge and the option count differ.
+    // Same row, same actions; only the type badge differs.
     for (const markup of [single, multi]) {
       expect(markup).toContain(ROW_LAYOUT);
       expect(markup).not.toContain('<button');
@@ -92,7 +92,7 @@ describe('renderPollRow', () => {
     expect(multi).toContain('pollTypeMultiChoice');
   });
 
-  it('renders the option count for a verdict poll and its own badge', () => {
+  it('names the verdict type without an option count', () => {
     const markup = renderPollRow(makeEntry({
       pollType: 'verdict',
       ballots: 12,
@@ -103,10 +103,11 @@ describe('renderPollRow', () => {
       ]
     }));
 
-    // The badge names the verdict type and, like the other types, the row shows how
-    // many options the poll carries and its ballot total.
+    // The badge names the verdict type and stops there: a list row never repeats
+    // how many options the poll carries, even though this entry has three.
     expect(markup).toContain('pollTypeVerdict');
     expect(markup).not.toContain('pollTypeSingleChoice');
+    expect(markup).not.toContain('options');
     expect(markup).toContain('12 ballots');
     // The row still offers a link rather than voting in place.
     expect(markup).not.toContain('<button');
