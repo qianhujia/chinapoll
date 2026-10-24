@@ -347,7 +347,7 @@ ${renderHeader(settings, t, '/')}
             ${badge(pollTypeLabel(poll.pollType, t))}
             ${topic}
           </div>
-          <h1 class="mt-3 mb-2 text-center text-2xl font-bold">P${poll.id} ${escapeHtml(poll.title)}</h1>
+          <h1 class="mt-3 mb-2 text-center text-2xl font-bold">#${poll.id} ${escapeHtml(poll.title)}</h1>
           ${poll.description ? `<p class="mx-auto mb-0 max-w-2xl text-center text-ink line-clamp-2">${escapeHtml(poll.description)}</p>` : ''}
           <h2 class="mt-6 mb-2 text-lg font-bold">${escapeHtml(t('optionsLabel'))}</h2>
 ${options}

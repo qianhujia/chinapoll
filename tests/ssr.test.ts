@@ -142,8 +142,8 @@ describe('server-side poll page', () => {
     };
 
     const html = renderPollBody(detail, settings);
-    // The detail page title is prefixed with the poll number.
-    expect(html).toContain(`P${detail.id} Should the city build more bike lanes?`);
+    // The detail page heading is prefixed with the poll number as "#1".
+    expect(html).toContain(`#${detail.id} Should the city build more bike lanes?`);
     expect(html).toContain('Should the city build more bike lanes?');
     expect(html).toContain('A short summary.');
     expect(html).toContain('Yes');

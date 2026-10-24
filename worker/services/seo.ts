@@ -195,7 +195,7 @@ export function getPollSeoContext(
     : `Vote on "${poll.title}" - ${settings.site_slogan}`;
 
   return buildSeoContext(`/poll/${poll.id}`, settings, origin, {
-    title: `P${poll.id} ${poll.title} - ${settings.site_name}`,
+    title: `#${poll.id} ${poll.title} - ${settings.site_name}`,
     description,
     canonical: pollUrl,
     ogType: 'article',

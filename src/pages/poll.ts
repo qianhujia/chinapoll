@@ -323,7 +323,7 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
   // server-rendered metadata instead of leaving the generic placeholder.
   const { site_name: siteName } = getPublicSettings();
   updateSeo({
-    title: `P${poll.id} ${poll.title} - ${siteName}`,
+    title: `#${poll.id} ${poll.title} - ${siteName}`,
     ...(poll.description ? { description: poll.description.slice(0, 160) } : {})
   });
 
@@ -429,7 +429,7 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
         <section class="rounded-[22px] border border-border bg-panel p-6 shadow-card">
           <div class="flex items-start justify-between gap-4">
             <div class="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
-              <h1 class="m-0 text-2xl font-bold">P${poll.id} ${escapeHtml(poll.title)}</h1>
+              <h1 class="m-0 text-2xl font-bold">#${poll.id} ${escapeHtml(poll.title)}</h1>
               ${renderModeBadge(poll.mode)}
               ${renderPollTypeBadge(pollType)}
               ${poll.topic

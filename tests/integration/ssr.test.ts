@@ -86,7 +86,7 @@ describe('server-rendered pages', () => {
 
     expect(response.status).toBe(200);
     expect(html).toContain('<h1');
-    expect(html).toContain(`P${pollId} Bike lanes on Main Street`);
+    expect(html).toContain(`#${pollId} Bike lanes on Main Street`);
     expect(html).toContain('Build them');
     expect(html).toContain(zhDictionary.optionsLabel);
     expect(html).toContain(`rel="canonical" href="${ORIGIN}/poll/${pollId}"`);
