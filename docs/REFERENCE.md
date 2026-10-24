@@ -10,11 +10,12 @@ Application settings are rows in the D1 `settings` table, served publicly by
 values fall back to built-in defaults; the admin Settings tab can insert any
 missing defaults. `.dev.vars` holds Worker secrets, not settings.
 
-When a settings page is saved, a blank non-secret input or a value equal to the
-built-in default is not written to D1: the row is removed so the loader serves
-the default directly. A blank secret field keeps the stored secret, because the
-form masks it. The audit log records only the settings whose effective value
-changed, and a reset to the default is marked with `"default": true`.
+When a settings page is saved, a blank non-secret input is not written to D1:
+the row is removed so the loader serves the built-in default directly. An
+explicitly entered value is always stored, even when it happens to equal the
+default. A blank secret field keeps the stored secret, because the form masks
+it. The audit log records only the settings whose effective value changed, and a
+reset to the default is marked with `"default": true`.
 
 Public keys: `default_locale` (`en`, `zh-CN`, or `zh-TW`), `site_name`,
 `site_slogan`, `data_repository_url`, `polls_per_page`, `comments_per_page`,

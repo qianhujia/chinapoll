@@ -190,11 +190,11 @@ type SettingUpdatePlan =
 // Decides what one submitted value means:
 //
 //   - a blank secret means "keep the stored secret" (the form masks it);
-//   - any other blank input means "use the default";
-//   - the default value itself is never written to D1: the loader falls back to
-//     it, so an existing row is removed instead of storing the default;
-//   - a non-empty value is validated and compared with what is effectively in
-//     place, so re-saving the same value neither writes nor audits a change.
+//   - any other blank input means "use the default": the row is removed instead
+//     of writing the default into D1, because the loader falls back to it;
+//   - any non-empty value is an explicit choice and is validated and stored,
+//     even when it happens to equal the default. It is only skipped when the
+//     stored row already holds exactly that value.
 function planSettingUpdate(
   key: SettingKey,
   rawValue: unknown,
@@ -206,27 +206,21 @@ function planSettingUpdate(
     return { action: 'unchanged', value: storedValue ?? '', changed: false };
   }
 
-  const defaultValue = String(getSettingDefaultApi(key) ?? '');
-  let newValue = defaultValue;
-  if (value !== '') {
-    const validation = validateSettingValue(key, value);
-    if (!validation.ok) return { error: validation.error };
-    newValue = validation.value;
-  }
-
-  // The effective value of a missing row is the default, so a submission equal
-  // to the default is only a change when a non-default row was stored before.
-  if (newValue === defaultValue) {
+  if (value === '') {
+    const defaultValue = String(getSettingDefaultApi(key) ?? '');
     if (storedValue === undefined) {
       return { action: 'unchanged', value: defaultValue, changed: false };
     }
     return { action: 'delete', value: defaultValue, changed: storedValue !== defaultValue };
   }
 
-  if (storedValue === newValue) {
-    return { action: 'unchanged', value: newValue, changed: false };
+  const validation = validateSettingValue(key, value);
+  if (!validation.ok) return { error: validation.error };
+
+  if (storedValue === validation.value) {
+    return { action: 'unchanged', value: validation.value, changed: false };
   }
-  return { action: 'upsert', value: newValue, changed: true };
+  return { action: 'upsert', value: validation.value, changed: true };
 }
 
 async function deleteSetting(env: AdminEnv, key: SettingKey): Promise<void> {

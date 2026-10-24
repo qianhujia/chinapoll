@@ -79,12 +79,13 @@ describe('admin settings save semantics', () => {
     expect(await updateAuditCount('site_slogan')).toBe(before);
   });
 
-  it('does not store or audit a value equal to the default', async () => {
+  it('stores and audits an explicitly entered value that equals the default', async () => {
     await env.DB.batch([
       env.DB.prepare("DELETE FROM settings WHERE key = 'read_only_mode'"),
       env.DB.prepare("DELETE FROM settings WHERE key = 'ai_provider'")
     ]);
-    const before = await updateAuditCount('read_only_mode') + await updateAuditCount('ai_provider');
+    const readsBefore = await updateAuditCount('read_only_mode');
+    const providerBefore = await updateAuditCount('ai_provider');
 
     const response = await settingsRequest('/api/admin/settings/bulk', 'PUT', {
       read_only_mode: 'false',
@@ -92,9 +93,12 @@ describe('admin settings save semantics', () => {
     });
     expect(response.status).toBe(200);
 
-    expect(await storedValue('read_only_mode')).toBeUndefined();
-    expect(await storedValue('ai_provider')).toBeUndefined();
-    expect(await updateAuditCount('read_only_mode') + await updateAuditCount('ai_provider')).toBe(before);
+    // An explicit choice is stored even when it matches the default...
+    expect(await storedValue('read_only_mode')).toBe('false');
+    expect(await storedValue('ai_provider')).toBe('off');
+    // ...and it is recorded in the audit log.
+    expect(await updateAuditCount('read_only_mode')).toBe(readsBefore + 1);
+    expect(await updateAuditCount('ai_provider')).toBe(providerBefore + 1);
   });
 
   it('records only the keys whose value changed in one bulk save', async () => {
@@ -105,8 +109,7 @@ describe('admin settings save semantics', () => {
 
     const response = await settingsRequest('/api/admin/settings/bulk', 'PUT', {
       site_name: 'Stored name',
-      hero_subtitle: 'A new subtitle',
-      read_only_mode: 'false'
+      hero_subtitle: 'A new subtitle'
     });
     expect(response.status).toBe(200);
 
@@ -118,19 +121,22 @@ describe('admin settings save semantics', () => {
     expect(await storedValue('hero_subtitle')).toBe('A new subtitle');
   });
 
-  it('removes a redundant row when the submitted value equals the default', async () => {
-    await setSetting('comments_per_page', String(DEFAULT_PUBLIC_SETTINGS.comments_per_page));
-    const before = await updateAuditCount('comments_per_page');
+  it('stores and audits an explicit default entered over a non-default value', async () => {
+    await setSetting('site_slogan', 'A stored custom slogan');
+    const before = await updateAuditCount('site_slogan');
 
     const response = await settingsRequest('/api/admin/settings/bulk', 'PUT', {
-      comments_per_page: String(DEFAULT_PUBLIC_SETTINGS.comments_per_page)
+      site_slogan: DEFAULT_PUBLIC_SETTINGS.site_slogan
     });
     expect(response.status).toBe(200);
 
-    // The stored default is removed so the loader serves the default directly.
-    expect(await storedValue('comments_per_page')).toBeUndefined();
-    // The effective value never changed, so no audit entry is added.
-    expect(await updateAuditCount('comments_per_page')).toBe(before);
+    // The explicit value is written rather than treated as a reset.
+    expect(await storedValue('site_slogan')).toBe(DEFAULT_PUBLIC_SETTINGS.site_slogan);
+    expect(await updateAuditCount('site_slogan')).toBe(before + 1);
+    const audit = await env.DB.prepare(
+      "SELECT details FROM admin_audit_log WHERE action = 'setting.update' AND target_id = ? ORDER BY id DESC LIMIT 1"
+    ).bind('site_slogan').first<{ details: string }>();
+    expect(JSON.parse(audit?.details ?? '{}')).toEqual({ value: DEFAULT_PUBLIC_SETTINGS.site_slogan });
   });
 
   it('applies the same rules to the single-setting endpoint', async () => {
