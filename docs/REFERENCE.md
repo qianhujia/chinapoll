@@ -10,6 +10,12 @@ Application settings are rows in the D1 `settings` table, served publicly by
 values fall back to built-in defaults; the admin Settings tab can insert any
 missing defaults. `.dev.vars` holds Worker secrets, not settings.
 
+When a settings page is saved, a blank non-secret input or a value equal to the
+built-in default is not written to D1: the row is removed so the loader serves
+the default directly. A blank secret field keeps the stored secret, because the
+form masks it. The audit log records only the settings whose effective value
+changed, and a reset to the default is marked with `"default": true`.
+
 Public keys: `default_locale` (`en`, `zh-CN`, or `zh-TW`), `site_name`,
 `site_slogan`, `data_repository_url`, `polls_per_page`, `comments_per_page`,
 `page_max_width_px`, `hero_title`, `hero_subtitle`, `hero_background_color`
@@ -153,11 +159,31 @@ recovery channel, so credentials must be kept safe like a crypto recovery phrase
   everywhere.
 - Submitting a poll and posting a comment both require an account; new polls stay
   pending until an admin approves them unless `auto_approve_polls` is enabled.
+- Both submissions need the server key. The owner hash it derives is the only thing
+  that lets the submitter list, close, or delete that content later, so a deployment
+  without `SERVER_HMAC_KEY` answers `503 SERVER_NOT_CONFIGURED` rather than storing a
+  row its own author could never manage. The same key verifies an existing row for
+  "my polls" and "my comments", so without it those lists answer empty and close,
+  withdraw, and delete refuse. Reading the site, and every other endpoint, is
+  unaffected.
 
 Endpoints: `/api/auth` (session state, register, login, logout, recovery) and
 `/api/user` (`GET /api/user/polls?ids=`, `GET /api/user/comments?ids=`,
 `POST /api/user/polls/:id/close`, `DELETE /api/user/polls/:id`,
 `DELETE /api/user/comments/:id`, and `GET`/`POST /api/user/recovery-code`).
+
+Both list endpoints answer only for the ids the browser sends, and every row must
+pass the owner-hash check, so a row is returned only to the account that owns it.
+They share one per-account quota (60 requests per hour, a fixed internal limit
+rather than a setting): a batch of ids makes them the only endpoint where a stolen
+session could otherwise probe a large candidate set cheaply.
+
+The dashboard shows each listed comment's public id with a copy action, and a
+comment id can be submitted back to the dashboard to reclaim a comment the browser
+no longer remembers (cleared browser storage, or a comment posted on another
+device). Claiming reuses the same ownership check, so a well-formed id that belongs
+to another account is answered as "not one of your comments", exactly as the id
+returned by the poll page is remembered from the post itself.
 
 ## Snapshot chain
 

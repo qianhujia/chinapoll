@@ -5,9 +5,19 @@
 # `wrangler secret put` and put plain variables under `[env.production.vars]` in
 # wrangler.toml.
 
-# Required for keyed network hashing and owner hashing. Any 64-character hex value
-# works locally (`openssl rand -hex 32`). Without it the health endpoint reports
-# `serverKey: false` and voting and account creation return 503.
+# Required for keyed network hashing and for poll/comment ownership. Any 64-character
+# hex value works locally (`openssl rand -hex 32`). Without it the health endpoint
+# reports `serverKey: false`, and voting, registration, sign-in, poll submission, and
+# comments return `503`.
+#
+# WARNING - SAVE THIS VALUE. Cloudflare never displays a stored Worker secret again,
+# so the production value has to be kept somewhere you control (a password manager or a
+# secret vault). Losing it is not just an outage: every stored poll and comment owner
+# hash is derived from this key, so after a different key is deployed no existing poll
+# or comment can ever be matched to its author again ("my polls" and "my comments" go
+# empty, and close, withdraw, and delete refuse for that content). Generate one value,
+# store it, and reuse the same value in production, on every new account, and locally.
+# See docs/RUNBOOK.md, "Migrating to another Cloudflare account".
 SERVER_HMAC_KEY=
 
 # Optional Turnstile. The widget and the server-side check are skipped while either

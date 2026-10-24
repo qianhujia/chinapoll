@@ -89,6 +89,21 @@ async function pollStatus(pollId: number): Promise<number | null> {
   return row ? Number(row.status) : null;
 }
 
+describe('proposal submission without the server key', () => {
+  it('refuses the submission instead of storing a poll that no account can own', async () => {
+    const title = 'Poll with no server key';
+    const response = await propose({ SERVER_HMAC_KEY: undefined }, title);
+
+    expect(response.status).toBe(503);
+    expect((await response.json() as any).error.code).toBe('SERVER_NOT_CONFIGURED');
+
+    // Nothing was written: a poll whose owner can never be established would be
+    // public but could never be listed, closed, or withdrawn by its own submitter.
+    const row = await env.DB.prepare('SELECT id FROM polls WHERE title = ?').bind(title).first();
+    expect(row).toBeNull();
+  });
+});
+
 describe('AI review of auto-approved proposals', () => {
   it('publishes a submission the model approves', async () => {
     const response = await propose({

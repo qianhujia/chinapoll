@@ -122,6 +122,20 @@ describe('account panels', () => {
     expect(accountCommentsPanelMarkup([], '')).not.toContain('accountCommentsBrowserNote');
   });
 
+  it('shows the comment id with a copy action and offers the claim form', () => {
+    const markup = accountCommentsPanelMarkup([COMMENT], '');
+
+    // The author sees the id so it can be carried to another device...
+    expect(markup).toContain('accountCommentIdLabel');
+    expect(markup).toContain('data-copy-comment-id="0123456789abcdef"');
+    // ... and the claim form is present even with an empty list, so a comment whose
+    // id was forgotten can be added back.
+    expect(markup).toContain('data-remember-comment-form');
+    const empty = accountCommentsPanelMarkup([], '');
+    expect(empty).toContain('data-remember-comment-form');
+    expect(empty).toContain('accountAddCommentLabel');
+  });
+
   it('escapes a comment body and title', () => {
     const markup = accountCommentsPanelMarkup([{
       ...COMMENT,

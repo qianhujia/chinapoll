@@ -163,7 +163,7 @@ export const scriptSettings = `  var SETTINGS_IMAGE_TYPES = ['image/png', 'image
     var html = '<section class="card">' +
       '<h2>' + esc(catData.label) + '</h2>' +
       (catData.description ? '<p class="small muted">' + esc(catData.description) + '</p>' : '') +
-      '<p class="small muted">Values are validated with the same rules the public Worker API enforces.</p>' +
+      '<p class="small muted">Values are validated with the same rules the public Worker API enforces. A blank field keeps its default and is not stored.</p>' +
       rows +
       '<div class="toolbar mt-12"><button class="primary" data-action="save-settings-category" data-category="' + esc(category) + '">Save ' + esc(catData.label) + '</button></div>' +
       '</section>';

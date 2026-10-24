@@ -32,7 +32,7 @@
   "cloudflare": {
     "bindings": {
       "SERVER_HMAC_KEY": {
-        "description": "Server secret for keyed network hashing and poll/comment ownership hashing. Generate 64 hex characters with `openssl rand -hex 32`."
+        "description": "Required 64-hex server secret for keyed network hashing and for poll/comment ownership. Generate one with `openssl rand -hex 32`, then SAVE IT somewhere outside Cloudflare (a password manager or secret vault): Cloudflare never displays a stored secret again, and this value is the only input to every poll and comment owner hash, so losing it permanently prevents any existing poll or comment from being matched to its author. See docs/RUNBOOK.md."
       }
     }
   },

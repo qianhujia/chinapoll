@@ -42,13 +42,11 @@ export function isValidServerKey(keyHex: string | undefined | null): keyHex is s
   return typeof keyHex === 'string' && SERVER_KEY_PATTERN.test(keyHex);
 }
 
-// Returns the server HMAC master key. The current name is SERVER_HMAC_KEY;
-// IP_HASH_KEY is accepted as a fallback for one release so an existing deployment
-// keeps working until the secret is renamed.
-export function serverHmacKey(
-  env: { SERVER_HMAC_KEY?: string; IP_HASH_KEY?: string }
-): string | undefined {
-  return env.SERVER_HMAC_KEY ?? env.IP_HASH_KEY;
+// Returns the server HMAC master key. The name is SERVER_HMAC_KEY; the earlier
+// IP_HASH_KEY alias is no longer read, so a deployment that still sets only that name
+// has no usable key and the health endpoint reports `serverKey: false`.
+export function serverHmacKey(env: { SERVER_HMAC_KEY?: string }): string | undefined {
+  return env.SERVER_HMAC_KEY;
 }
 
 // The rotation period for the keyed hash. `month` keeps a value linkable within

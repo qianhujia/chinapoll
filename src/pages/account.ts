@@ -20,7 +20,7 @@ import {
   type UserComment,
   type UserPoll
 } from '../lib/session';
-import { forgetMyComment, forgetMyPoll, getMyCommentIds, getMyPollIds, rememberMyPoll } from '../lib/poll';
+import { forgetMyComment, forgetMyPoll, getMyCommentIds, getMyPollIds, rememberMyComment, rememberMyPoll } from '../lib/poll';
 import { escapeHtml, getErrorMessage, renderFooter, renderHeader, renderRecoveryCode, renderToast, showToast, t } from '../ui';
 
 // The sections of the dashboard, in menu order.
@@ -96,6 +96,20 @@ function pollCardMarkup(poll: UserPoll): string {
   `;
 }
 
+// The comment's public id, shown to its author so it can be carried to another
+// device and claimed there (see the claim form below). The id is not a secret: the
+// server still proves ownership through the one-way owner hash, so an id belonging
+// to another account is answered as "not one of your comments".
+function commentIdMarkup(id: string): string {
+  return `
+        <span class="flex flex-wrap items-center gap-2 text-xs text-muted">
+          <span>${t('accountCommentIdLabel')}</span>
+          <code class="font-mono [overflow-wrap:anywhere]">${escapeHtml(id)}</code>
+          <button class="cursor-pointer rounded-full border border-border bg-panel px-2 py-0.5 text-xs text-ink hover:border-primary hover:text-primary" type="button" data-copy-comment-id="${escapeHtml(id)}">${t('accountCopyId')}</button>
+        </span>
+  `;
+}
+
 function commentCardMarkup(comment: UserComment): string {
   return `
     <li class="flex flex-wrap items-start justify-between gap-3 border-b border-border py-3.5">
@@ -105,6 +119,7 @@ function commentCardMarkup(comment: UserComment): string {
           <a class="text-primary" href="/poll/${comment.pollId}" data-route="/poll/${comment.pollId}">#${comment.pollId} ${escapeHtml(comment.pollTitle ?? '')}</a>
           · ${escapeHtml(comment.createdAt)}
         </span>
+        ${commentIdMarkup(comment.id)}
       </div>
       <button class="shrink-0 cursor-pointer rounded-full border border-border bg-panel px-3 py-1.5 text-sm text-ink hover:border-[#d95b5b] hover:text-[#d95b5b]" type="button" data-delete-comment="${escapeHtml(comment.id)}">${t('accountDeleteComment')}</button>
     </li>
@@ -174,7 +189,9 @@ export function accountPollsPanelMarkup(polls: UserPoll[], loadError: string): s
   `;
 }
 
-// The "My comments" panel: the comments this browser posted, newest first.
+// The "My comments" panel: the comments this browser posted, newest first, plus the
+// form that adds a comment id it no longer remembers (for example because browser
+// storage was cleared, or because the comment was posted on another device).
 export function accountCommentsPanelMarkup(comments: UserComment[], loadError: string): string {
   const body = loadError
     ? `<p class="m-0 text-muted">${escapeHtml(t('accountLoadFailed'))} ${escapeHtml(loadError)}</p>`
@@ -190,6 +207,10 @@ export function accountCommentsPanelMarkup(comments: UserComment[], loadError: s
       <h1 class="mb-3.5 text-2xl font-bold">${t('accountCommentsTitle')}</h1>
       ${note}
       ${body}
+      <form class="mt-4 flex flex-wrap items-center gap-2" data-remember-comment-form>
+        <input class="w-56 rounded-full border border-border bg-panel px-3 py-1.5 text-sm text-ink outline-none focus:border-primary" type="text" autocomplete="off" spellcheck="false" maxlength="16" data-remember-comment-input placeholder="${t('accountAddCommentPlaceholder')}" aria-label="${t('accountAddCommentLabel')}" />
+        <button class="cursor-pointer rounded-full border border-primary bg-primary px-3 py-1.5 text-sm text-white" type="submit">${t('accountAddCommentAction')}</button>
+      </form>
     </section>
   `;
 }
@@ -395,6 +416,44 @@ export async function mountAccountPage(
       }
       rememberMyPoll(pollId);
       showToast(t('accountAddPollSuccess'));
+      await reload();
+    } catch (error) {
+      showToast(`${t('accountActionFailed')} ${getErrorMessage(error)}`, 'error');
+    }
+  });
+
+  document.querySelectorAll<HTMLButtonElement>('[data-copy-comment-id]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const id = button.dataset.copyCommentId ?? '';
+      if (!id) return;
+      try {
+        await navigator.clipboard.writeText(id);
+        showToast(t('accountCopiedId'));
+      } catch {
+        // A blocked or unavailable clipboard is not fatal: the id stays selectable.
+        showToast(t('accountCopyIdFailed'), 'error');
+      }
+    });
+  });
+
+  document.querySelector<HTMLFormElement>('[data-remember-comment-form]')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const input = document.querySelector<HTMLInputElement>('[data-remember-comment-input]');
+    const id = (input?.value ?? '').trim().toLowerCase();
+    // The server accepts only the 16-character hex public id (see worker/api/user.ts).
+    if (!/^[0-9a-f]{16}$/.test(id)) {
+      showToast(t('accountAddCommentInvalid'), 'error');
+      return;
+    }
+    try {
+      // The server confirms ownership before the id is remembered locally.
+      const owned = await getUserComments([id]);
+      if (owned.length === 0) {
+        showToast(t('accountAddCommentNotFound'), 'error');
+        return;
+      }
+      rememberMyComment(id);
+      showToast(t('accountAddCommentSuccess'));
       await reload();
     } catch (error) {
       showToast(`${t('accountActionFailed')} ${getErrorMessage(error)}`, 'error');

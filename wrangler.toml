@@ -41,6 +41,15 @@ binding = "AI"
 #   npx wrangler secret put TURNSTILE_SECRET_KEY --env production
 # TURNSTILE_SITE_KEY = "0x4AAAAAAA..."
 
+# SERVER_HMAC_KEY is a required Worker secret, not a var, so it has no entry here. Set
+# it for production and KEEP THE VALUE: Cloudflare never displays a stored secret again,
+# and it is the only input to the poll and comment owner hashes, so a different key can
+# never match existing poll or comment ownership. Store it in a password manager or a
+# secret vault before the deployment that sets it is forgotten.
+#   npx wrangler secret put SERVER_HMAC_KEY --env production
+#   npx wrangler secret list --env production    # lists names only, never values
+# See docs/RUNBOOK.md, "Migrating to another Cloudflare account".
+
 [[d1_databases]]
 binding = "DB"
 database_name = "chinapoll-local"

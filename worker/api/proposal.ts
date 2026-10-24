@@ -29,7 +29,7 @@ import { TOPIC_SLUG_PATTERN, topicNames } from '../../shared/categories';
 import { checkRateLimit } from '../services/rateLimit';
 import { enforceSameOrigin } from '../services/csrf';
 import { ownerHash } from '../services/owner';
-import { serverHmacKey } from '../services/ip';
+import { isValidServerKey, serverHmacKey } from '../services/ip';
 import { requireUser } from '../services/session';
 import { checkAccountAge } from '../services/users';
 import { apiError } from '../../shared/http';
@@ -51,6 +51,16 @@ export async function handleProposalRequest(request: Request, env: HandlerEnv): 
 
   const csrf = enforceSameOrigin(request, { viaCookie: true });
   if (csrf) return csrf;
+
+  // The owner hash is the only thing that lets the submitter list, close, or
+  // withdraw this poll later, and it can be derived only with the server key. A
+  // deployment without that key must refuse the submission rather than write a poll
+  // whose owner can never be established: the row would be public and permanently
+  // unmanageable while the submitter still received a success response. The check
+  // runs before the insert, so no such row is ever created.
+  if (!isValidServerKey(serverHmacKey(env))) {
+    return apiError('SERVER_NOT_CONFIGURED', 503, { extra: { ok: false } });
+  }
 
   const delayHours = Number(env.user_poll_delay_hours ?? DEFAULT_POLL_DELAY_HOURS);
   const accountAge = checkAccountAge(auth.user.createdAt, delayHours);
@@ -158,7 +168,8 @@ export async function handleProposalRequest(request: Request, env: HandlerEnv): 
   const pollId = Number(results[0]?.meta.last_row_id ?? 0);
 
   // The owner is stored as a one-way hash computed with the poll id, so it can
-  // only be written after the row exists.
+  // only be written after the row exists. The server key was verified before the
+  // insert, so the hash is always available here.
   const hash = await ownerHash(auth.user.id, pollId, serverHmacKey(env));
   if (hash) {
     await env.DB.prepare('UPDATE polls SET owner_hash = ? WHERE id = ?').bind(hash, pollId).run();

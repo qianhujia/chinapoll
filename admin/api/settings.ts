@@ -170,6 +170,98 @@ async function listSettings(env: AdminEnv): Promise<Response> {
   });
 }
 
+// The effective stored value of every setting row. A missing key is absent from
+// the map (so "not set" and "stored empty" stay distinguishable), while a stored
+// NULL is treated as the empty string.
+async function loadStoredValues(env: AdminEnv): Promise<Map<string, string>> {
+  const result = await env.DB.prepare('SELECT key, value FROM settings')
+    .all<{ key: string; value: string | null }>();
+  const values = new Map<string, string>();
+  for (const row of result.results ?? []) {
+    values.set(row.key, row.value ?? '');
+  }
+  return values;
+}
+
+type SettingUpdatePlan =
+  | { action: 'unchanged'; value: string; changed: false }
+  | { action: 'delete' | 'upsert'; value: string; changed: boolean };
+
+// Decides what one submitted value means:
+//
+//   - a blank secret means "keep the stored secret" (the form masks it);
+//   - any other blank input means "use the default";
+//   - the default value itself is never written to D1: the loader falls back to
+//     it, so an existing row is removed instead of storing the default;
+//   - a non-empty value is validated and compared with what is effectively in
+//     place, so re-saving the same value neither writes nor audits a change.
+function planSettingUpdate(
+  key: SettingKey,
+  rawValue: unknown,
+  storedValue: string | undefined
+): SettingUpdatePlan | { error: string } {
+  const value = String(rawValue);
+
+  if (value === '' && isSettingSecretApi(key)) {
+    return { action: 'unchanged', value: storedValue ?? '', changed: false };
+  }
+
+  const defaultValue = String(getSettingDefaultApi(key) ?? '');
+  let newValue = defaultValue;
+  if (value !== '') {
+    const validation = validateSettingValue(key, value);
+    if (!validation.ok) return { error: validation.error };
+    newValue = validation.value;
+  }
+
+  // The effective value of a missing row is the default, so a submission equal
+  // to the default is only a change when a non-default row was stored before.
+  if (newValue === defaultValue) {
+    if (storedValue === undefined) {
+      return { action: 'unchanged', value: defaultValue, changed: false };
+    }
+    return { action: 'delete', value: defaultValue, changed: storedValue !== defaultValue };
+  }
+
+  if (storedValue === newValue) {
+    return { action: 'unchanged', value: newValue, changed: false };
+  }
+  return { action: 'upsert', value: newValue, changed: true };
+}
+
+async function deleteSetting(env: AdminEnv, key: SettingKey): Promise<void> {
+  await env.DB.prepare('DELETE FROM settings WHERE key = ?').bind(key).run();
+}
+
+// Applies one planned update. A delete still runs when the effective value did
+// not change, because the redundant default row should not stay in D1; the audit
+// entry, however, is only written when the effective value actually changed.
+async function applySettingUpdate(
+  env: AdminEnv,
+  key: SettingKey,
+  plan: SettingUpdatePlan,
+  actor: AdminActor
+): Promise<string> {
+  if (plan.action === 'delete') {
+    await deleteSetting(env, key);
+  } else if (plan.action === 'upsert') {
+    await upsertSetting(env, key, plan.value);
+  }
+
+  if (!plan.changed) {
+    return plan.action === 'unchanged' ? `${key} unchanged.` : `${key} reset to default.`;
+  }
+
+  const details = plan.action === 'delete'
+    ? { ...auditDetailsForSetting(key, plan.value), default: true }
+    : auditDetailsForSetting(key, plan.value);
+  await logAudit(env, {
+    actor, action: 'setting.update', targetType: 'setting', targetId: key, details
+  });
+
+  return plan.action === 'delete' ? `${key} reset to default.` : `Set ${key}.`;
+}
+
 async function bulkUpdateSettings(request: Request, env: AdminEnv, actor: AdminActor): Promise<Response> {
   let body: unknown;
   try {
@@ -184,6 +276,7 @@ async function bulkUpdateSettings(request: Request, env: AdminEnv, actor: AdminA
   }
 
   const results: Array<{ key: string; ok: boolean; message?: string; error?: string }> = [];
+  const stored = await loadStoredValues(env);
 
   for (const [key, rawValue] of Object.entries(updates)) {
     if (!isSettingKey(key)) {
@@ -191,36 +284,19 @@ async function bulkUpdateSettings(request: Request, env: AdminEnv, actor: AdminA
       continue;
     }
 
-    let valueToValidate = String(rawValue);
-
-    // A secret field is rendered empty because the stored value is masked, so an
-    // empty submission means "leave it unchanged" rather than "clear it". This
-    // matters for the AI API key: saving the AI settings page must not wipe a
-    // configured key just because the admin did not retype it.
-    if (valueToValidate === '' && isSettingSecretApi(key)) {
-      results.push({ key, ok: true, message: `${key} left unchanged.` });
-      continue;
-    }
-
-    // If value is empty, use the default value (auto-initialize missing settings)
-    if (valueToValidate === '') {
-      const defaultVal = getSettingDefaultApi(key);
-      valueToValidate = defaultVal !== undefined ? String(defaultVal) : '';
-    }
-
-    const validation = validateSettingValue(key, valueToValidate);
-    if (!validation.ok) {
-      results.push({ key, ok: false, error: validation.error });
+    const plan = planSettingUpdate(key, rawValue, stored.get(key));
+    if ('error' in plan) {
+      results.push({ key, ok: false, error: plan.error });
       continue;
     }
 
     try {
-      await upsertSetting(env, key, validation.value);
-      await logAudit(env, {
-        actor, action: 'setting.update', targetType: 'setting', targetId: key,
-        details: auditDetailsForSetting(key, validation.value)
-      });
-      results.push({ key, ok: true, message: `Set ${key}.` });
+      const message = await applySettingUpdate(env, key, plan, actor);
+      // Keep the running map in sync so a repeated key in one request does not
+      // audit the same effective value twice.
+      if (plan.action === 'delete') stored.delete(key);
+      else if (plan.action === 'upsert') stored.set(key, plan.value);
+      results.push({ key, ok: true, message });
     } catch (error) {
       results.push({ key, ok: false, error: error instanceof Error ? error.message : 'Failed to update setting.' });
     }
@@ -253,30 +329,19 @@ async function updateSetting(key: string, request: Request, env: AdminEnv, actor
     return Response.json({ message: 'a "value" field is required' }, { status: 400 });
   }
 
-  // If value is empty, use the default value (auto-initialize missing settings)
-  let valueToValidate = String(rawValue);
-  if (valueToValidate === '') {
-    const defaultVal = getSettingDefaultApi(key);
-    valueToValidate = defaultVal !== undefined ? String(defaultVal) : '';
+  const stored = await loadStoredValues(env);
+  const plan = planSettingUpdate(key, rawValue, stored.get(key));
+  if ('error' in plan) {
+    return Response.json({ message: plan.error }, { status: 422 });
   }
 
-  const validation = validateSettingValue(key, valueToValidate);
-  if (!validation.ok) {
-    return Response.json({ message: validation.error }, { status: 422 });
-  }
-
-  await upsertSetting(env, key, validation.value);
-
-  await logAudit(env, {
-    actor, action: 'setting.update', targetType: 'setting', targetId: key,
-    details: auditDetailsForSetting(key, validation.value)
-  });
+  const message = await applySettingUpdate(env, key, plan, actor);
 
   return Response.json({
     ok: true,
     key,
-    value: maskSettingValue(key, validation.value),
-    message: `Set ${key}.`
+    value: maskSettingValue(key, plan.value),
+    message
   });
 }
 

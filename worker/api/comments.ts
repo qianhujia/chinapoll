@@ -145,7 +145,12 @@ async function handleCommentSubmission(request: Request, env: HandlerEnv): Promi
   const id = publicId();
   // The account dashboard lists and deletes the comments it posted, so the row
   // keeps a one-way owner hash. Readers still see an anonymous comment.
+  // The owner hash is the only thing that lets the author list and delete this
+  // comment later, and it can be derived only with the server key. A deployment
+  // without that key must refuse the comment rather than store one that is public but
+  // permanently unmanageable, so the check runs before the insert.
   const owner = await commentOwnerHash(auth.user.id, id, serverHmacKey(env));
+  if (!owner) return apiError('SERVER_NOT_CONFIGURED', 503);
   await env.DB.prepare(
     'INSERT INTO comments (poll_id, comment, created_at, public_id, owner_hash) VALUES (?, ?, ?, ?, ?)'
   ).bind(pollId, comment, coarseNow, id, owner).run();

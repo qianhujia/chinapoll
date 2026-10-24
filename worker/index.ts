@@ -81,8 +81,6 @@ export interface Env {
   /** Private Turnstile key used for server-side token verification. */
   TURNSTILE_SECRET_KEY?: string;
   SERVER_HMAC_KEY?: string;
-  /** Legacy name for SERVER_HMAC_KEY, accepted as a fallback for one release. */
-  IP_HASH_KEY?: string;
   BUILD_SHA?: string;
 }
 

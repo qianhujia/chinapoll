@@ -8,6 +8,7 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { env, SELF } from 'cloudflare:test';
 import { ORIGIN, applySchema, seedPoll } from './helpers';
+import type { HandlerEnv } from '../../worker/index';
 
 beforeAll(async () => {
   await applySchema();
@@ -138,5 +139,48 @@ describe('my comments', () => {
   it('requires a signed-in account', async () => {
     const response = await SELF.fetch(`${ORIGIN}/api/user/comments?ids=0123456789abcdef`);
     expect(response.status).toBe(401);
+  });
+
+  it('refuses to store a comment when the server key is missing', async () => {
+    const pollId = await seedPoll({ title: 'No server key poll' });
+    const cookie = await register('no-server-key-user');
+
+    // The handler is called directly so the environment can omit the key the real
+    // binding provides.
+    const { handleCommentsRequest } = await import('../../worker/api/comments');
+    const url = new URL(`${ORIGIN}/api/comments`);
+    const response = await handleCommentsRequest(new Request(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: ORIGIN, cookie },
+      body: JSON.stringify({ pollId, comment: 'A comment that must not be stored.' })
+    }), url, {
+      ...env,
+      SERVER_HMAC_KEY: undefined
+    } as unknown as HandlerEnv);
+
+    expect(response.status).toBe(503);
+    expect((await response.json() as any).error.code).toBe('SERVER_NOT_CONFIGURED');
+
+    // No row is written: a comment whose author can never be established must not
+    // exist, because nobody could ever list or delete it.
+    const row = await env.DB.prepare('SELECT id FROM comments WHERE poll_id = ?')
+      .bind(pollId).first();
+    expect(row).toBeNull();
+  });
+
+  it('limits the dashboard list per account', async () => {
+    const pollId = await seedPoll({ title: 'List quota poll' });
+    const cookie = await register('list-quota-user');
+    const id = await postComment(pollId, cookie);
+
+    // The quota is 60 requests per hour, shared by both list endpoints.
+    for (let attempt = 0; attempt < 60; attempt += 1) {
+      expect((await listComments([id], cookie)).status).toBe(200);
+    }
+
+    // The next request is refused, so a stolen session cannot probe ids indefinitely.
+    const limited = await listComments([id], cookie);
+    expect(limited.status).toBe(429);
+    expect((await limited.json() as any).error.code).toBe('RATE_LIMIT_EXCEEDED');
   });
 });

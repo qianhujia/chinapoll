@@ -117,7 +117,10 @@ public id under a namespaced message (`owner:<accountId>:comment:<publicId>`), s
 can never collide with a poll owner hash and a database leak without the secret
 reveals no author links. The
 account dashboard uses it to list and delete the comments that account posted, and
-the public comment API never returns it.
+the public comment API never returns it. `public_id` is also shown to its author in
+the dashboard, with a copy action, so a comment can be reclaimed after browser
+storage is cleared; the id is not a credential, because the owner-hash check still
+decides whether the row belongs to the account asking.
 
 ## poll_reports
 

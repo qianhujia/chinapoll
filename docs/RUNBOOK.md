@@ -140,13 +140,36 @@ Test a restore at least quarterly against a staging database.
 
 ## Key rotation
 
-`SERVER_HMAC_KEY` may be rotated at any time: values already in `auth_attempts` stop
-matching, which only relaxes the rolling account cap for one day. Rotate the
-Turnstile secret by uploading a new value with
+`SERVER_HMAC_KEY` derives the network hashes in `auth_attempts` *and* the ownership
+hashes on polls and comments, so rotating it is not free. Values already in
+`auth_attempts` stop matching, which only relaxes the rolling account cap for one day,
+but every stored `polls.owner_hash` and `comments.owner_hash` also stops matching: no
+existing poll or comment can be attributed to its author again, so "my polls" and "my
+comments" answer empty and close, withdraw, and delete refuse for that content. That
+is irreversible, because the hashes are one-way and no second key is accepted.
+Rotate the Turnstile secret by uploading a new value with
 `npx wrangler secret put TURNSTILE_SECRET_KEY`, and rotate the
 GitHub publish token the same way (see [Audit publishing](#audit-publishing)).
-The legacy `IP_HASH_KEY` name is still read as a fallback, so a deployment can
-move to `SERVER_HMAC_KEY` without downtime.
+The key's name is `SERVER_HMAC_KEY`. The earlier `IP_HASH_KEY` alias is no longer
+read, so a deployment that still sets only that name has no usable key and returns
+`503` until the secret is uploaded under the current name.
+
+## Migrating to another Cloudflare account
+
+Secrets do not travel with the D1 database. Cloudflare returns a secret's value only
+at upload time, so `SERVER_HMAC_KEY` and `TURNSTILE_SECRET_KEY` have to be saved where
+you control them (a password manager or a secret vault) **before** the old account is
+decommissioned; a D1 export contains neither. `github_token` is a settings row rather
+than a secret, so it does travel with the data.
+
+Reuse the same value on the new account
+(`npx wrangler secret put SERVER_HMAC_KEY --env production`) and confirm
+`GET /api/health` reports `"serverKey": true` before opening the site. A deployment
+that starts with a *different* key still works, but it cannot match any stored
+ownership hash (see [Key rotation](#key-rotation)): every pre-migration poll and
+comment becomes permanently unclaimable. A deployment with *no* key refuses votes,
+registration, sign-in, poll submission, and comments with `503`, so the health check
+is the one signal that catches the mistake in either case.
 
 ## Release notes
 
@@ -161,10 +184,13 @@ move to `SERVER_HMAC_KEY` without downtime.
   the public settings endpoint. The review prompt applies only when
   `auto_approve_polls` is on and the provider is not `off`; when it is empty
   every auto-approved submission is published immediately.
-- **Next release:** the one-release `IP_HASH_KEY` fallback is dropped. Rename the
-  secret to `SERVER_HMAC_KEY` on every deployment
+- **Breaking: the `IP_HASH_KEY` fallback is gone.** The server key is read only as
+  `SERVER_HMAC_KEY`. Rename the secret on every deployment
   (`npx wrangler secret put SERVER_HMAC_KEY --env production`) and in each
-  developer's local `.dev.vars` before upgrading. After the fallback is removed, a
-  deployment that still sets only `IP_HASH_KEY` has no usable key, and voting and
-  account creation return `503` (`GET /api/health` then reports
-  `"serverKey": false`).
+  developer's local `.dev.vars` before upgrading: a deployment that still sets only
+  `IP_HASH_KEY` has no usable key, so voting, registration, sign-in, poll submission,
+  and comments return `503` and `GET /api/health` reports `"serverKey": false`.
+- **Submissions require the server key.** Poll submission and comment posting are
+  refused with `503` when the key is missing, rather than stored with a `NULL` owner
+  hash that their own author could never list, close, withdraw, or delete. Reading the
+  site, and every existing row, is unaffected.

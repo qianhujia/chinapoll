@@ -12,6 +12,7 @@ import { enforceSameOrigin } from '../services/csrf';
 import { verifyPassword } from '../services/passwordHasher';
 import { generateRecoveryCode } from '../services/recovery';
 import { commentOwnerHash, ownerHash } from '../services/owner';
+import { checkRateLimit } from '../services/rateLimit';
 import { serverHmacKey } from '../services/ip';
 import { currentHour, writeSnapshotForPoll } from '../services/maintenance';
 import { apiError } from '../../shared/http';
@@ -40,6 +41,22 @@ function noStoreJson(data: unknown, status = 200, headers: Record<string, string
   });
 }
 
+// Both dashboard list endpoints answer for a signed-in account but accept a batch of
+// ids, so without a quota a stolen session could ask about a large candidate set to
+// learn which comments an account wrote. The endpoints are read-only, so the quota is
+// generous: a real dashboard is unaffected while bulk probing is made slow. It is a
+// fixed internal limit rather than a setting, so an operator cannot remove it by
+// accident. Both endpoints share one scope, so alternating between them cannot double
+// the budget.
+const USER_LIST_RATE_LIMIT = '60/h';
+
+// Consumes one unit of the per-account dashboard quota. The key is the account id,
+// never a network value.
+async function userListAllowed(env: UserEnv, userId: number): Promise<boolean> {
+  const limited = await checkRateLimit(env, 'user-list', `user:${userId}`, undefined, USER_LIST_RATE_LIMIT);
+  return limited.allowed;
+}
+
 export async function handleUserRequest(request: Request, url: URL, env: UserEnv): Promise<Response> {
   const auth = await requireUser(request, env);
   if (!auth.ok) return auth.response;
@@ -55,11 +72,13 @@ export async function handleUserRequest(request: Request, url: URL, env: UserEnv
 
   if (url.pathname === '/api/user/polls') {
     if (request.method !== 'GET') return apiError('METHOD_NOT_ALLOWED', 405);
+    if (!await userListAllowed(env, auth.user.id)) return apiError('RATE_LIMIT_EXCEEDED', 429);
     return listUserPolls(url, env, auth.user.id);
   }
 
   if (url.pathname === '/api/user/comments') {
     if (request.method !== 'GET') return apiError('METHOD_NOT_ALLOWED', 405);
+    if (!await userListAllowed(env, auth.user.id)) return apiError('RATE_LIMIT_EXCEEDED', 429);
     return listUserComments(url, env, auth.user.id);
   }
 

@@ -39,8 +39,10 @@ no polls because the repository ships no seed or demo data.
   `wrangler secret put <NAME>` in production. Never commit them to `.env` or
   `wrangler.toml`.
 - `SERVER_HMAC_KEY` (64 hex characters) is required by the public Worker for
-  keyed, daily-rotated network hashing; without it (or the legacy `IP_HASH_KEY`
-  fallback) voting and account creation return `503`.
+  keyed, daily-rotated network hashing and for poll and comment ownership; without
+  it voting, registration, sign-in, poll submission, and comments return `503`.
+  The earlier `IP_HASH_KEY` name is no longer read, so the secret must be stored as
+  `SERVER_HMAC_KEY`.
 - `TURNSTILE_SITE_KEY` and `TURNSTILE_SECRET_KEY` enable Turnstile when both are
   set; otherwise it stays off, which is the local default.
 - **Application settings** are rows in the D1 `settings` table, served publicly
