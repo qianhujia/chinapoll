@@ -103,11 +103,15 @@ export interface PollTopicRef {
 // A poll adjacent to the one shown, for the detail page's previous/next links.
 export interface PollNeighbor {
   id: number;
+  /** The public number the link points at; the id stays internal. */
+  number: number;
   title: string;
 }
 
 export interface PollSummary {
   id: number;
+  /** The public number a visitor sees; the primary key stays internal. */
+  number: number;
   title: string;
   description: string | null;
   mode: 'deadline' | 'evergreen';

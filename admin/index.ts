@@ -47,6 +47,9 @@ const DASHBOARD_PATHS = new Set([
   // Legacy alias for the topics view, kept so old bookmarks keep working.
   '/categories',
   '/reports',
+  // The reports view is one page per queue, mirroring the settings pages.
+  '/reports/polls',
+  '/reports/comments',
   '/comments',
   '/users',
   '/admins',

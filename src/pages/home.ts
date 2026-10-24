@@ -38,8 +38,8 @@ export function renderPollRow({ poll, stats, views }: Awaited<ReturnType<typeof 
     <article class="grid grid-cols-[minmax(0,1fr)_minmax(190px,240px)] items-center gap-x-8 border-b border-border py-[22px] max-[700px]:grid-cols-1 max-[700px]:gap-y-3" data-poll-row="${poll.id}">
       <div class="col-start-1 flex items-start justify-between gap-[18px]">
         <div class="flex flex-wrap items-center gap-2">
-          <span class="shrink-0 font-bold tabular-nums text-muted">#${poll.id}</span>
-          <h2 class="m-0 flex-[1_1_auto] text-[1.15rem] leading-[1.5]"><a class="text-inherit no-underline hover:text-primary focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-[3px] focus-visible:outline-primary" href="/poll/${poll.id}" data-route="/poll/${poll.id}">${escapeHtml(poll.title)}</a></h2>
+          <span class="shrink-0 font-bold tabular-nums text-muted">#${poll.number}</span>
+          <h2 class="m-0 flex-[1_1_auto] text-[1.15rem] leading-[1.5]"><a class="text-inherit no-underline hover:text-primary focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-[3px] focus-visible:outline-primary" href="/poll/${poll.number}" data-route="/poll/${poll.number}">${escapeHtml(poll.title)}</a></h2>
           ${renderModeBadge(poll.mode)}
           ${renderPollTypeBadge(pollType)}
           ${topicBadge}

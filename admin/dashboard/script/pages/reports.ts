@@ -1,9 +1,15 @@
-// Reports page: review and resolve poll reports.
+// Reports pages: one page per report queue (poll reports and comment reports).
+//
+// Every queue has its own URL (/reports/polls and /reports/comments) and its own
+// sidebar sub-item (see core.ts and shell.ts), so this fragment renders exactly one
+// table per page. The two queues page independently: the poll queue uses
+// state.reportPage and the comment queue uses state.commentReportPage.
 
-export const scriptReports = `  function renderReports() {
-    var view = document.getElementById('view');
-    var data = state.reports;
-    var toolbar = '<div class="toolbar">' +
+export const scriptReports = `  // The status filter both queues share. The reports endpoint applies one status to
+  // the poll table and the comment table alike, so each page shows its own copy of
+  // this control.
+  function renderReportStatusToolbar() {
+    return '<div class="toolbar">' +
       '<select id="report-status" class="grow">' +
       ['open', 'resolved', 'all'].map(function (value) {
         return '<option value="' + value + '"' + (value === state.reportStatus ? ' selected' : '') + '>' + value + '</option>';
@@ -11,9 +17,25 @@ export const scriptReports = `  function renderReports() {
       '</select>' +
       '<button data-action="search-reports" class="primary">Apply</button>' +
       '</div>';
+  }
+
+  // The pager for one queue. Each queue carries its own page number, page count,
+  // and total, and names its own action, so the two tables page independently.
+  function reportPager(page, totalPages, total, action) {
+    return '<div class="pager">' +
+      '<span>Page ' + esc(page) + ' of ' + esc(totalPages) + ' · ' + esc(total) + ' total</span>' +
+      '<button data-action="' + action + '" data-dir="-1"' + (page <= 1 ? ' disabled' : '') + '>Previous</button>' +
+      '<button data-action="' + action + '" data-dir="1"' + (page >= totalPages ? ' disabled' : '') + '>Next</button>' +
+      '</div>';
+  }
+
+  function renderPollReports() {
+    var view = document.getElementById('view');
+    var data = state.reports;
+    var toolbar = renderReportStatusToolbar();
 
     if (!data) {
-      view.innerHTML = '<section class="card"><h2>Reports</h2>' + toolbar + '<div class="empty">Loading…</div></section>';
+      view.innerHTML = '<section class="card"><h2>Poll reports</h2>' + toolbar + '<div class="empty">Loading…</div></section>';
       return;
     }
 
@@ -42,7 +64,24 @@ export const scriptReports = `  function renderReports() {
         }).join('')
       : '<tr><td colspan="5"><div class="empty">No reports match this filter.</div></td></tr>';
 
-    var commentRows = (data.commentReports || []).length
+    view.innerHTML = '<section class="card"><h2>Poll reports</h2>' + toolbar +
+      '<table><thead><tr><th>Poll</th><th>Title</th><th>Open / Total</th><th>Reasons</th><th>Action</th></tr></thead>' +
+      '<tbody>' + rows + '</tbody></table>' +
+      reportPager(data.page, data.totalPages, data.total, 'report-page') +
+      '</section>';
+  }
+
+  function renderCommentReports() {
+    var view = document.getElementById('view');
+    var data = state.reports;
+    var toolbar = renderReportStatusToolbar();
+
+    if (!data) {
+      view.innerHTML = '<section class="card"><h2>Comment reports</h2>' + toolbar + '<div class="empty">Loading…</div></section>';
+      return;
+    }
+
+    var rows = (data.commentReports || []).length
       ? data.commentReports.map(function (item) {
           var reasons = item.reasons.filter(function (entry) { return entry.count > 0; })
             .map(function (entry) { return esc(entry.reason) + ' (' + esc(entry.count) + ')'; })
@@ -67,23 +106,19 @@ export const scriptReports = `  function renderReports() {
         }).join('')
       : '<tr><td colspan="5"><div class="empty">No comment reports match this filter.</div></td></tr>';
 
-    view.innerHTML = '<section class="card"><h2>Poll reports</h2>' + toolbar +
-      '<table><thead><tr><th>Poll</th><th>Title</th><th>Open / Total</th><th>Reasons</th><th>Action</th></tr></thead>' +
-      '<tbody>' + rows + '</tbody></table>' +
-      '<div class="pager">' +
-      '<span>Page ' + esc(data.page) + ' of ' + esc(data.totalPages) + ' · ' + esc(data.total) + ' total</span>' +
-      '<button data-action="report-page" data-dir="-1"' + (data.page <= 1 ? ' disabled' : '') + '>Previous</button>' +
-      '<button data-action="report-page" data-dir="1"' + (data.page >= data.totalPages ? ' disabled' : '') + '>Next</button>' +
-      '</div></section>' +
-      '<section class="card mt-18"><h2>Comment reports</h2>' +
+    view.innerHTML = '<section class="card"><h2>Comment reports</h2>' +
       '<p class="small muted">A reported comment is reviewed by hand: there is no automatic threshold, because hiding a comment on a report count is cheap to abuse from one network. Delete the comment from the Comments tab when action is needed.</p>' +
+      toolbar +
       '<table><thead><tr><th>Comment</th><th>Poll</th><th>Open / Total</th><th>Reasons</th><th>Action</th></tr></thead>' +
-      '<tbody>' + commentRows + '</tbody></table>' +
-      '<div class="pager">' +
-      '<span>Page ' + esc(data.commentPage) + ' of ' + esc(data.commentTotalPages) + ' · ' + esc(data.commentTotal) + ' total</span>' +
-      '<button data-action="comment-report-page" data-dir="-1"' + (data.commentPage <= 1 ? ' disabled' : '') + '>Previous</button>' +
-      '<button data-action="comment-report-page" data-dir="1"' + (data.commentPage >= data.commentTotalPages ? ' disabled' : '') + '>Next</button>' +
-      '</div></section>';
+      '<tbody>' + rows + '</tbody></table>' +
+      reportPager(data.commentPage, data.commentTotalPages, data.commentTotal, 'comment-report-page') +
+      '</section>';
+  }
+
+  // The open queue decides which table is drawn; the shell calls renderReports.
+  function renderReports() {
+    if (state.reportSection === 'comments') renderCommentReports();
+    else renderPollReports();
   }
 
   function loadReports() {

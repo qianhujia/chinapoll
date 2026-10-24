@@ -30,6 +30,7 @@ import { checkRateLimit } from '../services/rateLimit';
 import { enforceSameOrigin } from '../services/csrf';
 import { ownerHash } from '../services/owner';
 import { isValidServerKey, serverHmacKey } from '../services/ip';
+import { pollNumberStatement } from '../services/pollNumber';
 import { requireUser } from '../services/session';
 import { checkAccountAge } from '../services/users';
 import { apiError } from '../../shared/http';
@@ -169,11 +170,18 @@ export async function handleProposalRequest(request: Request, env: HandlerEnv): 
 
   // The owner is stored as a one-way hash computed with the poll id, so it can
   // only be written after the row exists. The server key was verified before the
-  // insert, so the hash is always available here.
+  // insert, so the hash is always available here. An auto-approved poll also takes
+  // its public number now; both run as one transaction, so a published poll is
+  // never left without an owner or a number.
+  const followUp: D1PreparedStatement[] = [];
   const hash = await ownerHash(auth.user.id, pollId, serverHmacKey(env));
   if (hash) {
-    await env.DB.prepare('UPDATE polls SET owner_hash = ? WHERE id = ?').bind(hash, pollId).run();
+    followUp.push(env.DB.prepare('UPDATE polls SET owner_hash = ? WHERE id = ?').bind(hash, pollId));
   }
+  if (autoApprove) {
+    followUp.push(pollNumberStatement(env.DB, pollId));
+  }
+  if (followUp.length > 0) await env.DB.batch(followUp);
 
   return Response.json({
     ok: true,

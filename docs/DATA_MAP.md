@@ -26,7 +26,8 @@ on its polls, so those polls become untopicalized.
 
 | Column | Contents | Readers | Retention |
 | --- | --- | --- | --- |
-| id | sequential poll id | Public, User, Admin | 30 days after close, then archived |
+| id | internal surrogate key; every foreign key and the owner hash use it | none | 30 days after close, then archived |
+| number | public poll number, assigned once when the poll is approved; NULL while pending | Public, User, Admin | as above |
 | title, description | submission text | Public, User, Admin | as above |
 | mode, start_at, end_at, status, reviewed_at | lifecycle | Public, User, Admin | as above |
 | poll_type | ballot shape: 1 verdict, 2 single choice, 3 multi choice | Public, User, Admin | as above |
@@ -45,6 +46,16 @@ browser remembers, and it never lists a poll the account only voted on.
 no longer written for new polls. `end_at` is computed when the poll opens as
 `open_time + duration_seconds`, so a poll that waits for review still gets its
 full duration.
+
+The public identifier is `number`, not `id`. It is taken exactly once, when the poll
+is approved (an auto-approved submission takes it at insert, a reviewed one when an
+admin publishes it), and it is never reused or renumbered. It is what the site prints
+as `#<number>`, what `/poll/<number>` resolves, and what the sitemap and the
+previous/next links use. The primary key stays internal: it addresses the poll in
+every API call, in every foreign key, and in the owner hash. A pending poll has no
+number, so a submission that is never approved consumes no public number, and a
+deleted poll leaves its number unused, which is why the visible numbers can have
+gaps. A number is never reassigned.
 
 ## poll_options
 

@@ -13,6 +13,8 @@ import { PollMode, PollStatus } from '../enums';
 
 export interface PollNeighbor {
   id: number;
+  /** The public number, used for the link; the id stays internal. */
+  number: number;
   title: string;
 }
 
@@ -33,7 +35,7 @@ export async function loadPollNeighbors(
 ): Promise<PollNeighbors> {
   const [prev, next] = await Promise.all([
     db.prepare(
-      `SELECT id, title FROM polls
+      `SELECT id, number, title FROM polls
        WHERE mode IN (?, ?) AND status IN (?, ?, ?)
          AND (created_at < ? OR (created_at = ? AND id < ?))
        ORDER BY created_at DESC, id DESC LIMIT 1`
@@ -43,7 +45,7 @@ export async function loadPollNeighbors(
       createdAt, createdAt, pollId
     ).first<PollNeighbor>(),
     db.prepare(
-      `SELECT id, title FROM polls
+      `SELECT id, number, title FROM polls
        WHERE mode IN (?, ?) AND status IN (?, ?, ?)
          AND (created_at > ? OR (created_at = ? AND id > ?))
        ORDER BY created_at ASC, id ASC LIMIT 1`

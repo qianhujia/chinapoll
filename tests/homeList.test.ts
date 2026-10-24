@@ -32,6 +32,7 @@ function makeEntry(overrides: {
   return {
     poll: {
       id: 7,
+      number: 7,
       title: 'Sample poll',
       description: null,
       mode: 'evergreen',

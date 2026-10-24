@@ -102,11 +102,11 @@ export function renderChoiceInputs(
 export function renderPollNav(prev: PollNeighbor | null, next: PollNeighbor | null): string {
   if (!prev && !next) return '';
   const link = (neighbor: PollNeighbor, label: string, align: string): string => {
-    const href = `/poll/${neighbor.id}`;
+    const href = `/poll/${neighbor.number}`;
     return `
       <a class="flex min-w-0 max-w-full flex-col gap-0.5 rounded-[14px] border border-border bg-[#f9fbff] px-3.5 py-2.5 no-underline hover:border-primary sm:max-w-[48%] ${align}" href="${href}" data-route="${href}">
         <span class="text-xs text-muted">${escapeHtml(label)}</span>
-        <span class="truncate text-sm text-ink">${escapeHtml(`#${neighbor.id} ${neighbor.title}`)}</span>
+        <span class="truncate text-sm text-ink">${escapeHtml(`#${neighbor.number} ${neighbor.title}`)}</span>
       </a>`;
   };
   const prevLink = prev ? link(prev, `← ${t('prevPoll')}`, '') : '';
@@ -318,14 +318,16 @@ export function renderCommentForm(signedIn: boolean): string {
   `;
 }
 
-export async function mountVotePage(pollId: number, app: HTMLElement, bindNavigation: () => void): Promise<void> {
+// `identifier` is the public number the route carries. The primary key is only
+// used for the API calls that address a poll internally, never for a link.
+export async function mountVotePage(identifier: number, app: HTMLElement, bindNavigation: () => void): Promise<void> {
   const commentsPerPage = getCommentsPerPage();
   const commentsPage = getQueryPage('commentsPage');
   // The document may already carry this page's poll data (see
   // worker/services/bootstrap.ts). Using it removes the detail, results, and
   // comment requests on the first load. The anonymous vote status is never part of
   // it, because it depends on this browser's own token, so it is always fetched.
-  const embedded = bootstrapPoll(pollId, commentsPage, commentsPerPage);
+  const embedded = bootstrapPoll(identifier, commentsPage, commentsPerPage);
   let poll: PollSummary;
   let views: PollViewCounts | null = null;
   try {
@@ -335,7 +337,7 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
       poll = loaded.poll;
       views = loaded.views ?? null;
     } else {
-      const fetched = await getPoll(pollId);
+      const fetched = await getPoll(identifier);
       poll = fetched.poll;
       views = fetched.views;
     }
@@ -361,7 +363,7 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
   // server-rendered metadata instead of leaving the generic placeholder.
   const { site_name: siteName } = getPublicSettings();
   updateSeo({
-    title: `#${poll.id} ${poll.title} - ${siteName}`,
+    title: `#${poll.number} ${poll.title} - ${siteName}`,
     ...(poll.description ? { description: poll.description.slice(0, 160) } : {})
   });
 
@@ -472,7 +474,7 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
         <section class="rounded-[22px] border border-border bg-panel p-6 shadow-card">
           <div class="flex items-start justify-between gap-4">
             <div class="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
-              <h1 class="m-0 text-2xl font-bold">#${poll.id} ${escapeHtml(poll.title)}</h1>
+              <h1 class="m-0 text-2xl font-bold">#${poll.number} ${escapeHtml(poll.title)}</h1>
               ${renderModeBadge(poll.mode)}
               ${renderPollTypeBadge(pollType)}
               ${poll.topic
@@ -506,7 +508,6 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
     : statsError
       ? `${t('statsLoadFailed')} ${statsError}`
     : ''}</p>
-          <small class="mt-3.5 block text-center text-xs text-muted">${t('privacyText')}</small>
         </section>
 
         ${renderPollNav(poll.prev ?? null, poll.next ?? null)}
@@ -564,7 +565,7 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
       }
       if (commentInput) commentInput.value = '';
       if (commentStatus) commentStatus.textContent = t('commentSubmitted');
-      window.history.replaceState({}, '', `/poll/${poll.id}?commentsPage=1`);
+      window.history.replaceState({}, '', `/poll/${poll.number}?commentsPage=1`);
       await updateComments(poll.id, 1, bindNavigation);
     } catch (error) {
       if (commentStatus) commentStatus.textContent = `${t('commentSubmitFailed')} ${getErrorMessage(error)}`;
@@ -756,6 +757,9 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
   // The report dialog is shared by a poll and a comment; the caller names the target.
   const openReportModal = async (target: { pollId: number } | { commentPublicId: string }) => {
     closeMenu();
+    // The dialog opens from either menu, so the source menu is closed too;
+    // leaving it open behind the dialog looks stuck.
+    closeCommentMenus();
     if (app.querySelector('[data-report-modal]')) return;
 
     const host = document.createElement('div');
@@ -908,10 +912,21 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
     }
   };
 
-  menuPanel?.querySelector<HTMLButtonElement>('[data-report-open]')
-    ?.addEventListener('click', () => { void openReportModal({ pollId: poll.id }); });
-  menuPanel?.querySelector<HTMLButtonElement>('[data-claim-poll]')
-    ?.addEventListener('click', () => { void claimPoll(); });
+  // The poll menu entries are delegated from the panel, not bound to the buttons:
+  // the entries are rebuilt in place by `refreshPollMenu` after a report or a claim,
+  // and a listener bound to the old button would be dropped with its markup, leaving
+  // a button that does nothing. The comment menu delegates for the same reason.
+  menuPanel?.addEventListener('click', (event) => {
+    const clicked = event.target as HTMLElement | null;
+    if (!clicked) return;
+    if (clicked.closest('[data-report-open]')) {
+      void openReportModal({ pollId: poll.id });
+      return;
+    }
+    // A signed-out visitor gets a sign-in link instead, which carries no
+    // `data-claim-poll` attribute, so it simply navigates.
+    if (clicked.closest('[data-claim-poll]')) void claimPoll();
+  });
 
   // Every comment row carries its own menu, so the handlers are delegated from the
   // comments host and survive the list being replaced by `updateComments`.

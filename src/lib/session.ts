@@ -8,6 +8,8 @@ export interface UserPublic {
 
 export interface UserPoll {
   id: number;
+  /** The public number, or null while the poll is still pending. */
+  number: number | null;
   title: string | null;
   description: string | null;
   mode: 'deadline' | 'evergreen';
@@ -124,6 +126,8 @@ export interface UserComment {
   /** The comment's random public id. */
   id: string;
   pollId: number;
+  /** The public number of the poll the comment belongs to. */
+  pollNumber: number | null;
   pollTitle: string | null;
   comment: string;
   createdAt: string;

@@ -10,6 +10,16 @@ export const scriptShell = `  // The Settings pages are listed under the Setting
     }).join('') + '</div>';
   }
 
+  // The Reports queues are listed under the Reports link while that section is open,
+  // so the poll queue and the comment queue are each one click away.
+  function renderReportsSubNav() {
+    return '<div class="subnav">' + REPORT_SECTIONS.map(function (section) {
+      var active = state.reportSection === section.id ? ' active' : '';
+      return '<a href="' + reportSectionPath(section.id) + '" data-action="report-section" data-section="' + section.id + '" class="sub' + active + '">' +
+        esc(section.label) + '</a>';
+    }).join('') + '</div>';
+  }
+
   function renderShell() {
     var items = ['overview', 'polls', 'topics', 'reports', 'comments', 'users', 'admins'];
     if (isSuperAdmin()) items.push('audit');
@@ -18,8 +28,9 @@ export const scriptShell = `  // The Settings pages are listed under the Setting
       var link = '<a href="' + pathForView(item) + '" data-action="tab" data-view="' + item + '" class="' + (state.view === item ? 'active' : '') + '">' +
         (NAV_ICONS[item] || '') +
         '<span>' + item.charAt(0).toUpperCase() + item.slice(1) + '</span></a>';
-      if (item !== 'settings' || state.view !== 'settings') return link;
-      return link + renderSettingsSubNav();
+      if (item === 'settings' && state.view === 'settings') return link + renderSettingsSubNav();
+      if (item === 'reports' && state.view === 'reports') return link + renderReportsSubNav();
+      return link;
     }).join('');
     var who = state.user
       ? esc(state.user.username) + ' · ' + esc(state.user.role === 'super_admin' ? 'super admin' : 'admin')
@@ -77,6 +88,11 @@ export const scriptShell = `  // The Settings pages are listed under the Setting
     if (action === 'settings-category') {
       event.preventDefault();
       navigateToSettingsCategory(target.getAttribute('data-category'));
+      return;
+    }
+    if (action === 'report-section') {
+      event.preventDefault();
+      navigateToReportSection(target.getAttribute('data-section'));
       return;
     }
     if (action === 'refresh') {

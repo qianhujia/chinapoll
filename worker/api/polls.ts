@@ -30,6 +30,7 @@ const RECENT_CLOSED_LIMIT = 500;
 
 interface PollRow {
   id: number;
+  number: number;
   title: string;
   description: string | null;
   mode: PollMode;
@@ -129,7 +130,7 @@ export async function handlePollsRequest(request: Request, url: URL, env: Handle
        WHERE status = ? AND mode IN (?, ?)${search.clause}${topicClause}
        ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?
      )
-     SELECT i.id, i.title, i.description, i.mode, i.poll_type, i.start_at, i.end_at, i.status,
+     SELECT i.id, i.number, i.title, i.description, i.mode, i.poll_type, i.start_at, i.end_at, i.status,
        t.slug AS topic_slug, t.name AS topic_name,
        (SELECT COUNT(*) FROM votes b WHERE b.poll_id = i.id) AS ballots
      FROM page
@@ -166,6 +167,7 @@ export async function handlePollsRequest(request: Request, url: URL, env: Handle
     return {
       poll: {
         id: row.id,
+        number: row.number,
         title: row.title,
         description: row.description,
         mode: getPollModeLabel(row.mode),
@@ -238,48 +240,60 @@ async function listRecentlyClosed(url: URL, env: HandlerEnv): Promise<Response> 
   });
 }
 
-async function getPoll(pollIdText: string, env: HandlerEnv): Promise<Response> {
-  if (!/^[1-9]\d*$/.test(pollIdText)) {
+interface PollDetailRowResult {
+  id: number;
+  number: number;
+  title: string;
+  description: string | null;
+  mode: PollMode;
+  poll_type: number;
+  start_at: number | null;
+  end_at: number | null;
+  duration_seconds: number | null;
+  status: PollStatus;
+  created_at: number;
+  topic_slug: string | null;
+  topic_name: string | null;
+}
+
+async function getPoll(identifierText: string, env: HandlerEnv): Promise<Response> {
+  if (!/^[1-9]\d*$/.test(identifierText)) {
     return apiError('INVALID_POLL_ID', 400);
   }
 
-  const pollId = Number(pollIdText);
-  if (!Number.isSafeInteger(pollId)) {
+  const identifier = Number(identifierText);
+  if (!Number.isSafeInteger(identifier)) {
     return apiError('INVALID_POLL_ID', 400);
   }
 
-  const poll = await env.DB.prepare(
-    `SELECT p.id, p.title, p.description, p.mode, p.poll_type, p.start_at, p.end_at,
+  // The public number is tried first, because that is the identifier the site
+  // publishes; the primary key is still accepted, so a link that predates the
+  // public number keeps working. The response carries both, and every later call
+  // (votes, comments, stats, views) uses `id`, which never changes.
+  const columns = `p.id, p.number, p.title, p.description, p.mode, p.poll_type, p.start_at, p.end_at,
             p.duration_seconds, p.status, p.created_at,
-            t.slug AS topic_slug, t.name AS topic_name
-     FROM polls p
-     LEFT JOIN topics t ON t.id = p.topic_id
-     WHERE p.id = ? AND p.mode IN (?, ?) AND p.status IN (?, ?, ?)`
-  ).bind(
-    pollId,
+            t.slug AS topic_slug, t.name AS topic_name`;
+  const source = 'FROM polls p LEFT JOIN topics t ON t.id = p.topic_id';
+  const visible = 'p.mode IN (?, ?) AND p.status IN (?, ?, ?)';
+  const visibleBinds = [
     PollMode.Deadline, PollMode.Evergreen,
     PollStatus.Open, PollStatus.Closed, PollStatus.Archived
-  ).first<{
-    id: number;
-    title: string;
-    description: string | null;
-    mode: PollMode;
-    poll_type: number;
-    start_at: number | null;
-    end_at: number | null;
-    duration_seconds: number | null;
-    status: PollStatus;
-    created_at: number;
-    topic_slug: string | null;
-    topic_name: string | null;
-  }>();
+  ];
+  const poll = await env.DB.prepare(`SELECT ${columns} ${source} WHERE p.number = ? AND ${visible}`)
+      .bind(identifier, ...visibleBinds).first<PollDetailRowResult>()
+    ?? await env.DB.prepare(`SELECT ${columns} ${source} WHERE p.id = ? AND ${visible}`)
+      .bind(identifier, ...visibleBinds).first<PollDetailRowResult>();
 
   if (!poll) {
     return apiError('POLL_NOT_FOUND', 404);
   }
 
+  const pollId = Number(poll.id);
+  // A poll's own page always shows its view total, so a poll with no view rows yet
+  // reports zero instead of being indistinguishable from a withheld count. The
+  // display threshold only governs the listings (see publicViews).
   const viewCounts = await loadViewCounts(env.DB, [pollId]);
-  const views = publicViews(viewCounts.get(pollId), Number(env.min_views_to_display ?? 0));
+  const views = viewCounts.get(pollId) ?? { total: 0, last7Days: 0 };
 
   // The options come from the shared engine, so every poll exposes its labeled
   // rows here.

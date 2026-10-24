@@ -64,7 +64,7 @@ async function submitSearch(rawValue: string): Promise<void> {
   if (/^\d+$/.test(value)) {
     try {
       const { poll } = await getPoll(Number(value));
-      navigateTo(`/poll/${poll.id}`);
+      navigateTo(`/poll/${poll.number}`);
       return;
     } catch (error) {
       const message = getErrorMessage(error);

@@ -185,17 +185,19 @@ export function buildBreadcrumbJsonLd(
 }
 
 export function getPollSeoContext(
-  poll: { id: number; title: string; description: string | null; status: string },
+  poll: { number: number; title: string; description: string | null; status: string },
   settings: PublicSettingsSeo,
   origin: string
 ): SeoContext {
-  const pollUrl = `${origin}/poll/${poll.id}`;
+  // The public URL and the title use the poll's public number, never the primary
+  // key, so the address a visitor sees is the identifier the site publishes.
+  const pollUrl = `${origin}/poll/${poll.number}`;
   const description = poll.description
     ? poll.description.slice(0, 160)
     : `Vote on "${poll.title}" - ${settings.site_slogan}`;
 
-  return buildSeoContext(`/poll/${poll.id}`, settings, origin, {
-    title: `#${poll.id} ${poll.title} - ${settings.site_name}`,
+  return buildSeoContext(`/poll/${poll.number}`, settings, origin, {
+    title: `#${poll.number} ${poll.title} - ${settings.site_name}`,
     description,
     canonical: pollUrl,
     ogType: 'article',

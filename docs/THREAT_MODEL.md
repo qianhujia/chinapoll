@@ -86,9 +86,10 @@ per-poll, per-UTC-day counter; there are no per-view rows anywhere, no network
 value is stored, and the endpoint always answers `204` so the response reveals
 nothing whether or not the rate limit was hit. The browser also deduplicates
 itself per tab session. Counts are approximate and that is acceptable: they are
-published only as an aggregate `{ total, last7Days }`, and only once the poll
-passes `min_views_to_display` (default 20), so a poll with a couple of views and
-one vote cannot be used to guess the voter. View rows older than 90 days are
+published only as an aggregate `{ total, last7Days }` per poll, and the poll list
+withholds a total below `min_views_to_display` (default 20). A poll's own page
+shows its count, which reveals how often that one poll was opened but never who
+opened it. View rows older than 90 days are
 rolled up into a single per-poll row, dropping daily resolution.
 
 ## Poll types, the options engine, and snapshots

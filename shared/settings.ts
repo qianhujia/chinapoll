@@ -304,7 +304,7 @@ export const SETTING_SCHEMAS: SettingSchema[] = [
     type: 'integer',
     category: 'polls',
     label: 'Min views to display',
-    description: 'View totals below this number are hidden until the poll gathers more views.',
+    description: 'View totals below this number are hidden in the poll lists until a poll gathers more views.',
     defaultValue: 20,
     required: true,
     min: 0,

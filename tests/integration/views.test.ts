@@ -42,13 +42,19 @@ describe('poll view counting', () => {
     expect(count?.total).toBe(0);
   });
 
-  it('hides view totals below min_views_to_display and reveals them above it', async () => {
+  it('shows the poll page total and hides small totals in the list', async () => {
     const pollId = await seedPoll({ title: 'Visible views poll' });
 
+    // A poll's own page always shows its total, zero included, so a poll that has
+    // no view rows yet is not left without a count.
     let detail = await (await SELF.fetch(`${ORIGIN}/api/polls/${pollId}`)).json() as any;
-    expect(detail.views).toBeNull();
+    expect(detail.views).toEqual({ total: 0, last7Days: 0 });
 
-    // The default threshold is 20 views; twelve today plus eight yesterday clears it.
+    // The list withholds a total below min_views_to_display (default 20).
+    let listing = await (await SELF.fetch(`${ORIGIN}/api/polls?pageSize=100`)).json() as any;
+    expect(listing.polls.find((item: any) => item.poll.id === pollId).views).toBeNull();
+
+    // Twelve views today plus eight yesterday clear the threshold.
     await env.DB.batch([
       env.DB.prepare('INSERT INTO poll_views (poll_id, ts_day, views) VALUES (?, ?, ?)').bind(pollId, todayBucket(), 12),
       env.DB.prepare('INSERT INTO poll_views (poll_id, ts_day, views) VALUES (?, ?, ?)').bind(pollId, todayBucket() - 86400, 8)
@@ -57,9 +63,9 @@ describe('poll view counting', () => {
     detail = await (await SELF.fetch(`${ORIGIN}/api/polls/${pollId}`)).json() as any;
     expect(detail.views).toEqual({ total: 20, last7Days: 20 });
 
-    const listing = await (await SELF.fetch(`${ORIGIN}/api/polls?pageSize=100`)).json() as any;
-    const entry = listing.polls.find((item: any) => item.poll.id === pollId);
-    expect(entry.views).toEqual({ total: 20, last7Days: 20 });
+    listing = await (await SELF.fetch(`${ORIGIN}/api/polls?pageSize=100`)).json() as any;
+    expect(listing.polls.find((item: any) => item.poll.id === pollId).views)
+      .toEqual({ total: 20, last7Days: 20 });
   });
 
   it('keeps the long-term rollup out of the last-7-days window', async () => {

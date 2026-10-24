@@ -42,8 +42,9 @@ function islandFrom(html: string): IslandPayload | null {
 // falls back to the id).
 async function seedPollAt(title: string, createdAt: number): Promise<number> {
   await env.DB.prepare(
-    `INSERT INTO polls (title, description, mode, status, created_at)
-     VALUES (?, 'A description that is long enough to pass.', 2, 1, ?)`
+    `INSERT INTO polls (title, description, mode, status, created_at, number)
+     VALUES (?, 'A description that is long enough to pass.', 2, 1, ?,
+             (SELECT COALESCE(MAX(number), 0) + 1 FROM polls))`
   ).bind(title, createdAt).run();
   return lastId();
 }

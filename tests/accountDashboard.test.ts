@@ -21,6 +21,7 @@ import type { UserComment, UserPoll } from '../src/lib/session';
 
 const POLL: UserPoll = {
   id: 7,
+  number: 7,
   title: 'Transit funding',
   description: null,
   mode: 'evergreen',
@@ -33,6 +34,7 @@ const POLL: UserPoll = {
 const COMMENT: UserComment = {
   id: '0123456789abcdef',
   pollId: 7,
+  pollNumber: 7,
   pollTitle: 'Transit funding',
   comment: 'A short remark',
   createdAt: '2026-10-17T00:00:00.000Z'

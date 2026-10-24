@@ -68,19 +68,26 @@ export interface SeedPollOptions {
 
 // Inserts a poll row and returns its id. Mode 2 is evergreen, status 1 is open.
 export async function seedPoll(options: SeedPollOptions): Promise<number> {
+  const status = options.status ?? 1;
+  // The public number is taken when a poll is approved, exactly as the Worker does
+  // at the same moment, so a seeded poll behaves like a published one. A pending
+  // poll has none.
+  const approved = status === 1 || status === 2 || status === 3;
   await env.DB.prepare(
-    `INSERT INTO polls (title, description, mode, status, start_at, end_at, closed_at, reviewed_at, poll_type, duration_seconds)
-     VALUES (?, 'A description that is long enough to pass.', ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO polls (title, description, mode, status, start_at, end_at, closed_at, reviewed_at, poll_type, duration_seconds, number)
+     VALUES (?, 'A description that is long enough to pass.', ?, ?, ?, ?, ?, ?, ?, ?,
+             CASE WHEN ? THEN (SELECT COALESCE(MAX(number), 0) + 1 FROM polls) ELSE NULL END)`
   ).bind(
     options.title,
     options.mode ?? 2,
-    options.status ?? 1,
+    status,
     options.startAt ?? null,
     options.endAt ?? null,
     options.closedAt ?? null,
     options.reviewedAt ?? null,
     options.pollType ?? 2,
-    options.durationSeconds ?? null
+    options.durationSeconds ?? null,
+    approved ? 1 : 0
   ).run();
   return lastId();
 }

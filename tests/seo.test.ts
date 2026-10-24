@@ -105,7 +105,7 @@ describe('structured data', () => {
 describe('route contexts', () => {
   it('gives a poll page its canonical URL and a breadcrumb', () => {
     const seo = getPollSeoContext(
-      { id: 42, title: 'Bike lanes', description: 'Build more lanes.', status: 'open' },
+      { number: 42, title: 'Bike lanes', description: 'Build more lanes.', status: 'open' },
       settings,
       ORIGIN
     );

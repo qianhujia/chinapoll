@@ -15,6 +15,46 @@ const ROOT_VIEWS = [
   'settings'
 ];
 
+// The assembled script is one IIFE that boots on load. Evaluating it with a minimal
+// DOM stub and the boot call removed exposes the shell renderer, so the composed
+// sidebar markup can be checked without a browser.
+function shellFor(view: string, section: string): string {
+  const html = renderDashboard('test-nonce');
+  const start = html.indexOf('(function () {');
+  const end = html.lastIndexOf('})();');
+  const inner = html.slice(start + '(function () {'.length, end);
+  const bootIndex = inner.lastIndexOf('boot();');
+  const source = inner.slice(0, bootIndex) + '/* boot disabled */' + inner.slice(bootIndex + 'boot();'.length);
+
+  const elements = new Map<string, any>();
+  const element = (): any => ({
+    innerHTML: '',
+    addEventListener() {},
+    querySelector: () => null,
+    querySelectorAll: () => [] as any[]
+  });
+  const stubbedDocument = {
+    getElementById: (id: string) => {
+      if (!elements.has(id)) elements.set(id, element());
+      return elements.get(id);
+    }
+  };
+  const stubbedWindow = {
+    location: { pathname: '/' },
+    history: { pushState() {}, replaceState() {} },
+    addEventListener() {}
+  };
+
+  const run = new Function('document', 'window', `${source}
+    return function (view, section) {
+      state.view = view;
+      state.reportSection = section;
+      renderShell();
+    };`)(stubbedDocument, stubbedWindow) as (view: string, section: string) => void;
+  run(view, section);
+  return elements.get('app').innerHTML as string;
+}
+
 // The dashboard was renamed from categories to topics. These assertions keep the
 // shell, the router, and the settings page wired to the topics view so a sign-in
 // at /topics (or the legacy /categories) never calls a missing renderer.
@@ -86,6 +126,43 @@ describe('admin dashboard script', () => {
       expect(dashboardScript).toContain("id: '" + category + "'");
     }
     expect(dashboardScript).not.toContain('switch-tab');
+  });
+
+  // Reports is split into pages too: one per report queue, each linked from its own
+  // sidebar sub-item instead of drawing both tables on one page.
+  it('gives every report queue its own sub-page', () => {
+    expect(dashboardScript).toContain('function navigateToReportSection(section)');
+    expect(dashboardScript).toContain("navigateToReportSection(target.getAttribute('data-section'))");
+    expect(dashboardScript).toContain('data-action="report-section"');
+    expect(dashboardScript).toContain("return '/reports/' + section;");
+    expect(dashboardScript).toContain("label: 'Poll reports'");
+    expect(dashboardScript).toContain("label: 'Comment reports'");
+    // Each queue is rendered and paged by its own function and action, so the poll
+    // table and the comment table are never drawn together.
+    expect(dashboardScript).toContain('function renderPollReports()');
+    expect(dashboardScript).toContain('function renderCommentReports()');
+    expect(dashboardScript).toContain('function reportPager(page, totalPages, total, action)');
+    expect(dashboardScript).toContain("action === 'report-page'");
+    expect(dashboardScript).toContain("action === 'comment-report-page'");
+  });
+
+  // A sub-nav belongs to its own sidebar link. It must never be repeated under the
+  // other top-level items, which is what a missing item check in the nav map causes.
+  it('renders each sub-nav only under its own sidebar link', () => {
+    const reportsShell = shellFor('reports', 'comments');
+    expect(reportsShell.match(/data-action="report-section"/g) ?? []).toHaveLength(2);
+    expect(reportsShell).not.toContain('data-action="settings-category"');
+    expect(reportsShell).toContain('data-section="polls" class="sub"');
+    expect(reportsShell).toContain('data-section="comments" class="sub active"');
+
+    const settingsShell = shellFor('settings', 'polls');
+    expect(settingsShell.match(/data-action="settings-category"/g) ?? []).toHaveLength(8);
+    expect(settingsShell).not.toContain('data-action="report-section"');
+
+    // A view without sub-pages renders no sub-nav at all.
+    const overviewShell = shellFor('overview', 'polls');
+    expect(overviewShell).not.toContain('data-action="report-section"');
+    expect(overviewShell).not.toContain('data-action="settings-category"');
   });
 
   // The logo and favicon pickers store a base64 data URI in a hidden input, so

@@ -284,7 +284,7 @@ async function buildPublicPage(
       if (poll) {
         return {
           seo: getPollSeoContext(
-            { id: poll.id, title: poll.title, description: poll.description, status: getPollStatusLabel(poll.status) },
+            { number: poll.number, title: poll.title, description: poll.description, status: getPollStatusLabel(poll.status) },
             settings,
             origin
           ),
@@ -452,17 +452,17 @@ Sitemap: ${origin}/sitemap.xml
 
     // Open polls and the enabled topic pages are the two dynamic groups.
     const pollResult = await env.DB.prepare(
-      `SELECT id, updated_at FROM polls
+      `SELECT number, updated_at FROM polls
        WHERE status = ? AND mode IN (?, ?)
        ORDER BY updated_at DESC LIMIT 5000`
-    ).bind(PollStatus.Open, PollMode.Deadline, PollMode.Evergreen).all<{ id: number; updated_at: number }>();
+    ).bind(PollStatus.Open, PollMode.Deadline, PollMode.Evergreen).all<{ number: number; updated_at: number }>();
 
     const topicResult = await env.DB.prepare(
       'SELECT slug FROM topics WHERE enabled = 1 ORDER BY position ASC, id ASC LIMIT 500'
     ).all<{ slug: string }>();
 
     const polls = (pollResult.results ?? []).map(row => ({
-      url: `${origin}/poll/${row.id}`,
+      url: `${origin}/poll/${row.number}`,
       lastmod: new Date(row.updated_at * 1000).toISOString().split('T')[0],
       changefreq: 'weekly',
       priority: '0.7'

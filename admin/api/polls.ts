@@ -6,6 +6,7 @@ import {
   type PollOption
 } from '../../worker/services/options';
 import { validatePollOptions } from '../../worker/services/pollType';
+import { pollNumberStatement } from '../../worker/services/pollNumber';
 import type { AdminActor, AdminEnv } from '../auth';
 import { logAudit } from '../lib/audit';
 import {
@@ -376,13 +377,23 @@ async function updatePollStatus(pollId: number, request: Request, env: AdminEnv,
     }
   }
 
-  const update = await env.DB.prepare(
-    `UPDATE polls
-     SET status = ?, updated_at = unixepoch(),
-         reviewed_at = CASE WHEN ? = 1 THEN unixepoch() ELSE reviewed_at END
-     WHERE id = ?`
-  ).bind(storedStatus, nextStatus === 'open' ? 1 : 0, pollId).run();
+  // Publishing a poll also gives it its public number, in the same transaction as
+  // the status change, so a poll is never open without one. The assignment is a
+  // no-op when the poll already has a number (reopening a closed poll), because a
+  // number is permanent.
+  const statusStatements: D1PreparedStatement[] = [
+    env.DB.prepare(
+      `UPDATE polls
+       SET status = ?, updated_at = unixepoch(),
+           reviewed_at = CASE WHEN ? = 1 THEN unixepoch() ELSE reviewed_at END
+       WHERE id = ?`
+    ).bind(storedStatus, nextStatus === 'open' ? 1 : 0, pollId)
+  ];
+  if (nextStatus === 'open') {
+    statusStatements.push(pollNumberStatement(env.DB, pollId));
+  }
 
+  const [update] = await env.DB.batch(statusStatements);
   if (update.meta.changes !== 1) {
     return Response.json({ message: `poll ${pollId} could not be updated` }, { status: 409 });
   }

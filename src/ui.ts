@@ -1,5 +1,5 @@
 import { CircleAlert, CircleCheck, EllipsisVertical, Eye, Plus, Search, X, type IconNode } from 'lucide';
-import { DEFAULT_LOCALE, getLocaleText } from './i18n';
+import { DEFAULT_LOCALE, getLocaleText, resolveLocale } from './i18n';
 import { getComments, getMyCommentIds, hasCommentReportedLocally, type CommentsResponse, type PollSummary } from './lib/poll';
 import { getCurrentUser } from './lib/session';
 import { apiErrorMessage } from './lib/apiError';
@@ -311,6 +311,21 @@ export function commentMenuMarkup(publicId: string, signedIn: boolean, claimed: 
             </div>`;
 }
 
+// A comment timestamp in the visitor's own time zone and the site's language, for
+// example "Oct 24, 2026, 6:33 PM" for English or "2026年10月24日 18:33" for Chinese.
+// The exact value stays in the `datetime` attribute, and a value the browser cannot
+// parse is shown unchanged instead of being dropped.
+export function friendlyDate(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  const locale = resolveLocale(getPublicSettings().default_locale ?? DEFAULT_LOCALE);
+  try {
+    return new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' }).format(date);
+  } catch {
+    return value;
+  }
+}
+
 export function renderCommentsContent(
   pollId: number,
   response: CommentsResponse,
@@ -320,11 +335,9 @@ export function renderCommentsContent(
   const totalPages = Math.ceil(response.total / response.pageSize);
   const comments = response.comments.length
     ? `<ul class="m-0 grid list-none gap-3.5 p-0">${response.comments.map(({ id, comment, createdAt }) => `
-        <li class="flex items-start justify-between gap-3 border-b border-border py-3.5">
-          <div class="min-w-0">
-            <p class="mb-2 whitespace-pre-wrap [overflow-wrap:anywhere]">${escapeHtml(comment)}</p>
-            <time class="text-xs text-muted" datetime="${escapeHtml(createdAt)}">${escapeHtml(createdAt)}</time>
-          </div>
+        <li class="flex items-start gap-3 border-b border-border py-3.5">
+          <p class="m-0 min-w-0 flex-1 whitespace-pre-wrap [overflow-wrap:anywhere]">${escapeHtml(comment)}</p>
+          <time class="shrink-0 pt-1 text-xs text-muted" datetime="${escapeHtml(createdAt)}">${escapeHtml(friendlyDate(createdAt))}</time>
           ${id ? commentMenuMarkup(id, signedIn, claimedIds.includes(id)) : ''}
         </li>
       `).join('')}</ul>`

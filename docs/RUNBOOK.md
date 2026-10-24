@@ -28,6 +28,13 @@ are run from the repository root.
    That rename intentionally left the legacy `categories` table and `polls.category_id`
    column in place (its cleanup statements were never run), so a production database from
    that lineage may still carry them; fresh and local databases do not.
+   `polls.number` is the public poll number, and the baseline creates it, so a fresh
+   database needs nothing more. A database created before the **2026-10-24**
+   consolidation already recorded `0001_initial.sql`, so the baseline is skipped for
+   it and it never gains the column: number its existing polls with one statement
+   (a data change, so it is not in a migration file).
+   `npx wrangler d1 execute chinapoll --env production --remote --command "WITH ordered AS (SELECT id, ROW_NUMBER() OVER (ORDER BY created_at, id) AS n FROM polls WHERE status IN (1,2,3)) UPDATE polls SET number = (SELECT n FROM ordered WHERE ordered.id = polls.id) WHERE id IN (SELECT id FROM ordered) AND number IS NULL"`.
+   The number is assigned by the Worker from then on, and is never renumbered.
 2. Set the required secret before the first deploy:
    `npx wrangler secret put SERVER_HMAC_KEY --env production` (a fresh 64-character hex value).
 3. Build the SPA: `npm run build` (outputs to `dist/web`).

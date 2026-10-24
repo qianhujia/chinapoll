@@ -101,4 +101,24 @@ describe('renderCommentsContent', () => {
     expect(empty).toContain('noComments');
     expect(empty).not.toContain('data-comment-menu-toggle');
   });
+
+  // The date sits at the right of the row, immediately left of the three-dot menu,
+  // and shows a friendly local format instead of the raw stored value.
+  it('shows a friendly date left of each comment menu', () => {
+    const markup = renderCommentsContent(7, RESPONSE, [], true);
+
+    // The exact value stays machine-readable in the attribute only.
+    expect(markup).toContain('datetime="2026-10-24T00:00:00.000Z"');
+    expect(markup).not.toContain('>2026-10-24T00:00:00.000Z<');
+    expect(markup.match(/datetime=/g) ?? []).toHaveLength(2);
+    // The visible text is the formatted date, never the stored value. The format
+    // itself depends on the runtime time zone and locale, so it is only checked for
+    // being something else.
+    const shown = /<time[^>]*>([^<]*)<\/time>/.exec(markup)?.[1] ?? '';
+    expect(shown).not.toBe('2026-10-24T00:00:00.000Z');
+    expect(shown.length).toBeGreaterThan(0);
+    // The first row's date comes before that row's menu button.
+    expect(markup.indexOf('datetime="2026-10-24T00:00:00.000Z"'))
+      .toBeLessThan(markup.indexOf('data-comment-menu-root'));
+  });
 });

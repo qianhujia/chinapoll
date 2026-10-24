@@ -129,6 +129,7 @@ function parseIds(url: URL): number[] | null {
 
 interface OwnedPollRow {
   id: number;
+  number: number | null;
   title: string | null;
   description: string | null;
   mode: number;
@@ -160,7 +161,7 @@ async function listUserPolls(url: URL, env: UserEnv, userId: number): Promise<Re
 
   const placeholders = ids.map(() => '?').join(', ');
   const result = await env.DB.prepare(
-    `SELECT id, title, description, mode, status, start_at, end_at, owner_hash, created_at
+    `SELECT id, number, title, description, mode, status, start_at, end_at, owner_hash, created_at
      FROM polls WHERE id IN (${placeholders})`
   ).bind(...ids).all<OwnedPollRow>();
 
@@ -170,6 +171,7 @@ async function listUserPolls(url: URL, env: UserEnv, userId: number): Promise<Re
     if (!expected || expected !== row.owner_hash) continue;
     polls.push({
       id: Number(row.id),
+      number: row.number === null ? null : Number(row.number),
       title: row.title,
       description: row.description,
       mode: pollModeLabel(Number(row.mode)),
@@ -258,7 +260,7 @@ async function listUserComments(url: URL, env: UserEnv, userId: number): Promise
 
   const placeholders = ids.map(() => '?').join(', ');
   const result = await env.DB.prepare(
-    `SELECT c.public_id, c.poll_id, c.comment, c.created_at, c.owner_hash, p.title
+    `SELECT c.public_id, c.poll_id, c.comment, c.created_at, c.owner_hash, p.title, p.number AS poll_number
      FROM comments c
      JOIN polls p ON p.id = c.poll_id
      WHERE c.public_id IN (${placeholders})
@@ -270,6 +272,7 @@ async function listUserComments(url: URL, env: UserEnv, userId: number): Promise
     created_at: number;
     owner_hash: string | null;
     title: string | null;
+    poll_number: number | null;
   }>();
 
   const comments = [];
@@ -278,6 +281,7 @@ async function listUserComments(url: URL, env: UserEnv, userId: number): Promise
     comments.push({
       id: row.public_id,
       pollId: Number(row.poll_id),
+      pollNumber: row.poll_number === null ? null : Number(row.poll_number),
       pollTitle: row.title,
       comment: row.comment,
       createdAt: toIso(Number(row.created_at))

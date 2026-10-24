@@ -120,7 +120,10 @@ describe('renderPollNav', () => {
   });
 
   it('links the previous and next poll with their numbers and titles', () => {
-    const markup = renderPollNav({ id: 10, title: 'Older poll' }, { id: 14, title: 'Newer poll' });
+    const markup = renderPollNav(
+      { id: 10, number: 10, title: 'Older poll' },
+      { id: 14, number: 14, title: 'Newer poll' }
+    );
 
     expect(markup).toContain('href="/poll/10"');
     expect(markup).toContain('#10 Older poll');
@@ -133,14 +136,14 @@ describe('renderPollNav', () => {
   });
 
   it('renders only the direction that exists', () => {
-    const markup = renderPollNav(null, { id: 14, title: 'Newer poll' });
+    const markup = renderPollNav(null, { id: 14, number: 14, title: 'Newer poll' });
 
     expect(markup).toContain('href="/poll/14"');
     expect(markup).not.toContain('prevPoll');
   });
 
   it('escapes a neighbour title', () => {
-    const markup = renderPollNav(null, { id: 14, title: '<b>Newer</b>' });
+    const markup = renderPollNav(null, { id: 14, number: 14, title: '<b>Newer</b>' });
 
     expect(markup).not.toContain('<b>');
     expect(markup).toContain('&lt;b&gt;');

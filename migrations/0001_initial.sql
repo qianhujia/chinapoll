@@ -41,6 +41,11 @@
 --     date. `start_at` is no longer written for new polls.
 --   * `closed_at` records when a poll closed so retention does not depend on
 --     `updated_at`, which any edit resets.
+--   * A poll has two identifiers: the internal `id`, the surrogate key that every
+--     foreign key and the owner hash use, and the public `number` a visitor sees as
+--     `#<number>`. The number is taken exactly once, when the poll is approved, and
+--     is never reused or renumbered, so a submission that is never approved consumes
+--     no public number.
 --   * Public comment identifiers are random (`comments.public_id`) so the global
 --     insertion order is not revealed.
 
@@ -61,6 +66,11 @@ CREATE TABLE IF NOT EXISTS topics (
 -- Polls and user submissions.
 CREATE TABLE IF NOT EXISTS polls (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
+  -- The public poll number: assigned once when the poll is approved (NULL while it
+  -- is still pending), never reused, never renumbered. The primary key stays
+  -- internal, because it is consumed by submissions that are never approved and a
+  -- table rebuild could renumber it. See worker/services/pollNumber.ts.
+  number INTEGER,
   title TEXT CHECK (title IS NULL OR length(trim(title)) > 0),
   description TEXT,
   mode INTEGER NOT NULL CHECK (mode IN (1, 2)),
@@ -82,6 +92,10 @@ CREATE INDEX IF NOT EXISTS idx_polls_status_created
 
 CREATE INDEX IF NOT EXISTS idx_polls_topic_status
   ON polls(topic_id, status, created_at DESC);
+
+-- One poll per number. The index allows many NULLs, so a pending poll that has no
+-- number yet is unaffected; it only forbids two polls from sharing one.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_polls_number ON polls(number);
 
 -- Options of a choice poll, ordered by `position`. A verdict poll keeps its three
 -- verdict labels here like any other poll and needs no separate table.

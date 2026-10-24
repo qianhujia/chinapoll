@@ -14,6 +14,7 @@ import {
   type SsrSettings
 } from '../worker/services/ssr';
 import { escapeHtml, serializeJsonLd } from '../worker/services/html';
+import { ABOUT_SECTIONS } from '../shared/about';
 import zhDictionary from '../public/i18n/zh.json';
 
 const settings: SsrSettings = {
@@ -28,6 +29,7 @@ const settings: SsrSettings = {
 
 const poll: SsrPollCard = {
   id: 12,
+  number: 12,
   title: 'Should the city build more bike lanes?',
   mode: PollMode.Evergreen,
   pollType: 2,
@@ -157,8 +159,8 @@ describe('server-side poll page', () => {
   it('links the previous and next poll with their numbers and titles', () => {
     const html = renderPollBody({
       ...detail,
-      prev: { id: 10, title: 'Older poll' },
-      next: { id: 14, title: 'Newer poll' }
+      prev: { id: 10, number: 10, title: 'Older poll' },
+      next: { id: 14, number: 14, title: 'Newer poll' }
     }, settings);
 
     expect(html).toContain('Poll navigation');
@@ -174,7 +176,7 @@ describe('server-side poll page', () => {
   it('escapes a neighbor title', () => {
     const html = renderPollBody({
       ...detail,
-      next: { id: 14, title: '<script>alert(1)</script>' }
+      next: { id: 14, number: 14, title: '<script>alert(1)</script>' }
     }, settings);
 
     expect(html).not.toContain('<script>');
@@ -199,10 +201,19 @@ describe('server-side header', () => {
 });
 
 describe('server-side about page', () => {
-  it('renders the about copy', () => {
+  it('renders the about copy and every detail section', () => {
     const html = renderAboutBody(settings);
     expect(html).toContain(serverTranslate('aboutTitle'));
     expect(html).toContain(serverTranslate('aboutPointThree'));
+    // The sections come from the shared ABOUT_SECTIONS list, so the server-rendered
+    // page explains how the site works exactly like the client-rendered one.
+    for (const section of ABOUT_SECTIONS) {
+      // The server escapes the copy, so an apostrophe arrives as an entity.
+      expect(html).toContain(escapeHtml(serverTranslate(section.title)));
+      for (const key of section.points) {
+        expect(html).toContain(escapeHtml(serverTranslate(key)));
+      }
+    }
   });
 });
 

@@ -8,11 +8,24 @@ import {
   pollTypeCard,
   proposalRulesMarkup
 } from './proposal';
+import { ABOUT_SECTIONS, type AboutSection } from '../../shared/about';
 import { bindProposalForm } from './proposalForm';
 import { getCurrentUser } from '../lib/session';
 import { getPublicSettings } from '../config';
 import { renderFooter, renderHeader, renderToast, t } from '../ui';
 
+
+// One About section: a heading and its bullet points, both translated.
+function aboutSectionMarkup(section: AboutSection): string {
+  return `
+        <section class="rounded-[22px] border border-border bg-panel p-6 shadow-card">
+          <h2 class="mt-0 mb-3 text-xl font-bold">${t(section.title)}</h2>
+          <ul class="m-0 list-disc space-y-2 pl-6 text-muted">
+            ${section.points.map((key) => `<li>${t(key)}</li>`).join('')}
+          </ul>
+        </section>
+  `;
+}
 
 export function mountAboutPage(app: HTMLElement, bindNavigation: () => void): void {
   app.innerHTML = `
@@ -29,6 +42,7 @@ export function mountAboutPage(app: HTMLElement, bindNavigation: () => void): vo
           </ul>
           <p class="mt-4 mb-0 text-sm text-muted">${t('aiPrivacyNote')}</p>
         </section>
+        ${ABOUT_SECTIONS.map(aboutSectionMarkup).join('')}
       </main>
       ${renderToast()}
       ${renderFooter()}

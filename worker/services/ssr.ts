@@ -13,6 +13,7 @@
 // paint look alike.
 
 import { PollMode, PollStatus, PollType } from '../enums';
+import { ABOUT_SECTIONS } from '../../shared/about';
 import { localizedTopicName, type TopicLocale } from '../../shared/categories';
 import en from '../../public/i18n/en.json';
 import zh from '../../public/i18n/zh.json';
@@ -88,6 +89,8 @@ export interface SsrTopic {
 
 export interface SsrPollCard {
   id: number;
+  /** The public number a visitor sees; the primary key stays internal. */
+  number: number;
   title: string;
   mode: PollMode;
   pollType: number;
@@ -213,7 +216,7 @@ function renderPollRow(poll: SsrPollCard, settings: SsrSettings, t: Translate): 
   return `
         <article class="grid grid-cols-[minmax(0,1fr)_minmax(190px,240px)] items-center gap-x-8 border-b border-border py-[22px] max-[700px]:grid-cols-1 max-[700px]:gap-y-3" data-poll-row="${poll.id}">
           <div class="col-start-1 flex flex-wrap items-center gap-2">
-            <span class="shrink-0 font-bold tabular-nums text-muted">#${poll.id}</span>
+            <span class="shrink-0 font-bold tabular-nums text-muted">#${poll.number}</span>
             <h2 class="m-0 flex-[1_1_auto] text-[1.15rem] leading-[1.5]"><a class="text-inherit no-underline hover:text-primary" href="${href}" data-route="${href}">${escapeHtml(poll.title)}</a></h2>
             ${badge(modeLabel(poll.mode, t))}
             ${badge(typeLabel)}
@@ -368,7 +371,7 @@ ${renderHeader(settings, t, '/')}
             ${badge(pollTypeLabel(poll.pollType, t))}
             ${topic}
           </div>
-          <h1 class="mt-3 mb-2 text-center text-2xl font-bold">#${poll.id} ${escapeHtml(poll.title)}</h1>
+          <h1 class="mt-3 mb-2 text-center text-2xl font-bold">#${poll.number} ${escapeHtml(poll.title)}</h1>
           ${poll.description ? `<p class="mx-auto mb-0 max-w-2xl text-center text-ink line-clamp-2">${escapeHtml(poll.description)}</p>` : ''}
           <h2 class="mt-6 mb-2 text-lg font-bold">${escapeHtml(t('optionsLabel'))}</h2>
 ${options}
@@ -384,6 +387,15 @@ export function renderAboutBody(settings: SsrSettings, t: Translate = serverTran
   const points = ['aboutPointOne', 'aboutPointTwo', 'aboutPointThree']
     .map((key) => `
             <li>${escapeHtml(t(key))}</li>`).join('');
+  // The detail sections come from the shared ABOUT_SECTIONS list, so the
+  // server-rendered copy stays identical to the one the client bundle renders.
+  const sections = ABOUT_SECTIONS.map((section) => `
+        <section class="rounded-[22px] border border-border bg-panel p-6 shadow-card">
+          <h2 class="mt-0 mb-3 text-xl font-bold">${escapeHtml(t(section.title))}</h2>
+          <ul class="m-0 list-disc space-y-2 pl-6 text-muted">${section.points.map((key) => `
+            <li>${escapeHtml(t(key))}</li>`).join('')}
+          </ul>
+        </section>`).join('');
 
   return `    <div class="mx-auto max-w-[var(--page-width)] px-5 pt-6 pb-16">
 ${renderHeader(settings, t, '/about')}
@@ -394,7 +406,7 @@ ${renderHeader(settings, t, '/about')}
           <ul class="list-disc space-y-2 pl-6">${points}
           </ul>
           <p class="mt-4 mb-0 text-sm text-muted">${escapeHtml(t('aiPrivacyNote'))}</p>
-        </section>
+        </section>${sections}
       </main>
 
 ${renderFooter(settings, t)}
@@ -405,6 +417,7 @@ ${renderFooter(settings, t)}
 
 interface HomePollRow {
   id: number;
+  number: number;
   title: string;
   mode: number;
   poll_type: number;
@@ -469,7 +482,7 @@ export async function loadHomeSsrData(
        WHERE status = ? AND mode IN (?, ?)${searchClause}${topicClause}
        ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?
      )
-     SELECT i.id, i.title, i.mode, i.poll_type,
+     SELECT i.id, i.number, i.title, i.mode, i.poll_type,
        t.slug AS topic_slug, t.name AS topic_name
      FROM page JOIN polls i ON i.id = page.id
      LEFT JOIN topics t ON t.id = i.topic_id
@@ -498,6 +511,7 @@ export async function loadHomeSsrData(
 
   const polls: SsrPollCard[] = (rows.results ?? []).map((row) => ({
     id: Number(row.id),
+    number: Number(row.number),
     title: row.title,
     mode: Number(row.mode) as PollMode,
     pollType: Number(row.poll_type ?? PollType.SingleChoice),
@@ -547,30 +561,36 @@ export async function loadSsrTopics(db: D1Database): Promise<{ topics: SsrTopic[
 // One poll with its option labels for the server-rendered poll page. Returns
 // null for an id that is not a public poll, so the caller can fall back to the
 // client-rendered not-found state.
-export async function loadPollSsrData(db: D1Database, pollId: number): Promise<SsrPollDetail | null> {
-  const row = await db.prepare(
-    `SELECT p.id, p.title, p.description, p.mode, p.poll_type, p.status, p.created_at,
-            t.slug AS topic_slug, t.name AS topic_name
-     FROM polls p
-     LEFT JOIN topics t ON t.id = p.topic_id
-     WHERE p.id = ? AND p.mode IN (?, ?) AND p.status IN (?, ?, ?)`
-  ).bind(
-    pollId,
+export async function loadPollSsrData(db: D1Database, identifier: number): Promise<SsrPollDetail | null> {
+  const visible = 'p.mode IN (?, ?) AND p.status IN (?, ?, ?)';
+  const visibleBinds = [
     PollMode.Deadline, PollMode.Evergreen,
     PollStatus.Open, PollStatus.Closed, PollStatus.Archived
-  ).first<PollDetailRow>();
+  ];
+  const columns = `p.id, p.number, p.title, p.description, p.mode, p.poll_type, p.status, p.created_at,
+            t.slug AS topic_slug, t.name AS topic_name`;
+  const source = 'FROM polls p LEFT JOIN topics t ON t.id = p.topic_id';
+
+  // The public number is tried first because that is the identifier the site
+  // publishes. The primary key is still accepted, so a link that predates the
+  // public number keeps resolving instead of turning into a 404.
+  const row = await db.prepare(`SELECT ${columns} ${source} WHERE p.number = ? AND ${visible}`)
+      .bind(identifier, ...visibleBinds).first<PollDetailRow>()
+    ?? await db.prepare(`SELECT ${columns} ${source} WHERE p.id = ? AND ${visible}`)
+      .bind(identifier, ...visibleBinds).first<PollDetailRow>();
 
   if (!row) return null;
 
   const [optionRows, neighbors] = await Promise.all([
     db.prepare(
       'SELECT label FROM poll_options WHERE poll_id = ? ORDER BY position ASC, id ASC'
-    ).bind(pollId).all<{ label: string }>(),
-    loadPollNeighbors(db, pollId, Number(row.created_at))
+    ).bind(Number(row.id)).all<{ label: string }>(),
+    loadPollNeighbors(db, Number(row.id), Number(row.created_at))
   ]);
 
   return {
     id: Number(row.id),
+    number: Number(row.number),
     title: row.title,
     description: row.description,
     mode: Number(row.mode) as PollMode,

@@ -90,6 +90,7 @@ login endpoint) or an `Authorization: Bearer <session-token>` header.
 | `GET` | `/`, `/overview` | Overview dashboard HTML |
 | `GET` | `/polls`, `/comments`, `/users`, `/admins`, `/audit` | Dashboard HTML |
 | `GET` | `/settings`, `/settings/<category>` | Settings dashboard HTML (`general`, `appearance`, `polls`, `auth`, `reports`, `ai`, `publishing`, `advanced`) |
+| `GET` | `/reports`, `/reports/<queue>` | Reports dashboard HTML (`polls`, `comments`) |
 | `GET` | `/api/health` | Heartbeat |
 | `GET` | `/api/admin/session` | Session state, setup flag, Turnstile config |
 | `POST` | `/api/admin/session` | Login with `{ username, password, turnstileToken? }` |
@@ -99,7 +100,7 @@ login endpoint) or an `Authorization: Bearer <session-token>` header.
 | `GET` | `/api/admin/polls` | List polls including pending (`status`, `page`, `pageSize`, `q`); each row carries `pollType`, `durationSeconds`, `ballots`, and the options with a count each |
 | `POST` | `/api/admin/polls/:id/status` | Set poll status (`{ "status": "open" }`); opening a deadline poll stamps `end_at` from `duration_seconds` |
 | `PUT` | `/api/admin/polls/:id/options` | Replace the option set of a **pending** poll; `409` when it is not pending or already has ballots; writes a `poll.options` audit entry |
-| `GET` | `/api/admin/reports` | List polls with reports, priority first (`status=open\|resolved\|all`, `page`, `pageSize`) |
+| `GET` | `/api/admin/reports` | List poll reports and comment reports, priority first (`status=open\|resolved\|all`, `page`, `pageSize`, `commentsPage`) |
 | `POST` | `/api/admin/reports/:pollId/resolve` | Resolve every open report for a poll (`{ "resolution": "dismissed"\|"action_taken" }`) |
 | `GET` | `/api/admin/comments` | List comments (`pollId`, `page`, `pageSize`, `q`) |
 | `DELETE` | `/api/admin/comments/:id` | Delete a comment |
@@ -131,7 +132,8 @@ browser back and forward buttons. Any view the visitor may not open (for example
 or the login screen; paths outside the set return `404`. Icons are Lucide SVG
 markup rendered Worker-side (`dashboard/icons.ts`), so the dashboard stays one
 self-contained document with no build step and no runtime dependency. Settings is
-split into one page per category, each with its own URL.
+split into one page per category and Reports into one page per queue
+(`/reports/polls` and `/reports/comments`), each with its own URL.
 
 ## Audit log
 

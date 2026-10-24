@@ -30,8 +30,8 @@ Public keys: `default_locale` (`en`, `zh-CN`, or `zh-TW`), `site_name`,
 - `min_votes_to_display` (default 10) hides result counts until a poll reaches
   that many votes. The threshold hides results only, so voting is always
   possible on an open poll.
-- `min_views_to_display` (default 20) hides view totals until a poll reaches
-  that many views.
+- `min_views_to_display` (default 20) hides view totals in the poll lists until a
+  poll reaches that many views. A poll's own page always shows its total.
 - Rate limits use `"<count>/<unit>"` with unit `w|d|h|m|s`.
 - `hero_background_color` accepts any CSS color (hex, rgb/a, hsl/a, or named) or
   gradient.
@@ -269,7 +269,8 @@ alarm, so an active poll costs at most twelve writes an hour instead of one per
 view; an object evicted between flushes loses up to five minutes of views (counts
 are approximate by design). The endpoint always answers `204` so the response
 reveals nothing. `GET /api/polls/:id` and the poll list report
-`views: { total, last7Days } | null`, where the value is `null` below
+`views: { total, last7Days } | null`. A poll's own page always answers with its
+total (zero for a poll with no views yet), while the list answers `null` below
 `min_views_to_display` (default 20). Cumulative views are included in the signed
 hourly snapshot chain.
 
