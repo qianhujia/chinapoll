@@ -29,7 +29,8 @@ import { bootstrapPoll } from '../bootstrap';
 import { getPublicSettings } from '../config';
 import { updateSeo } from '../seo';
 import { localizedTopicName } from '../../shared/categories';
-import { renderTurnstile, resetTurnstile, turnstileSiteKey, turnstileToken } from '../lib/turnstile';
+import { renderTurnstile, resetTurnstile, revealTurnstile, turnstileSiteKey, turnstileToken } from '../lib/turnstile';
+import { apiErrorCode } from '../lib/apiError';
 import {
   getCommentsPerPage,
   escapeHtml,
@@ -239,6 +240,46 @@ export function reportModalMarkup(): string {
   `;
 }
 
+// The comments card header. The Comment button sits at the top right of the
+// comments list: pressing it reveals the form card above the list and moves the
+// caret to the textarea. A signed-out visitor gets no button, because the form is
+// replaced by the sign-in prompt.
+export function renderCommentsHeader(signedIn: boolean): string {
+  const toggle = signedIn
+    ? `<button class="shrink-0 cursor-pointer rounded-full border border-primary bg-primary px-4 py-2.5 text-white" type="button" aria-expanded="false" aria-controls="comment-form" data-toggle-comment>${t('commentToggle')}</button>`
+    : '';
+  return `
+    <div class="mb-3.5 flex items-start justify-between gap-4">
+      <h2 class="m-0 text-xl font-bold">${t('commentsTitle')}</h2>
+      ${toggle}
+    </div>
+  `;
+}
+
+// The comment form card above the comments list. The card itself is the toggle
+// target, so collapsing it leaves no empty card behind. A signed-out visitor sees
+// the sign-in prompt in its place.
+export function renderCommentForm(signedIn: boolean): string {
+  if (!signedIn) {
+    return `
+    <section class="grid gap-3 rounded-[22px] border border-border bg-panel p-6 shadow-card">
+      <p class="m-0 text-center text-muted">${t('commentLoginRequired')}</p>
+      <a class="mx-auto cursor-pointer rounded-full border border-primary bg-primary px-4 py-2.5 text-white no-underline" href="/login" data-route="/login">${t('loginRequiredAction')}</a>
+    </section>
+  `;
+  }
+
+  return `
+    <section class="grid gap-3 rounded-[22px] border border-border bg-panel p-6 shadow-card" id="comment-form" hidden>
+      <label for="comment">${t('accountComment')}</label>
+      <textarea class="w-full resize-y rounded-[14px] border border-border bg-[#f9fbff] px-3.5 py-3" id="comment" minlength="5" maxlength="140" rows="4" placeholder="${t('commentPlaceholder')}"></textarea>
+      <button class="mx-auto cursor-pointer rounded-full border border-primary bg-primary px-4 py-2.5 text-white" type="button" data-submit-comment>${t('submitComment')}</button>
+      <p class="comment-submit-status m-0 min-h-5 text-[0.9rem] text-muted" role="status" aria-live="polite"></p>
+      <p class="comment-id-note m-0 hidden text-[0.8rem] text-muted [overflow-wrap:anywhere]"></p>
+    </section>
+  `;
+}
+
 export async function mountVotePage(pollId: number, app: HTMLElement, bindNavigation: () => void): Promise<void> {
   const commentsPerPage = getCommentsPerPage();
   const commentsPage = getQueryPage('commentsPage');
@@ -413,7 +454,7 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
             </p>
           ` : ''}
 
-          ${turnstileSiteKey() ? `<div class="mx-auto mt-4 flex min-h-[65px] items-center justify-center text-center text-xs text-muted" data-turnstile-vote>${t('turnstileLoading')}</div>` : ''}
+          ${turnstileSiteKey() ? '<div class="mx-auto mt-4 flex justify-center" data-turnstile-vote></div>' : ''}
 
           ${endLine}
 
@@ -425,23 +466,10 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
           <small class="mt-3.5 block text-center text-xs text-muted">${t('privacyText')}</small>
         </section>
 
-        <section class="grid gap-3 rounded-[22px] border border-border bg-panel p-6 shadow-card">
-          ${canComment ? `
-            <button class="mx-auto cursor-pointer rounded-full border border-primary bg-primary px-4 py-2.5 text-white" type="button" aria-expanded="false" aria-controls="comment-form" data-toggle-comment>${t('commentToggle')}</button>
-            <div class="grid gap-3" id="comment-form" hidden>
-              <label for="comment">${t('accountComment')}</label>
-              <textarea class="w-full resize-y rounded-[14px] border border-border bg-[#f9fbff] px-3.5 py-3" id="comment" minlength="5" maxlength="140" rows="4" placeholder="${t('commentPlaceholder')}"></textarea>
-              <button class="mx-auto cursor-pointer rounded-full border border-primary bg-primary px-4 py-2.5 text-white" type="button" data-submit-comment>${t('submitComment')}</button>
-              <p class="comment-submit-status m-0 min-h-5 text-[0.9rem] text-muted" role="status" aria-live="polite"></p>
-            </div>
-          ` : `
-            <p class="m-0 text-center text-muted">${t('commentLoginRequired')}</p>
-            <a class="mx-auto cursor-pointer rounded-full border border-primary bg-primary px-4 py-2.5 text-white no-underline" href="/login" data-route="/login">${t('loginRequiredAction')}</a>
-          `}
-        </section>
+        ${renderCommentForm(canComment)}
 
         <section class="rounded-[22px] border border-border bg-panel p-6 shadow-card">
-          <h2 class="mb-3.5 text-xl font-bold">${t('commentsTitle')}</h2>
+          ${renderCommentsHeader(canComment)}
           <div id="comments-content">${commentsContent}</div>
         </section>
       </main>
@@ -451,7 +479,7 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
   `;
 
   const commentToggle = document.querySelector<HTMLButtonElement>('[data-toggle-comment]');
-  const commentForm = document.querySelector<HTMLDivElement>('#comment-form');
+  const commentForm = document.querySelector<HTMLElement>('#comment-form');
   const commentButton = document.querySelector<HTMLButtonElement>('[data-submit-comment]');
   const commentInput = document.querySelector<HTMLTextAreaElement>('#comment');
   const commentStatus = document.querySelector('.comment-submit-status');
@@ -460,7 +488,13 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
     const expanded = commentToggle.getAttribute('aria-expanded') === 'true';
     commentToggle.setAttribute('aria-expanded', String(!expanded));
     commentForm.hidden = expanded;
-    if (!expanded) commentInput?.focus();
+    // The button sits at the top right of the comments list, which is below the
+    // form card, so opening the form brings the textarea back into view and puts
+    // the caret in it.
+    if (!expanded) {
+      commentForm.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      commentInput?.focus({ preventScroll: true });
+    }
   });
   commentButton?.addEventListener('click', async () => {
     const comment = commentInput?.value.trim() ?? '';
@@ -476,6 +510,13 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
       // The dashboard lists the comments this browser posted; the server confirms
       // ownership through the one-way owner hash.
       rememberMyComment(posted.id);
+      // The comment id is what the dashboard claims a comment by, so it is shown
+      // once here too; the dashboard also lists it next to the comment.
+      const idNote = document.querySelector<HTMLParagraphElement>('.comment-id-note');
+      if (idNote) {
+        idNote.hidden = false;
+        idNote.textContent = `${t('commentIdNote')} ${posted.id}`;
+      }
       if (commentInput) commentInput.value = '';
       if (commentStatus) commentStatus.textContent = t('commentSubmitted');
       window.history.replaceState({}, '', `/poll/${poll.id}?commentsPage=1`);
@@ -500,6 +541,9 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
       });
     } catch (error) {
       const errorMessage = getErrorMessage(error);
+      // The widget is hidden by default, so a verification failure is the only
+      // case that must surface the box for the visitor to solve.
+      if (apiErrorCode(error) === 'TURNSTILE_FAILED') revealTurnstile('vote');
       // A 503 means the deployment is missing its server key; a 423 means the
       // site is in read-only mode. Show a clear localized message for each
       // instead of the terse server text so neither looks like a client error.
@@ -634,9 +678,9 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
   }
 
   // Render the Turnstile widget on the vote area when a site key is configured.
-  // The widget is drawn into a placeholder that already reserves its size, so the
-  // script loads in the background without blocking the page or shifting the
-  // layout below it.
+  // It stays hidden until Cloudflare needs an interaction, so the empty slot adds
+  // no visible element and the script loads in the background without blocking
+  // the page.
   const voteWidget = document.querySelector<HTMLElement>('[data-turnstile-vote]');
   if (voteWidget) void renderTurnstile('vote', voteWidget);
 
@@ -733,6 +777,9 @@ export async function mountVotePage(pollId: number, app: HTMLElement, bindNaviga
       } catch (error) {
         if (status) status.textContent = `${t('submitFailed')}: ${getErrorMessage(error)}`;
         submit.disabled = false;
+        // The widget is hidden by default, so a verification failure is the only
+        // case that must surface the box for the visitor to solve.
+        if (apiErrorCode(error) === 'TURNSTILE_FAILED') revealTurnstile('report');
         resetTurnstile('report');
       }
     });
