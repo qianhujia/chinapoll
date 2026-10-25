@@ -19,8 +19,8 @@ export interface PublicSettings {
   turnstile_site_key: string;
   login_badge_enable: boolean;
   auto_approve_polls: boolean;
-  user_poll_delay_hours: number;
-  user_comment_delay_hours: number;
+  user_poll_delay_minutes: number;
+  user_comment_delay_minutes: number;
   max_accounts_per_ip: number;
   login_max_failed_attempts: number;
   login_lock_minutes: number;
@@ -52,8 +52,8 @@ const defaultSettings: PublicSettings = {
   turnstile_site_key: '',
   login_badge_enable: false,
   auto_approve_polls: false,
-  user_poll_delay_hours: 48,
-  user_comment_delay_hours: 24,
+  user_poll_delay_minutes: 10,
+  user_comment_delay_minutes: 10,
   max_accounts_per_ip: 4,
   login_max_failed_attempts: 5,
   login_lock_minutes: 15,
@@ -91,8 +91,8 @@ export function isValidPublicSettings(value: unknown): value is PublicSettings {
     && typeof result.turnstile_site_key === 'string'
     && typeof result.login_badge_enable === 'boolean'
     && typeof result.auto_approve_polls === 'boolean'
-    && Number.isSafeInteger(result.user_poll_delay_hours) && result.user_poll_delay_hours >= 0
-    && Number.isSafeInteger(result.user_comment_delay_hours) && result.user_comment_delay_hours >= 0
+    && Number.isSafeInteger(result.user_poll_delay_minutes) && result.user_poll_delay_minutes >= 0
+    && Number.isSafeInteger(result.user_comment_delay_minutes) && result.user_comment_delay_minutes >= 0
     && Number.isSafeInteger(result.max_accounts_per_ip) && result.max_accounts_per_ip >= 1
     && Number.isSafeInteger(result.login_max_failed_attempts) && result.login_max_failed_attempts >= 1
     && Number.isSafeInteger(result.login_lock_minutes) && result.login_lock_minutes >= 1

@@ -38,7 +38,7 @@ const MAX_TITLE_LENGTH = 200;
 const MIN_DESCRIPTION_LENGTH = 20;
 const MAX_DESCRIPTION_LENGTH = 2000;
 const DEFAULT_PROPOSAL_RATE_LIMIT = '1/d';
-const DEFAULT_POLL_DELAY_HOURS = 48;
+const DEFAULT_POLL_DELAY_MINUTES = 10;
 
 export async function handleProposalRequest(request: Request, env: HandlerEnv): Promise<Response> {
   if (request.method !== 'POST') {
@@ -51,12 +51,12 @@ export async function handleProposalRequest(request: Request, env: HandlerEnv): 
   const csrf = enforceSameOrigin(request, { viaCookie: true });
   if (csrf) return csrf;
 
-  const delayHours = Number(env.user_poll_delay_hours ?? DEFAULT_POLL_DELAY_HOURS);
-  const accountAge = checkAccountAge(auth.user.createdAt, delayHours);
+  const delayMinutes = Number(env.user_poll_delay_minutes ?? DEFAULT_POLL_DELAY_MINUTES);
+  const accountAge = checkAccountAge(auth.user.createdAt, delayMinutes);
   if (!accountAge.allowed) {
     return apiError('ACCOUNT_TOO_NEW_POLL', 403, {
-      params: { hours: delayHours },
-      extra: { ok: false, remainingHours: accountAge.remainingHours }
+      params: { minutes: delayMinutes },
+      extra: { ok: false, remainingMinutes: accountAge.remainingMinutes }
     });
   }
 

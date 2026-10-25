@@ -30,7 +30,7 @@ import { apiError } from '../../shared/http';
 import type { ApiErrorCode } from '../../shared/errors';
 
 const DEFAULT_AI_RATE_LIMIT = '10/h';
-const DEFAULT_POLL_DELAY_HOURS = 48;
+const DEFAULT_POLL_DELAY_MINUTES = 10;
 const MIN_TITLE_CHARACTERS = 10;
 
 const FAILURE_MESSAGES: Record<string, { code: ApiErrorCode; status: number }> = {
@@ -81,12 +81,12 @@ async function openAiContext(request: Request, env: HandlerEnv): Promise<AiConte
   const csrf = enforceSameOrigin(request, { viaCookie: true });
   if (csrf) return csrf;
 
-  const delayHours = Number(env.user_poll_delay_hours ?? DEFAULT_POLL_DELAY_HOURS);
-  const accountAge = checkAccountAge(auth.user.createdAt, delayHours);
+  const delayMinutes = Number(env.user_poll_delay_minutes ?? DEFAULT_POLL_DELAY_MINUTES);
+  const accountAge = checkAccountAge(auth.user.createdAt, delayMinutes);
   if (!accountAge.allowed) {
     return apiError('ACCOUNT_TOO_NEW_AI', 403, {
-      params: { hours: delayHours },
-      extra: { remainingHours: accountAge.remainingHours }
+      params: { minutes: delayMinutes },
+      extra: { remainingMinutes: accountAge.remainingMinutes }
     });
   }
 

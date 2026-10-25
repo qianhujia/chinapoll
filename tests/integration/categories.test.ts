@@ -19,8 +19,8 @@ beforeAll(async () => {
   await applySchema();
   // Written before the first request so the Worker's settings cache sees them.
   await env.DB.batch([
-    env.DB.prepare("INSERT INTO settings (key, value) VALUES ('user_poll_delay_hours', '0')"),
-    env.DB.prepare("INSERT INTO settings (key, value) VALUES ('user_comment_delay_hours', '0')"),
+    env.DB.prepare("INSERT INTO settings (key, value) VALUES ('user_poll_delay_minutes', '0')"),
+    env.DB.prepare("INSERT INTO settings (key, value) VALUES ('user_comment_delay_minutes', '0')"),
     env.DB.prepare("INSERT INTO settings (key, value) VALUES ('proposal_rate_limit', '200/d')"),
     env.DB.prepare("INSERT INTO settings (key, value) VALUES ('register_rate_limit', '200/d')"),
     env.DB.prepare("INSERT INTO settings (key, value) VALUES ('max_accounts_per_ip', '100')")
@@ -72,7 +72,7 @@ function aiEnv(extra: Record<string, unknown> = {}): HandlerEnv {
     ...DEFAULT_PUBLIC_SETTINGS,
     // The gate settings are pinned here, not taken from the defaults, so a fresh
     // account can submit and use the categoriser.
-    user_poll_delay_hours: 0,
+    user_poll_delay_minutes: 0,
     proposal_rate_limit: '200/d',
     ai_enable: true,
     ai_provider: 'cloudflare',

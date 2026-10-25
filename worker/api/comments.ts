@@ -22,7 +22,7 @@ const MAX_PAGE_SIZE = 100;
 const MIN_COMMENT_LENGTH = 5;
 const MAX_COMMENT_LENGTH = 140;
 const DEFAULT_COMMENT_RATE_LIMIT = '3/h';
-const DEFAULT_COMMENT_DELAY_HOURS = 24;
+const DEFAULT_COMMENT_DELAY_MINUTES = 10;
 
 function publicId(): string {
   return toHex(crypto.getRandomValues(new Uint8Array(8)));
@@ -89,12 +89,12 @@ async function handleCommentSubmission(request: Request, env: HandlerEnv): Promi
   const csrf = enforceSameOrigin(request, { viaCookie: true });
   if (csrf) return csrf;
 
-  const delayHours = Number(env.user_comment_delay_hours ?? DEFAULT_COMMENT_DELAY_HOURS);
-  const accountAge = checkAccountAge(auth.user.createdAt, delayHours);
+  const delayMinutes = Number(env.user_comment_delay_minutes ?? DEFAULT_COMMENT_DELAY_MINUTES);
+  const accountAge = checkAccountAge(auth.user.createdAt, delayMinutes);
   if (!accountAge.allowed) {
     return apiError('ACCOUNT_TOO_NEW_COMMENT', 403, {
-      params: { hours: delayHours },
-      extra: { remainingHours: accountAge.remainingHours }
+      params: { minutes: delayMinutes },
+      extra: { remainingMinutes: accountAge.remainingMinutes }
     });
   }
 

@@ -440,10 +440,10 @@ export async function mountVotePage(identifier: number, app: HTMLElement, bindNa
   // The ballot total is only published once the results are visible; below the
   // threshold the threshold notice takes its place.
   const showsBallotTotal = Boolean(results) && !resultsHidden;
-  // The view count is shown next to the vote total when it clears the display
+  // The view count is shown in the title row when it clears the display
   // threshold; otherwise `views` is null and nothing is rendered.
   const viewsLine = views
-    ? `<span class="inline-flex items-center gap-1">${viewIconMarkup('h-3.5 w-3.5')}${views.total} ${t('views')}</span>`
+    ? `<span class="inline-flex shrink-0 items-center gap-1 text-xs text-muted">${viewIconMarkup('h-3.5 w-3.5')}${views.total} ${t('views')}</span>`
     : '';
   const alreadyReported = hasReportedLocally(poll.id);
   // The claim entries need a session, so a signed-out visitor sees a sign-in link
@@ -470,6 +470,7 @@ export async function mountVotePage(identifier: number, app: HTMLElement, bindNa
               ${poll.topic
     ? `<span class="shrink-0 rounded-full bg-[#eef3fb] px-2.5 py-1 text-xs text-muted" data-poll-topic>${escapeHtml(localizedTopicName(poll.topic.slug, poll.topic.name, (getPublicSettings().default_locale ?? 'en') as 'en' | 'zh-CN' | 'zh-TW'))}</span>`
     : ''}
+              ${viewsLine}
             </div>
             ${renderPollMenu(poll.id, alreadyReported)}
           </div>
@@ -482,10 +483,9 @@ export async function mountVotePage(identifier: number, app: HTMLElement, bindNa
 
           ${hiddenNotice}
 
-          ${showsBallotTotal || viewsLine ? `
+          ${showsBallotTotal ? `
             <p class="m-0 mt-3 flex items-center justify-center gap-3 text-center text-xs text-muted">
-              ${showsBallotTotal ? `<span data-ballot-total>${ballotTotal} ${t('ballots')}</span>` : ''}
-              ${viewsLine}
+              <span data-ballot-total>${ballotTotal} ${t('ballots')}</span>
             </p>
           ` : ''}
 

@@ -161,10 +161,10 @@ export async function mountRegisterPage(app: HTMLElement, bindNavigation: () => 
 
   // Keep the configured poll/comment delays visible on the sign-up form.
   const settings = getPublicSettings();
-  if (settings.user_poll_delay_hours > 0 || settings.user_comment_delay_hours > 0) {
+  if (settings.user_poll_delay_minutes > 0 || settings.user_comment_delay_minutes > 0) {
     const note = document.createElement('p');
     note.className = 'm-0 text-center text-xs text-muted';
-    note.textContent = `${t('registerDelayNote')} ${settings.user_poll_delay_hours}h / ${settings.user_comment_delay_hours}h`;
+    note.textContent = `${t('registerDelayNote')} ${settings.user_poll_delay_minutes}m / ${settings.user_comment_delay_minutes}m`;
     form?.insertAdjacentElement('afterend', note);
   }
 

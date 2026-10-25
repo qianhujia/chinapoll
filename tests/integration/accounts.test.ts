@@ -32,7 +32,7 @@ describe('account gates', () => {
     const early = await postComment(pollId, cookie);
     expect(early.status).toBe(403);
 
-    // Backdate the account past the default 24-hour comment delay.
+    // Backdate the account past the default 10-minute comment delay.
     await env.DB.prepare('UPDATE users SET created_at = created_at - 25 * 3600 WHERE username = ?')
       .bind('commenter').run();
 

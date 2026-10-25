@@ -110,6 +110,12 @@ export function imageSettingError(value: string): string | null {
   return 'must be an https image URL or an uploaded image';
 }
 
+// The unit suffixes a rate-limit value accepts. Shown in the admin dashboard next
+// to every rate-limit field so an operator does not have to guess or consult the
+// docs. The same set is enforced by RATE_LIMIT_PATTERN in worker/api/settings.ts.
+export const RATE_LIMIT_UNITS_HELP =
+  'Units: /s = per second, /m = per minute, /h = per hour, /d = per day, /w = per week.';
+
 export const SETTING_SCHEMAS: SettingSchema[] = [
   // General
   {
@@ -264,27 +270,29 @@ export const SETTING_SCHEMAS: SettingSchema[] = [
     public: true,
   },
   {
-    key: 'user_poll_delay_hours',
+    key: 'user_poll_delay_minutes',
     type: 'integer',
     category: 'polls',
-    label: 'User poll delay (hours)',
-    description: 'Hours a user must wait before submitting another poll.',
-    defaultValue: 48,
+    label: 'User poll delay (minutes)',
+    description: 'Minutes a user must wait before submitting another poll.',
+    defaultValue: 10,
     required: true,
     min: 0,
-    max: 8760,
+    // One year, in minutes.
+    max: 525600,
     public: true,
   },
   {
-    key: 'user_comment_delay_hours',
+    key: 'user_comment_delay_minutes',
     type: 'integer',
     category: 'polls',
-    label: 'User comment delay (hours)',
-    description: 'Hours a user must wait before posting another comment.',
-    defaultValue: 24,
+    label: 'User comment delay (minutes)',
+    description: 'Minutes a user must wait before posting another comment.',
+    defaultValue: 10,
     required: true,
     min: 0,
-    max: 8760,
+    // One year, in minutes.
+    max: 525600,
     public: true,
   },
   {
@@ -392,7 +400,7 @@ export const SETTING_SCHEMAS: SettingSchema[] = [
     type: 'rate_limit',
     category: 'polls',
     label: 'Vote rate limit',
-    description: 'Rate limit for voting (e.g., "5/h" = 5 votes per hour).',
+    description: 'Rate limit for voting (e.g., "5/h" = 5 votes per hour). ' + RATE_LIMIT_UNITS_HELP,
     defaultValue: '5/h',
     required: true,
     public: true,
@@ -402,7 +410,7 @@ export const SETTING_SCHEMAS: SettingSchema[] = [
     type: 'rate_limit',
     category: 'polls',
     label: 'Comment rate limit',
-    description: 'Rate limit for posting comments (e.g., "3/h").',
+    description: 'Rate limit for posting comments (e.g., "3/h"). ' + RATE_LIMIT_UNITS_HELP,
     defaultValue: '3/h',
     required: true,
     public: true,
@@ -412,7 +420,7 @@ export const SETTING_SCHEMAS: SettingSchema[] = [
     type: 'rate_limit',
     category: 'polls',
     label: 'Proposal rate limit',
-    description: 'Rate limit for submitting polls (e.g., "1/d").',
+    description: 'Rate limit for submitting polls (e.g., "1/d"). ' + RATE_LIMIT_UNITS_HELP,
     defaultValue: '1/d',
     required: true,
     public: true,
@@ -422,7 +430,7 @@ export const SETTING_SCHEMAS: SettingSchema[] = [
     type: 'rate_limit',
     category: 'reports',
     label: 'Report rate limit',
-    description: 'Rate limit for reporting polls (e.g., "3/d").',
+    description: 'Rate limit for reporting polls (e.g., "3/d"). ' + RATE_LIMIT_UNITS_HELP,
     defaultValue: '3/d',
     required: true,
     public: true,
@@ -432,7 +440,7 @@ export const SETTING_SCHEMAS: SettingSchema[] = [
     type: 'rate_limit',
     category: 'auth',
     label: 'Login rate limit',
-    description: 'Rate limit for login attempts (e.g., "10/h").',
+    description: 'Rate limit for login attempts (e.g., "10/h"). ' + RATE_LIMIT_UNITS_HELP,
     defaultValue: '10/h',
     required: true,
     public: true,
@@ -442,7 +450,7 @@ export const SETTING_SCHEMAS: SettingSchema[] = [
     type: 'rate_limit',
     category: 'auth',
     label: 'Register rate limit',
-    description: 'Rate limit for account registration (e.g., "5/d").',
+    description: 'Rate limit for account registration (e.g., "5/d"). ' + RATE_LIMIT_UNITS_HELP,
     defaultValue: '5/d',
     required: true,
     public: true,
@@ -452,7 +460,7 @@ export const SETTING_SCHEMAS: SettingSchema[] = [
     type: 'rate_limit',
     category: 'ai',
     label: 'AI rate limit',
-    description: 'Rate limit for AI assistance endpoints (e.g., "10/h").',
+    description: 'Rate limit for AI assistance endpoints (e.g., "10/h"). ' + RATE_LIMIT_UNITS_HELP,
     defaultValue: '10/h',
     required: true,
     public: true,

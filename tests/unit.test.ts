@@ -237,14 +237,16 @@ describe('validateUserPassword', () => {
 describe('checkAccountAge', () => {
   it('allows an old enough account', () => {
     const now = 1_000_000;
-    expect(checkAccountAge(now - 48 * 3600, 48, now).allowed).toBe(true);
+    // The delay is in minutes: 2880 minutes is 48 hours.
+    expect(checkAccountAge(now - 48 * 3600, 2880, now).allowed).toBe(true);
   });
 
-  it('reports the remaining hours for a new account', () => {
+  it('reports the remaining minutes for a new account', () => {
     const now = 1_000_000;
-    const result = checkAccountAge(now, 24, now);
+    // 1440 minutes is 24 hours.
+    const result = checkAccountAge(now, 1440, now);
     expect(result.allowed).toBe(false);
-    expect(result.remainingHours).toBe(24);
+    expect(result.remainingMinutes).toBe(1440);
   });
 });
 

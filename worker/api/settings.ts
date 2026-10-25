@@ -49,10 +49,10 @@ export const DEFAULT_PUBLIC_SETTINGS = {
   // When true, submitted polls are published immediately; when false they stay
   // pending until an admin approves them.
   auto_approve_polls: false,
-  // Account gating and authentication limits. Delay values are whole hours;
+  // Account gating and authentication limits. Delay values are whole minutes;
   // "N/w|d|h|m|s" values use the shared rate-limit format.
-  user_poll_delay_hours: 48,
-  user_comment_delay_hours: 24,
+  user_poll_delay_minutes: 10,
+  user_comment_delay_minutes: 10,
   max_accounts_per_ip: 4,
   login_max_failed_attempts: 5,
   login_lock_minutes: 15,
@@ -189,9 +189,9 @@ export async function loadPublicSettings(db: D1Database): Promise<PublicSettings
         if (!isInteger(value, 100, 9999)) invalid(row.key, 'must be an integer from 100 to 9999');
         settings.page_max_width_px = Number(value);
         break;
-      case 'user_poll_delay_hours':
-      case 'user_comment_delay_hours':
-        if (!isInteger(value, 0, 8760)) invalid(row.key, 'must be an integer from 0 to 8760');
+      case 'user_poll_delay_minutes':
+      case 'user_comment_delay_minutes':
+        if (!isInteger(value, 0, 525600)) invalid(row.key, 'must be an integer from 0 to 525600');
         (settings as Record<string, unknown>)[row.key] = Number(value);
         break;
       case 'max_accounts_per_ip':

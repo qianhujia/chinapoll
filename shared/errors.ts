@@ -93,9 +93,9 @@ export const ERROR_MESSAGES = {
   NOTE_TOO_LONG: 'a note must be at most {max} characters',
 
   // Account age gates
-  ACCOUNT_TOO_NEW_POLL: 'new accounts can submit a poll once the account is {hours} hours old',
-  ACCOUNT_TOO_NEW_COMMENT: 'new accounts can comment once the account is {hours} hours old',
-  ACCOUNT_TOO_NEW_AI: 'new accounts can use AI assistance once the account is {hours} hours old',
+  ACCOUNT_TOO_NEW_POLL: 'new accounts can submit a poll once the account is {minutes} minutes old',
+  ACCOUNT_TOO_NEW_COMMENT: 'new accounts can comment once the account is {minutes} minutes old',
+  ACCOUNT_TOO_NEW_AI: 'new accounts can use AI assistance once the account is {minutes} minutes old',
 
   // Rate limits
   RATE_LIMIT_EXCEEDED: 'rate limit reached',

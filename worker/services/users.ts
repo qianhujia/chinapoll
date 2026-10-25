@@ -66,17 +66,18 @@ export function validateUserPassword(password: string, username = ''): PasswordV
 
 export interface AccountAge {
   allowed: boolean;
-  /** Whole hours still required before the action is allowed (0 when allowed). */
-  remainingHours: number;
+  /** Whole minutes still required before the action is allowed (0 when allowed). */
+  remainingMinutes: number;
 }
 
 // New accounts must wait a configurable delay before submitting polls or
-// comments. `createdAt` is unix seconds.
-export function checkAccountAge(createdAt: number, delayHours: number, nowSeconds = Math.floor(Date.now() / 1000)): AccountAge {
-  const requiredSeconds = Math.max(0, delayHours) * 60 * 60;
+// comments. `createdAt` is unix seconds and `delayMinutes` is the configured
+// wait in whole minutes.
+export function checkAccountAge(createdAt: number, delayMinutes: number, nowSeconds = Math.floor(Date.now() / 1000)): AccountAge {
+  const requiredSeconds = Math.max(0, delayMinutes) * 60;
   const elapsedSeconds = nowSeconds - createdAt;
   if (elapsedSeconds >= requiredSeconds) {
-    return { allowed: true, remainingHours: 0 };
+    return { allowed: true, remainingMinutes: 0 };
   }
-  return { allowed: false, remainingHours: Math.ceil((requiredSeconds - elapsedSeconds) / 3600) };
+  return { allowed: false, remainingMinutes: Math.ceil((requiredSeconds - elapsedSeconds) / 60) };
 }

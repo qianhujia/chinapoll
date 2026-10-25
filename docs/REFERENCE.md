@@ -48,8 +48,8 @@ Public keys: `default_locale` (`en`, `zh-CN`, or `zh-TW`), `site_name`,
   "Server-rendered documents and the bootstrap island"), so the client fetches the
   file only as a fallback.
 
-Account keys (same table and endpoint): `user_poll_delay_hours` (48) and
-`user_comment_delay_hours` (24) gate new accounts; `max_accounts_per_ip` (4)
+Account keys (same table and endpoint): `user_poll_delay_minutes` (10) and
+`user_comment_delay_minutes` (10) gate new accounts; `max_accounts_per_ip` (4)
 caps accounts per network bucket; `login_max_failed_attempts` (5) and
 `login_lock_minutes` (15) control the lock; `login_rate_limit` (`10/h`) and
 `register_rate_limit` (`5/d`) limit sign-in and sign-up per bucket;
@@ -154,8 +154,8 @@ recovery channel, so credentials must be kept safe like a crypto recovery phrase
   `shared/password.ts`) stored in `users` as `pbkdf2$iterations$salt$hash`.
 - Sessions live in `user_sessions` with a thirty-day sliding expiry in an
   HttpOnly, SameSite=Strict cookie; only the SHA-256 hash of the token is kept.
-- New accounts can submit a poll after `user_poll_delay_hours` and comment after
-  `user_comment_delay_hours`, so brand-new accounts cannot post immediately.
+- New accounts can submit a poll after `user_poll_delay_minutes` and comment after
+  `user_comment_delay_minutes`, so brand-new accounts cannot post immediately.
 - Repeated failed sign-ins lock the account after `login_max_failed_attempts` for
   `login_lock_minutes` minutes.
 - Sign-up and sign-in are rate limited per anonymized network bucket, and one

@@ -18,8 +18,8 @@ beforeAll(async () => {
     env.DB.prepare("INSERT INTO settings (key, value) VALUES ('proposal_rate_limit', '1000/d')"),
     env.DB.prepare("INSERT INTO settings (key, value) VALUES ('comment_rate_limit', '1000/h')"),
     env.DB.prepare("INSERT INTO settings (key, value) VALUES ('login_rate_limit', '1000/h')"),
-    env.DB.prepare("INSERT INTO settings (key, value) VALUES ('user_poll_delay_hours', '0')"),
-    env.DB.prepare("INSERT INTO settings (key, value) VALUES ('user_comment_delay_hours', '0')"),
+    env.DB.prepare("INSERT INTO settings (key, value) VALUES ('user_poll_delay_minutes', '0')"),
+    env.DB.prepare("INSERT INTO settings (key, value) VALUES ('user_comment_delay_minutes', '0')"),
     env.DB.prepare("INSERT INTO settings (key, value) VALUES ('max_accounts_per_ip', '50')")
   ]);
 });

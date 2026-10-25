@@ -13,7 +13,7 @@ beforeAll(async () => {
   await env.DB.batch([
     env.DB.prepare("INSERT INTO settings (key, value) VALUES ('proposal_rate_limit', '1000/d')"),
     env.DB.prepare("INSERT INTO settings (key, value) VALUES ('register_rate_limit', '1000/d')"),
-    env.DB.prepare("INSERT INTO settings (key, value) VALUES ('user_poll_delay_hours', '0')")
+    env.DB.prepare("INSERT INTO settings (key, value) VALUES ('user_poll_delay_minutes', '0')")
   ]);
   const registered = await SELF.fetch(`${ORIGIN}/api/auth/register`, {
     method: 'POST',
