@@ -14,20 +14,29 @@ the schema or the network handling changes.
 
 - Votes: the SHA-256 hash of a per-poll browser token, and the chosen option as a
   reference to a stored option row. There is no account link and no network value.
-- Comments: free text, a random public id, and a one-way owner hash derived from the
-  server secret (`worker/services/owner.ts`). A comment is anonymous to the public:
-  the hash never leaves the database for readers. The author can still claim it, and
-  only through that hash: the account dashboard asks the server to confirm the
-  comment ids the browser remembers against the owner hash, and the admin dashboard
-  can list a user's comments only through the same hash check, never through a stored
-  user ID (no such column exists).
-- Polls: free text, the same kind of one-way `owner_hash`, and a creation timestamp
+- Comments: free text, a random public id, and one fixed `author_mark` value per
+  account (see `worker/services/author.ts`). A comment is anonymous to the public:
+  the mark never leaves the database for readers. "My comments" is an ordinary
+  paginated query by that mark, so the browser remembers nothing and no comment id
+  has to be claimed.
+- Polls: free text, the same kind of fixed `author_mark`, and a creation timestamp
   coarsened to the hour, so the dashboard can list and close the polls an account
-  submitted without the database naming the author. The hash message for a poll is
-  fixed (`worker/services/owner.ts`), and the hash proves submission only: a poll an
-  account voted on is never listed as one of its polls.
-- Accounts: username, a PBKDF2-HMAC-SHA256 password hash, a single recovery
-  code hash, and lock/bookkeeping fields. Login time is rounded to the day.
+  submitted without the database naming the author. The mark proves submission only:
+  a poll an account voted on is never listed as one of its polls.
+- Accounts: username, a PBKDF2-HMAC-SHA256 password verifier (the public `pbkdf2w$`
+  format), a single recovery code hash, and lock/bookkeeping fields. Each account
+  has a random 32-byte author key that is stored only wrapped: once under a
+  password-derived key (`users.author_key_pw`), once under a recovery-code-derived
+  key (`users.author_key_rc`), and once per session under a session-derived key
+  (`user_sessions.author_key`). Login time is rounded to the day.
+
+A database copy, even together with the server secret, cannot link a poll or
+comment to an account: the author key behind an `author_mark` is recoverable only
+from the user's password or recovery code, never from the stored rows, and the
+password verifier and the wrap keys are separate values derived from a PBKDF2
+output that never leaves the `PasswordHasher` Durable Object. All rows of one
+account share one author mark, so a database reader can tell that a set of rows
+came from the same anonymous author even though it cannot say which account.
 - The per-network account cap: a keyed, daily-rotated hash of the network bucket
   in `auth_attempts`. The raw address is never stored.
 - Poll reports and comment reports: only the reference (the poll, or the comment and
@@ -192,9 +201,12 @@ submit the poll:
   edge and records metadata. Cloudflare-side Logpush, Web Analytics, and Bot
   Analytics must be disabled, and "Remove visitor IP headers" enabled in Managed
   Transforms. Record the date each setting was applied here.
-- Accounts still link a person's polls and comments to one account row. Polls and
-  comments are shown publicly without usernames, but a database reader sees the
-  owner links. See `docs/DATA_MAP.md`.
+- The design does not defend against an operator who modifies the Worker to log
+  keys at request time.
+- Accounts still group a person's polls and comments under one author mark. Polls
+  and comments are shown publicly without usernames, and a database reader cannot
+  say which account the mark belongs to, but it can tell which rows share one
+  author. See `docs/DATA_MAP.md`.
 - Turnstile is a third-party service and is the only external origin the
   application may contact.
 
@@ -272,6 +284,12 @@ submit the poll:
   `/64` prefix instead of the whole text, and every admin response now carries the
   same security headers as the public Worker. The iteration count quoted in the docs
   is now the `PBKDF2_ITERATIONS` constant rather than a stale 600k.
+- Replaced the server-keyed owner hashes with user-held author keys: polls and
+  comments now store one fixed `author_mark` per account, the random author key is
+  stored only wrapped under password-, recovery-code-, and session-derived keys, and
+  "my polls" and "my comments" are ordinary paginated queries, so the browser
+  remembers nothing and there is no claim step. A database copy, even with the
+  server secret, cannot link a row to an account.
 
 ## Known trade-offs
 

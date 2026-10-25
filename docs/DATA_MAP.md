@@ -26,22 +26,22 @@ on its polls, so those polls become untopicalized.
 
 | Column | Contents | Readers | Retention |
 | --- | --- | --- | --- |
-| id | internal surrogate key; every foreign key and the owner hash use it | none | 30 days after close, then archived |
+| id | internal surrogate key; every foreign key uses it | none | 30 days after close, then archived |
 | number | public poll number, assigned once when the poll is approved; NULL while pending | Public, User, Admin | as above |
 | title, description | submission text | Public, User, Admin | as above |
 | mode, start_at, end_at, status, reviewed_at | lifecycle | Public, User, Admin | as above |
 | poll_type | ballot shape: 1 verdict, 2 single choice, 3 multi choice | Public, User, Admin | as above |
 | duration_seconds | length of the poll in seconds, or NULL for no end date | Public, User, Admin | as above |
 | topic_id | the poll's topic, or NULL when untopicalized | Public, Admin | as above |
-| owner_hash | one-way HMAC of the server secret with the account id and poll id | none | until the poll is deleted |
+| author_mark | the account's fixed author mark, `HMAC(authorKey, "author")` (`NULL` for a row with no signed-in author) | none | until the poll is deleted |
 | created_at, updated_at | timestamps; hour-coarsened when the poll is created | Public (derived), Admin | as above |
 
-Notes: `ip_prefix` was removed; no network value is stored for a poll.
-The `owner_hash` message is `owner:<accountId>:<pollId>` and is fixed: it is how an
-already-stored row is recognised as belonging to an account, so changing it would
-make existing polls unrecognisable to the account that submitted them. The dashboard
-lists the polls an account submitted by asking the server to confirm the poll ids the
-browser remembers, and it never lists a poll the account only voted on.
+Notes: `ip_prefix` was removed; no network value is stored for a poll. An
+`author_mark` is one fixed value per account (see `worker/services/author.ts`), so
+"my polls" is an ordinary paginated query by it and the browser remembers nothing.
+The mark proves submission only, and it never lists a poll the account merely voted
+on. Because the mark is a keyed value the server cannot invert, a database copy -
+even with the server secret - cannot say which account a poll belongs to.
 `duration_seconds` replaced the submitted start and end times, and `start_at` is
 no longer written for new polls. `end_at` is computed when the poll opens as
 `open_time + duration_seconds`, so a poll that waits for review still gets its
@@ -52,7 +52,7 @@ is approved (an auto-approved submission takes it at insert, a reviewed one when
 admin publishes it), and it is never reused or renumbered. It is what the site prints
 as `#<number>`, what `/poll/<number>` resolves, and what the sitemap and the
 previous/next links use. The primary key stays internal: it addresses the poll in
-every API call, in every foreign key, and in the owner hash. A pending poll has no
+every API call and in every foreign key. A pending poll has no
 number, so a submission that is never approved consumes no public number, and a
 deleted poll leaves its number unused, which is why the visible numbers can have
 gaps. A number is never reassigned.
@@ -120,18 +120,15 @@ combination, so the grouping is never published.
 | poll_id | poll reference | Public | until deleted |
 | comment | free text | Public | until deleted |
 | created_at | hour-coarsened timestamp | Public (derived) | until deleted |
-| owner_hash | one-way HMAC of the account that posted the comment (`NULL` for a row written before comments carried an owner, or when the server secret is unavailable) | Admin (never published) | until deleted |
+| author_mark | the poster's fixed author mark, `HMAC(authorKey, "author")` (`NULL` only for a row written without a signed-in author) | none | until deleted |
 
 Note: `ip_prefix` and `ts_bucket` were removed, and a comment carries no account
-column: `owner_hash` is derived from the server secret over the comment's random
-public id under a namespaced message (`owner:<accountId>:comment:<publicId>`), so it
-can never collide with a poll owner hash and a database leak without the secret
-reveals no author links. The
-account dashboard uses it to list and delete the comments that account posted, and
-the public comment API never returns it. `public_id` is also shown to its author in
-the dashboard, with a copy action, so a comment can be reclaimed after browser
-storage is cleared; the id is not a credential, because the owner-hash check still
-decides whether the row belongs to the account asking.
+column: `author_mark` is one fixed value per account (see
+`worker/services/author.ts`), so the dashboard lists and deletes the comments an
+account posted with an ordinary paginated query by that mark, and the public comment
+API never returns it. A database copy, even with the server secret, cannot link the
+comment to an account. "My comments" needs no remembered id, so the id is not shown
+or copied anywhere.
 
 ## poll_reports
 
@@ -196,18 +193,25 @@ the poll by the foreign key cascade.
 | --- | --- | --- | --- |
 | id | account id | User (self), Admin | until account deletion |
 | username | chosen handle (never shown publicly) | User (self), Admin | until deletion |
-| password_hash | PBKDF2 hash (`PBKDF2_ITERATIONS`, 100,000) | Admin (write only) | until deletion |
+| password_hash | public PBKDF2 verifier format (`pbkdf2w$<iterations>$<salt>$<verifier>`, `PBKDF2_ITERATIONS` = 100,000) | Admin (write only) | until deletion |
+| author_key_pw | the account's 32-byte author key wrapped (AES-256-GCM) under a password-derived wrap key | none | until deletion |
+| author_key_rc | the same author key wrapped under a recovery-code-derived wrap key | none | until deletion |
 | status, failed_attempts, locked_until | lockout state | Admin | until deletion |
 | last_login_at | day-coarsened | Admin | until deletion |
 | recovery_code_hash | SHA-256 of the one recovery code | none | rotated on use, until deletion |
 
-Note: `ip_prefix` was removed; account cap counters live in `auth_attempts`.
+Note: `ip_prefix` was removed; account cap counters live in `auth_attempts`. The
+author key itself is never stored in clear: `author_key_pw` and `author_key_rc` are
+two independent wrapped copies, so neither reveals the key without the password or
+the recovery code. The admin password format (`pbkdf2$...`) is unchanged for admin
+accounts.
 
 ## user_sessions
 
 | Column | Contents | Readers | Retention |
 | --- | --- | --- | --- |
 | token_hash | SHA-256 of the session token | none | 30 days sliding, purged hourly |
+| author_key | the account's author key wrapped under a session-token-derived wrap key | none | as above |
 | user_id, expires_at | bookkeeping; `expires_at` is exact | Admin | as above |
 | created_at | hour resolution | Admin | as above |
 
@@ -282,9 +286,12 @@ IP address. Read only by the admin Worker.
 
 - Vote totals and comment text, which are public anyway.
 - Account usernames and password/recovery hashes, but not plaintext secrets.
-- Poll rows carry only a one-way owner hash, and comments carry no owner, so no
-  author link can be recovered from the tables alone. Contributions are not
-  linked to votes and carry no network value.
+- Polls and comments carry only an author mark, and the author key behind it is
+  stored only wrapped under a password-, recovery-code-, or session-derived key, so
+  no author link can be recovered from the tables even together with the server
+  secret. All rows of one account share one mark, so a reader can tell that a set of
+  rows came from one anonymous author, but cannot say which account. Contributions
+  are not linked to votes and carry no network value.
 - Per-network account-cap counters only as keyed hashes; the raw address cannot
   be recovered without `SERVER_HMAC_KEY`. Because the cap hash rotates per calendar
   month, rows sharing a hash are linkable within one month.

@@ -28,8 +28,6 @@ import { loadEnabledTopics } from './categories';
 import { TOPIC_SLUG_PATTERN, topicNames } from '../../shared/categories';
 import { checkRateLimit } from '../services/rateLimit';
 import { enforceSameOrigin } from '../services/csrf';
-import { ownerHash } from '../services/owner';
-import { isValidServerKey, serverHmacKey } from '../services/ip';
 import { pollNumberStatement } from '../services/pollNumber';
 import { requireUser } from '../services/session';
 import { checkAccountAge } from '../services/users';
@@ -52,16 +50,6 @@ export async function handleProposalRequest(request: Request, env: HandlerEnv): 
 
   const csrf = enforceSameOrigin(request, { viaCookie: true });
   if (csrf) return csrf;
-
-  // The owner hash is the only thing that lets the submitter list, close, or
-  // withdraw this poll later, and it can be derived only with the server key. A
-  // deployment without that key must refuse the submission rather than write a poll
-  // whose owner can never be established: the row would be public and permanently
-  // unmanageable while the submitter still received a success response. The check
-  // runs before the insert, so no such row is ever created.
-  if (!isValidServerKey(serverHmacKey(env))) {
-    return apiError('SERVER_NOT_CONFIGURED', 503, { extra: { ok: false } });
-  }
 
   const delayHours = Number(env.user_poll_delay_hours ?? DEFAULT_POLL_DELAY_HOURS);
   const accountAge = checkAccountAge(auth.user.createdAt, delayHours);
@@ -152,8 +140,8 @@ export async function handleProposalRequest(request: Request, env: HandlerEnv): 
   const newPollId = '(SELECT id FROM polls ORDER BY id DESC LIMIT 1)';
   const statements: D1PreparedStatement[] = [
     env.DB.prepare(
-      `INSERT INTO polls (title, description, mode, poll_type, duration_seconds, end_at, status, reviewed_at, topic_id, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, CASE WHEN ? THEN unixepoch() + ? ELSE NULL END, ?, ?, ?, ?, ?)`
+      `INSERT INTO polls (title, description, mode, poll_type, duration_seconds, end_at, status, reviewed_at, topic_id, author_mark, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, CASE WHEN ? THEN unixepoch() + ? ELSE NULL END, ?, ?, ?, ?, ?, ?)`
     ).bind(
       title,
       description,
@@ -165,6 +153,7 @@ export async function handleProposalRequest(request: Request, env: HandlerEnv): 
       autoApprove ? PollStatus.Open : PollStatus.Pending,
       autoApprove ? coarseNow : null,
       topicId,
+      auth.user.authorMark,
       coarseNow,
       coarseNow
     ),
@@ -177,20 +166,12 @@ export async function handleProposalRequest(request: Request, env: HandlerEnv): 
   const results = await env.DB.batch(statements);
   const pollId = Number(results[0]?.meta.last_row_id ?? 0);
 
-  // The owner is stored as a one-way hash computed with the poll id, so it can
-  // only be written after the row exists. The server key was verified before the
-  // insert, so the hash is always available here. An auto-approved poll also takes
-  // its public number now; both run as one transaction, so a published poll is
-  // never left without an owner or a number.
-  const followUp: D1PreparedStatement[] = [];
-  const hash = await ownerHash(auth.user.id, pollId, serverHmacKey(env));
-  if (hash) {
-    followUp.push(env.DB.prepare('UPDATE polls SET owner_hash = ? WHERE id = ?').bind(hash, pollId));
-  }
+  // The author mark is known before the insert, so it is written with the poll
+  // row itself. Only the public number of an auto-approved poll needs a second
+  // statement, because it is taken with the row's id.
   if (autoApprove) {
-    followUp.push(pollNumberStatement(env.DB, pollId));
+    await env.DB.batch([pollNumberStatement(env.DB, pollId)]);
   }
-  if (followUp.length > 0) await env.DB.batch(followUp);
 
   return Response.json({
     ok: true,

@@ -1,11 +1,10 @@
 // Frontend comment-menu tests.
 //
-// Each comment row carries its own three-dot menu with the same two actions the poll
-// menu offers for the poll: report and claim. The builders are pure markup, so they
-// are checked directly.
+// Each comment row carries its own three-dot menu with the report action. The
+// builders are pure markup, so they are checked directly.
 
 import { describe, expect, it } from 'vitest';
-import { claimMenuEntryMarkup, commentMenuMarkup, renderCommentsContent } from '../src/ui';
+import { commentMenuEntriesMarkup, commentMenuMarkup, renderCommentsContent } from '../src/ui';
 import type { CommentsResponse } from '../src/lib/poll';
 
 // Translations are not loaded in this environment, so `t()` falls back to the i18n
@@ -21,36 +20,25 @@ const RESPONSE = {
   ]
 } as unknown as CommentsResponse;
 
-describe('claimMenuEntryMarkup', () => {
-  it('offers the claim button to a signed-in visitor', () => {
-    const markup = claimMenuEntryMarkup('data-claim-poll', '7', true, false);
+describe('commentMenuEntriesMarkup', () => {
+  it('offers the report entry', () => {
+    const markup = commentMenuEntriesMarkup('0123456789abcdef');
 
-    expect(markup).toContain('data-claim-poll="7"');
-    expect(markup).toContain('claimLink');
-    expect(markup).not.toContain('data-claim-already');
-  });
-
-  it('shows the note once claimed, and the sign-in link when signed out', () => {
-    expect(claimMenuEntryMarkup('data-claim-poll', '7', true, true)).toContain('data-claim-already');
-
-    // Claiming needs a session, so a signed-out visitor is sent to the login page
-    // instead of getting a button that could only fail.
-    const signedOut = claimMenuEntryMarkup('data-claim-poll', '7', false, false);
-    expect(signedOut).toContain('href="/login"');
-    expect(signedOut).not.toContain('data-claim-poll');
+    expect(markup).toContain('data-comment-report-open="0123456789abcdef"');
+    expect(markup).toContain('reportLink');
+    expect(markup).not.toContain('data-comment-report-already');
   });
 });
 
 describe('commentMenuMarkup', () => {
   it('builds one menu per comment, targeting that comment only', () => {
-    const markup = commentMenuMarkup('0123456789abcdef', true, false);
+    const markup = commentMenuMarkup('0123456789abcdef');
 
     expect(markup).toContain('data-comment-menu-root');
     expect(markup).toContain('data-comment-menu-toggle');
     expect(markup).toContain('aria-controls="comment-menu-0123456789abcdef"');
     expect(markup).toContain('id="comment-menu-0123456789abcdef"');
     expect(markup).toContain('data-comment-report-open="0123456789abcdef"');
-    expect(markup).toContain('data-comment-claim="0123456789abcdef"');
     // The panel stays closed until the toggle is pressed.
     expect(markup).toContain('data-comment-menu hidden');
   });
@@ -64,13 +52,11 @@ describe('commentMenuMarkup', () => {
       setItem: (key: string, value: string) => { store.set(key, value); }
     };
     try {
-      const markup = commentMenuMarkup('0123456789abcdef', true, false);
+      const markup = commentMenuMarkup('0123456789abcdef');
 
       expect(markup).toContain('data-comment-report-already');
       expect(markup).toContain('reportCommentAlreadySent');
       expect(markup).not.toContain('data-comment-report-open');
-      // The claim entry is unaffected by the report state.
-      expect(markup).toContain('data-comment-claim="0123456789abcdef"');
     } finally {
       delete (globalThis as unknown as { localStorage?: unknown }).localStorage;
     }
@@ -78,23 +64,17 @@ describe('commentMenuMarkup', () => {
 });
 
 describe('renderCommentsContent', () => {
-  it('gives every comment its own menu and marks the claimed one', () => {
-    const markup = renderCommentsContent(7, RESPONSE, ['fedcba9876543210'], true);
+  it('gives every comment its own menu', () => {
+    const markup = renderCommentsContent(7, RESPONSE, true);
 
     expect(markup).toContain('data-comment-report-open="0123456789abcdef"');
     expect(markup).toContain('data-comment-report-open="fedcba9876543210"');
-    // The already-claimed comment shows the note in place of its claim button, while
-    // the other comment keeps the button.
-    expect(markup).toContain('data-claim-already');
-    expect(markup).toContain('data-comment-claim="0123456789abcdef"');
-    expect(markup).not.toContain('data-comment-claim="fedcba9876543210"');
   });
 
   it('keeps the empty message and the pagination behaviour', () => {
     const empty = renderCommentsContent(
       7,
       { ...RESPONSE, total: 0, comments: [] } as unknown as CommentsResponse,
-      [],
       false
     );
 
@@ -105,7 +85,7 @@ describe('renderCommentsContent', () => {
   // The date sits at the right of the row, immediately left of the three-dot menu,
   // and shows a friendly local format instead of the raw stored value.
   it('shows a friendly date left of each comment menu', () => {
-    const markup = renderCommentsContent(7, RESPONSE, [], true);
+    const markup = renderCommentsContent(7, RESPONSE, true);
 
     // The exact value stays machine-readable in the attribute only.
     expect(markup).toContain('datetime="2026-10-24T00:00:00.000Z"');

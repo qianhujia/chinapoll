@@ -141,7 +141,6 @@ builds, and a check that the built SPA loads no third-party origin other than
 - [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) - what the system protects and Cloudflare settings that must stay disabled
 - [docs/DATA_MAP.md](docs/DATA_MAP.md) - every table and column, its readers, and retention
 - [docs/RUNBOOK.md](docs/RUNBOOK.md) - deployment, monitoring, backups, restore, failover
-- [docs/SERVER_KEY_ROTATION.md](docs/SERVER_KEY_ROTATION.md) - rotating SERVER_HMAC_KEY while preserving poll and comment ownership
 - [admin/README.md](admin/README.md) - admin Worker endpoints and dashboard
 
 ## Build check

@@ -5,9 +5,9 @@
 // global insertion order is not revealed. Rate limiting is per account and lives
 // in the RateLimiter Durable Object.
 //
-// A comment also keeps a one-way owner hash (see worker/services/owner.ts) so the
-// account dashboard can list and delete the comments that account posted. The hash
-// is never published: readers still see an anonymous comment.
+// A comment also stores the poster's `author_mark` (see worker/services/author.ts)
+// so the account dashboard can list and delete the comments that account posted.
+// The mark is never published: readers still see an anonymous comment.
 
 import type { HandlerEnv } from '../index';
 import { toHex } from '../../shared/crypto';
@@ -15,8 +15,6 @@ import { checkRateLimit } from '../services/rateLimit';
 import { enforceSameOrigin } from '../services/csrf';
 import { requireUser } from '../services/session';
 import { checkAccountAge } from '../services/users';
-import { commentOwnerHash } from '../services/owner';
-import { serverHmacKey } from '../services/ip';
 import { PollMode, PollStatus } from '../enums';
 import { apiError } from '../../shared/http';
 
@@ -144,16 +142,11 @@ async function handleCommentSubmission(request: Request, env: HandlerEnv): Promi
   const coarseNow = nowSeconds - (nowSeconds % 3600);
   const id = publicId();
   // The account dashboard lists and deletes the comments it posted, so the row
-  // keeps a one-way owner hash. Readers still see an anonymous comment.
-  // The owner hash is the only thing that lets the author list and delete this
-  // comment later, and it can be derived only with the server key. A deployment
-  // without that key must refuse the comment rather than store one that is public but
-  // permanently unmanageable, so the check runs before the insert.
-  const owner = await commentOwnerHash(auth.user.id, id, serverHmacKey(env));
-  if (!owner) return apiError('SERVER_NOT_CONFIGURED', 503);
+  // stores the poster's fixed author mark. The mark is never published, so readers
+  // still see an anonymous comment.
   await env.DB.prepare(
-    'INSERT INTO comments (poll_id, comment, created_at, public_id, owner_hash) VALUES (?, ?, ?, ?, ?)'
-  ).bind(pollId, comment, coarseNow, id, owner).run();
+    'INSERT INTO comments (poll_id, comment, created_at, public_id, author_mark) VALUES (?, ?, ?, ?, ?)'
+  ).bind(pollId, comment, coarseNow, id, auth.user.authorMark).run();
 
   return Response.json({ ok: true, id }, { status: 201 });
 }

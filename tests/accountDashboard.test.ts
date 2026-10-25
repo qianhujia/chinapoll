@@ -99,43 +99,32 @@ describe('account panels', () => {
     expect(markup).toContain('data-delete-account');
   });
 
-  it('renders the polls panel with the poll actions and the add form', () => {
-    const markup = accountPollsPanelMarkup([POLL], '');
+  it('renders the polls panel with the poll actions', () => {
+    const markup = accountPollsPanelMarkup([POLL], false, '');
 
     expect(markup).toContain('Transit funding');
     expect(markup).toContain('data-close-poll="7"');
-    expect(markup).toContain('data-remember-poll-form');
     // An empty list explains itself instead of failing.
-    expect(accountPollsPanelMarkup([], '')).toContain('accountNoPolls');
-    expect(accountPollsPanelMarkup([], 'boom')).toContain('boom');
+    expect(accountPollsPanelMarkup([], false, '')).toContain('accountNoPolls');
+    expect(accountPollsPanelMarkup([], false, 'boom')).toContain('boom');
   });
 
   it('renders the comments panel with the poll each comment belongs to', () => {
-    const markup = accountCommentsPanelMarkup([COMMENT], '');
+    const markup = accountCommentsPanelMarkup([COMMENT], false, '');
 
     expect(markup).toContain('A short remark');
     expect(markup).toContain('data-delete-comment="0123456789abcdef"');
     // The comment links back to the poll it was posted on.
     expect(markup).toContain('href="/poll/7"');
     expect(markup).toContain('Transit funding');
-    // The storage note only appears when there is something to explain.
-    expect(markup).toContain('accountCommentsBrowserNote');
-    expect(accountCommentsPanelMarkup([], '')).toContain('accountNoComments');
-    expect(accountCommentsPanelMarkup([], '')).not.toContain('accountCommentsBrowserNote');
+    expect(accountCommentsPanelMarkup([], false, '')).toContain('accountNoComments');
   });
 
-  it('shows the comment id with a copy action and offers the claim form', () => {
-    const markup = accountCommentsPanelMarkup([COMMENT], '');
-
-    // The author sees the id so it can be carried to another device...
-    expect(markup).toContain('accountCommentIdLabel');
-    expect(markup).toContain('data-copy-comment-id="0123456789abcdef"');
-    // ... and the claim form is present even with an empty list, so a comment whose
-    // id was forgotten can be added back.
-    expect(markup).toContain('data-remember-comment-form');
-    const empty = accountCommentsPanelMarkup([], '');
-    expect(empty).toContain('data-remember-comment-form');
-    expect(empty).toContain('accountAddCommentLabel');
+  it('shows a load-more button only while a further page exists', () => {
+    expect(accountPollsPanelMarkup([POLL], true, '')).toContain('data-load-more-polls');
+    expect(accountPollsPanelMarkup([POLL], false, '')).not.toContain('data-load-more-polls');
+    expect(accountCommentsPanelMarkup([COMMENT], true, '')).toContain('data-load-more-comments');
+    expect(accountCommentsPanelMarkup([COMMENT], false, '')).not.toContain('data-load-more-comments');
   });
 
   it('escapes a comment body and title', () => {
@@ -143,7 +132,7 @@ describe('account panels', () => {
       ...COMMENT,
       comment: '<script>alert(1)</script>',
       pollTitle: '<b>t</b>'
-    }], '');
+    }], false, '');
 
     expect(markup).not.toContain('<script>');
     expect(markup).toContain('&lt;script&gt;');

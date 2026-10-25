@@ -12,8 +12,14 @@ import { checkRateLimit } from '../services/rateLimit';
 import { clientAddress, hashedNetworkBucket, serverHmacKey } from '../services/ip';
 import { isTurnstileEnabled, turnstileSecretKey, verifyTurnstile } from '../services/turnstile';
 import { enforceSameOrigin } from '../services/csrf';
-import { PBKDF2_ITERATIONS, passwordIterations } from '../../shared/password';
-import { hashPassword, verifyPassword } from '../services/passwordHasher';
+import {
+  PBKDF2_ITERATIONS,
+  formatUserPasswordHash,
+  parseUserPasswordHash
+} from '../../shared/password';
+import { derivePasswordMaterialRemote } from '../services/passwordHasher';
+import { constantTimeEqual, unwrapHex, wrapHex } from '../../shared/crypto';
+import { authorMark, newAuthorKeyHex, recoveryWrapKeyHex } from '../services/author';
 import { generateRecoveryCode, hashRecoveryCode, normalizeRecoveryCode } from '../services/recovery';
 import {
   USER_STATUS_ACTIVE,
@@ -54,6 +60,7 @@ interface UserRow {
   status: number;
   failed_attempts: number;
   locked_until: number | null;
+  author_key_pw: string;
   created_at: number;
 }
 
@@ -181,16 +188,35 @@ async function register(request: Request, env: HandlerEnv): Promise<Response> {
     return apiError('REGISTER_RATE_LIMIT', 429);
   }
 
-  const passwordHash = await hashPassword(env, usernameResult.value, password);
+  // The account's random author key is generated here and never stored in clear.
+  // Only the derived password material leaves the PasswordHasher object, and the
+  // author key is wrapped under the password-derived and recovery-code-derived
+  // wrap keys.
+  const authorKeyHex = newAuthorKeyHex();
+  const material = await derivePasswordMaterialRemote(env, usernameResult.value, password);
+  const passwordHash = formatUserPasswordHash(material);
+  const authorKeyPw = await wrapHex(material.wrapKeyHex, authorKeyHex);
   // Issue the first recovery code. The plaintext code is returned here only; the
-  // database keeps just its hash.
+  // database keeps just its hash, plus the author key wrapped under a
+  // recovery-code-derived key.
   const recoveryCode = await generateRecoveryCode();
+  const authorKeyRc = await wrapHex(
+    await recoveryWrapKeyHex(normalizeRecoveryCode(recoveryCode.code)),
+    authorKeyHex
+  );
   let userId: number;
   try {
     const result = await env.DB.prepare(
-      `INSERT INTO users (username, password_hash, status, recovery_code_hash, recovery_code_updated_at)
-       VALUES (?, ?, ?, ?, unixepoch())`
-    ).bind(usernameResult.value, passwordHash, USER_STATUS_ACTIVE, recoveryCode.hash).run();
+      `INSERT INTO users (username, password_hash, status, recovery_code_hash, recovery_code_updated_at, author_key_pw, author_key_rc)
+       VALUES (?, ?, ?, ?, unixepoch(), ?, ?)`
+    ).bind(
+      usernameResult.value,
+      passwordHash,
+      USER_STATUS_ACTIVE,
+      recoveryCode.hash,
+      authorKeyPw,
+      authorKeyRc
+    ).run();
     userId = Number(result.meta.last_row_id);
   } catch {
     return apiError('USERNAME_TAKEN', 409);
@@ -198,7 +224,7 @@ async function register(request: Request, env: HandlerEnv): Promise<Response> {
 
   await recordAccount(env.DB, monthHash);
 
-  const token = await createSession(env, userId);
+  const token = await createSession(env, userId, authorKeyHex);
   return noStoreJson({
     ok: true,
     user: { id: userId, username: usernameResult.value },
@@ -228,7 +254,7 @@ async function login(request: Request, env: HandlerEnv): Promise<Response> {
   }
 
   const user = await env.DB.prepare(
-    `SELECT id, username, password_hash, status, failed_attempts, locked_until, created_at
+    `SELECT id, username, password_hash, status, failed_attempts, locked_until, author_key_pw, created_at
      FROM users WHERE username = ?`
   ).bind(username).first<UserRow>();
 
@@ -242,7 +268,14 @@ async function login(request: Request, env: HandlerEnv): Promise<Response> {
     return apiError('INVALID_CREDENTIALS', 401);
   }
 
-  if (!await verifyPassword(env, username, password, user.password_hash)) {
+  // Re-derive the password material from the stored salt and iteration count and
+  // compare the verifier. A row whose stored hash is not the public format is a
+  // mismatch, exactly like a wrong password.
+  const parsed = parseUserPasswordHash(user.password_hash);
+  const material = parsed
+    ? await derivePasswordMaterialRemote(env, username, password, parsed.saltHex, parsed.iterations)
+    : null;
+  if (!parsed || !material || !constantTimeEqual(material.verifierHex, parsed.verifierHex)) {
     const attempts = Number(user.failed_attempts) + 1;
     if (attempts >= maxFailed) {
       const lockedUntil = now + lockMinutes * 60;
@@ -257,11 +290,21 @@ async function login(request: Request, env: HandlerEnv): Promise<Response> {
     return apiError('INVALID_CREDENTIALS', 401);
   }
 
-  // Rehash with the current iteration count when the stored hash predates it.
-  const storedIterations = passwordIterations(user.password_hash);
-  const nextHash = storedIterations !== null && storedIterations < PBKDF2_ITERATIONS
-    ? await hashPassword(env, username, password)
+  // The password is correct, so the stored wrap key recovers the author key.
+  const authorKeyHex = await unwrapHex(material.wrapKeyHex, user.author_key_pw);
+  if (authorKeyHex === null) {
+    // A consistent row always unwraps; this guards against a corrupt row rather
+    // than treating it as a wrong password.
+    return apiError('ACCOUNT_KEY_UNAVAILABLE', 500);
+  }
+
+  // Rehash with the current iteration count when the stored hash predates it. The
+  // author key is re-wrapped under the new password-derived key at the same time.
+  const next = parsed.iterations < PBKDF2_ITERATIONS
+    ? await derivePasswordMaterialRemote(env, username, password)
     : null;
+  const nextHash = next ? formatUserPasswordHash(next) : null;
+  const nextAuthorKeyPw = next ? await wrapHex(next.wrapKeyHex, authorKeyHex) : null;
 
   // last_login_at is rounded to the day so it cannot be joined against precise
   // activity timestamps. `updated_at` is written at the same day resolution: the
@@ -269,12 +312,18 @@ async function login(request: Request, env: HandlerEnv): Promise<Response> {
   const dayStart = now - (now % 86400);
   await env.DB.prepare(
     `UPDATE users SET failed_attempts = 0, locked_until = NULL, last_login_at = ?, updated_at = ?,
-       password_hash = COALESCE(?, password_hash)
+       password_hash = COALESCE(?, password_hash), author_key_pw = COALESCE(?, author_key_pw)
      WHERE id = ?`
-  ).bind(dayStart, dayStart, nextHash, user.id).run();
+  ).bind(dayStart, dayStart, nextHash, nextAuthorKeyPw, user.id).run();
 
-  const token = await createSession(env, user.id);
-  const actor: UserActor = { id: user.id, username: user.username, createdAt: Number(user.created_at) };
+  const token = await createSession(env, user.id, authorKeyHex);
+  const actor: UserActor = {
+    id: user.id,
+    username: user.username,
+    createdAt: Number(user.created_at),
+    authorKeyHex,
+    authorMark: await authorMark(authorKeyHex)
+  };
   return noStoreJson({ ok: true, user: publicUser(actor) }, 200, {
     'set-cookie': buildSessionCookie(token, isSecureRequest(request))
   });
@@ -319,22 +368,42 @@ async function recover(request: Request, env: HandlerEnv): Promise<Response> {
   }
 
   const user = await env.DB.prepare(
-    'SELECT id, status, recovery_code_hash FROM users WHERE username = ?'
-  ).bind(usernameResult.value).first<{ id: number; status: number; recovery_code_hash: string | null }>();
+    'SELECT id, status, recovery_code_hash, author_key_rc FROM users WHERE username = ?'
+  ).bind(usernameResult.value).first<{
+    id: number;
+    status: number;
+    recovery_code_hash: string | null;
+    author_key_rc: string;
+  }>();
   if (!user || user.status !== USER_STATUS_ACTIVE || !user.recovery_code_hash) return invalid;
 
-  const passwordHash = await hashPassword(env, usernameResult.value, newPassword);
+  // Check the code before deriving, so a wrong code does not pay for PBKDF2.
   const providedHash = await hashRecoveryCode(code);
+  if (!constantTimeEqual(providedHash, user.recovery_code_hash)) return invalid;
+
+  // The recovery-code-derived wrap key recovers the account's author key.
+  const authorKeyHex = await unwrapHex(await recoveryWrapKeyHex(code), user.author_key_rc);
+  if (authorKeyHex === null) return invalid;
+
+  const material = await derivePasswordMaterialRemote(env, usernameResult.value, newPassword);
+  const passwordHash = formatUserPasswordHash(material);
+  const authorKeyPw = await wrapHex(material.wrapKeyHex, authorKeyHex);
+
   // Consume and rotate the code in a single statement: the WHERE clause matches
   // only the current code, which makes the update atomic (a code can never be
   // used twice) and leaves the account with a fresh code.
   const nextCode = await generateRecoveryCode();
+  const authorKeyRc = await wrapHex(
+    await recoveryWrapKeyHex(normalizeRecoveryCode(nextCode.code)),
+    authorKeyHex
+  );
   const updated = await env.DB.prepare(
     `UPDATE users
-     SET password_hash = ?, recovery_code_hash = ?, recovery_code_updated_at = unixepoch(),
+     SET password_hash = ?, author_key_pw = ?, recovery_code_hash = ?, author_key_rc = ?,
+         recovery_code_updated_at = unixepoch(),
          failed_attempts = 0, locked_until = NULL, updated_at = unixepoch()
      WHERE id = ? AND recovery_code_hash = ?`
-  ).bind(passwordHash, nextCode.hash, user.id, providedHash).run();
+  ).bind(passwordHash, authorKeyPw, nextCode.hash, authorKeyRc, user.id, providedHash).run();
   if (Number(updated.meta.changes ?? 0) !== 1) return invalid;
 
   // Sign out every device so old sessions cannot outlive the reset.

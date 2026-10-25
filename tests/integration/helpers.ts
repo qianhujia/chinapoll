@@ -180,12 +180,12 @@ export function reportRequest(pollId: number, reason: string, note?: string): Pr
   });
 }
 
-// Inserts a comment row with no owner, so a test can exercise the comment APIs
-// without a session. The public id must be the 16 lowercase hex characters the
-// comment report route expects.
+// Inserts a comment row with no author mark, so a test can exercise the comment
+// APIs without a session. The public id must be the 16 lowercase hex characters
+// the comment report route expects.
 export async function seedComment(pollId: number, publicId: string, comment = 'A comment worth reporting'): Promise<void> {
   await env.DB.prepare(
-    'INSERT INTO comments (poll_id, comment, public_id, owner_hash) VALUES (?, ?, ?, NULL)'
+    'INSERT INTO comments (poll_id, comment, public_id, author_mark) VALUES (?, ?, ?, NULL)'
   ).bind(pollId, comment, publicId).run();
 }
 

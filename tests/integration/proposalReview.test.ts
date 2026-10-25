@@ -90,17 +90,22 @@ async function pollStatus(pollId: number): Promise<number | null> {
 }
 
 describe('proposal submission without the server key', () => {
-  it('refuses the submission instead of storing a poll that no account can own', async () => {
+  it('still stores the poll, because ownership no longer depends on the server key', async () => {
     const title = 'Poll with no server key';
     const response = await propose({ SERVER_HMAC_KEY: undefined }, title);
 
-    expect(response.status).toBe(503);
-    expect((await response.json() as any).error.code).toBe('SERVER_NOT_CONFIGURED');
+    expect(response.status).toBe(201);
+    const pollId = Number((await response.json() as { pollId: number }).pollId);
 
-    // Nothing was written: a poll whose owner can never be established would be
-    // public but could never be listed, closed, or withdrawn by its own submitter.
-    const row = await env.DB.prepare('SELECT id FROM polls WHERE title = ?').bind(title).first();
-    expect(row).toBeNull();
+    // The row carries the submitter's author mark, so the submitter can still list
+    // and manage it even though the deployment has no server key.
+    const row = await env.DB.prepare('SELECT author_mark FROM polls WHERE id = ?')
+      .bind(pollId).first<{ author_mark: string | null }>();
+    expect(row?.author_mark).toMatch(/^[0-9a-f]{64}$/);
+
+    const listed = await (await SELF.fetch(`${ORIGIN}/api/user/polls?page=1`, { headers: { cookie } }))
+      .json() as any;
+    expect(listed.polls.map((poll: any) => poll.id)).toContain(pollId);
   });
 });
 

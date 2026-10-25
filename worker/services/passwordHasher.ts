@@ -11,9 +11,20 @@
 // always hashed and verified by the same instance. The object keeps no state; it
 // is SQLite-backed for a predictable storage backend but never reads or writes
 // storage.
+//
+// Besides `hash` and `verify` for admin accounts, the object answers `derive` for
+// public accounts: it returns the derived password material (salt, iterations,
+// verifier, and wrap key). The PBKDF2 output itself never leaves the object, so
+// the vault secret the material is derived from is never exposed to the caller.
 
-import { PBKDF2_ITERATIONS, checkPasswordHash, derivePasswordHash } from '../../shared/password';
-import { sha256Hex } from '../../shared/crypto';
+import {
+  PBKDF2_ITERATIONS,
+  checkPasswordHash,
+  derivePasswordHash,
+  derivePasswordMaterial,
+  type PasswordMaterial
+} from '../../shared/password';
+import { fromHex, sha256Hex } from '../../shared/crypto';
 import { apiError } from '../../shared/http';
 
 export interface PasswordHasherEnv {
@@ -25,9 +36,10 @@ const SHARD_COUNT = 16;
 const HASHER_URL = 'https://password-hasher/';
 
 interface HasherRequest {
-  op: 'hash' | 'verify';
+  op: 'hash' | 'verify' | 'derive';
   password?: string;
   stored?: string;
+  saltHex?: string;
   iterations?: number;
 }
 
@@ -55,6 +67,24 @@ export class PasswordHasher {
     if (body.op === 'verify') {
       const stored = typeof body.stored === 'string' ? body.stored : '';
       return Response.json({ ok: await checkPasswordHash(password, stored) });
+    }
+
+    if (body.op === 'derive') {
+      let saltHex: string | undefined;
+      if (body.saltHex !== undefined) {
+        if (typeof body.saltHex !== 'string' || fromHex(body.saltHex).length === 0) {
+          return apiError('BAD_REQUEST', 400);
+        }
+        saltHex = body.saltHex;
+      }
+      let iterations: number | undefined;
+      if (body.iterations !== undefined) {
+        if (!Number.isSafeInteger(body.iterations) || (body.iterations as number) <= 0) {
+          return apiError('BAD_REQUEST', 400);
+        }
+        iterations = Number(body.iterations);
+      }
+      return Response.json(await derivePasswordMaterial(password, saltHex, iterations));
     }
 
     return apiError('UNKNOWN_OPERATION', 400);
@@ -115,4 +145,31 @@ export async function verifyPassword(
     { op: 'verify', password, stored }
   );
   return result.ok === true;
+}
+
+// Derives the password material of a public account through the PasswordHasher
+// Durable Object. The username selects the same shard the account was created
+// with. Passing the stored salt and iteration count re-derives the material for
+// a sign-in check; omitting both generates a fresh salt at the current count.
+export async function derivePasswordMaterialRemote(
+  env: PasswordHasherEnv,
+  username: string,
+  password: string,
+  saltHex?: string,
+  iterations?: number
+): Promise<PasswordMaterial> {
+  if (!password) throw new Error('password is required');
+  const body: HasherRequest = { op: 'derive', password };
+  if (saltHex !== undefined) body.saltHex = saltHex;
+  if (iterations !== undefined) body.iterations = iterations;
+  const result = await callHasher(env, await passwordHasherShard(username), body);
+  const salt = result.saltHex;
+  const verifierHex = result.verifierHex;
+  const wrapKeyHex = result.wrapKeyHex;
+  const iter = result.iterations;
+  if (typeof salt !== 'string' || typeof verifierHex !== 'string'
+    || typeof wrapKeyHex !== 'string' || typeof iter !== 'number') {
+    throw new Error('password hasher returned no material');
+  }
+  return { saltHex: salt, iterations: iter, verifierHex, wrapKeyHex };
 }

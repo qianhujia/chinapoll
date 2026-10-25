@@ -8,7 +8,6 @@ import {
   MAX_OPTION_LABEL_LENGTH,
   DURATION_LABEL_KEYS,
   getTopics,
-  rememberMyPoll,
   submitProposal,
   type PollDuration,
   type PollType
@@ -304,7 +303,6 @@ export function bindProposalForm(app: HTMLElement, bindNavigation: () => void): 
       showToast(result.status === 'open'
         ? `${t('proposalPublished')}: ${result.pollId}`
         : `${t('proposalSubmitted')}: ${result.pollId}`);
-      rememberMyPoll(result.pollId);
       // The form is reset for another submission.
       confirming = false;
       pollType = 'verdict';

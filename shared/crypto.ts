@@ -49,10 +49,56 @@ export async function hmacSha256Hex(key: Uint8Array | string, message: string): 
 
 // Derives a purpose-specific sub-key from a master key: HMAC(master, purpose).
 // Distinct purposes keep one derived value from helping with another, so a
-// network hash can never be turned into an owner hash. `masterHex` must be a
+// verifier can never be turned into a wrap key. `masterHex` must be a
 // 64-character hex string; the result is also 64 hex characters.
 export async function deriveKey(masterHex: string, purpose: string): Promise<string> {
   return hmacSha256Hex(fromHex(masterHex), purpose);
+}
+
+// Wraps a small hex secret (for example an author key) under a 64-hex wrap key
+// using AES-256-GCM. The random 12-byte IV is prefixed to the ciphertext as
+// "<ivHex>:<ciphertextHex>"; the ciphertext includes the 16-byte GCM tag.
+export async function wrapHex(wrapKeyHex: string, plaintextHex: string): Promise<string> {
+  const key = await crypto.subtle.importKey(
+    'raw',
+    fromHex(wrapKeyHex) as BufferSource,
+    { name: 'AES-GCM' },
+    false,
+    ['encrypt']
+  );
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ciphertext = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv },
+    key,
+    fromHex(plaintextHex) as BufferSource
+  );
+  return `${toHex(iv)}:${toHex(new Uint8Array(ciphertext))}`;
+}
+
+// Unwraps a value produced by `wrapHex`. Returns the plaintext as hex, or null
+// on any failure (bad format, wrong key, or tampered data). It never throws.
+export async function unwrapHex(wrapKeyHex: string, stored: string): Promise<string | null> {
+  try {
+    const parts = stored.split(':');
+    if (parts.length !== 2) return null;
+    const [ivHex, ciphertextHex] = parts;
+    if (fromHex(ivHex).length === 0 || fromHex(ciphertextHex).length === 0) return null;
+    const key = await crypto.subtle.importKey(
+      'raw',
+      fromHex(wrapKeyHex) as BufferSource,
+      { name: 'AES-GCM' },
+      false,
+      ['decrypt']
+    );
+    const plaintext = await crypto.subtle.decrypt(
+      { name: 'AES-GCM', iv: fromHex(ivHex) as BufferSource },
+      key,
+      fromHex(ciphertextHex) as BufferSource
+    );
+    return toHex(new Uint8Array(plaintext));
+  } catch {
+    return null;
+  }
 }
 
 // Compares two strings without leaking their content through timing differences.

@@ -1,19 +1,15 @@
 // "My comments" endpoints.
 //
-// A comment keeps a one-way owner hash (see worker/services/owner.ts), so the
-// dashboard can list and delete the comments an account posted while readers still
-// see an anonymous comment. The client supplies the public ids it remembered from
-// posting, and the server answers only for rows whose owner hash matches.
+// A comment stores one fixed `author_mark` per account, so the dashboard lists and
+// deletes the comments an account posted via a plain paginated query while readers
+// still see an anonymous comment.
 
 import { beforeAll, describe, expect, it } from 'vitest';
 import { env, SELF } from 'cloudflare:test';
 import { ORIGIN, applySchema, seedPoll } from './helpers';
-import type { HandlerEnv } from '../../worker/index';
 
 beforeAll(async () => {
   await applySchema();
-  // The file registers several accounts and posts several comments; the gates
-  // themselves are covered by accounts.test.ts.
   await env.DB.batch([
     env.DB.prepare("INSERT INTO settings (key, value) VALUES ('register_rate_limit', '1000/d')"),
     env.DB.prepare("INSERT INTO settings (key, value) VALUES ('comment_rate_limit', '1000/h')"),
@@ -29,9 +25,6 @@ async function register(username: string): Promise<string> {
     body: JSON.stringify({ username, password: 'test-password-123' })
   });
   expect(response.status).toBe(201);
-  // Backdate the account so the comment delay never applies.
-  await env.DB.prepare('UPDATE users SET created_at = created_at - 25 * 3600 WHERE username = ?')
-    .bind(username).run();
   return (response.headers.get('set-cookie') ?? '').split(';')[0];
 }
 
@@ -45,9 +38,8 @@ async function postComment(pollId: number, cookie: string, comment = 'A comment 
   return (await response.json() as { id: string }).id;
 }
 
-function listComments(ids: string[], cookie: string): Promise<Response> {
-  const params = new URLSearchParams({ ids: ids.join(',') });
-  return SELF.fetch(`${ORIGIN}/api/user/comments?${params}`, { headers: { cookie } });
+function listComments(cookie: string, page = 1): Promise<Response> {
+  return SELF.fetch(`${ORIGIN}/api/user/comments?page=${page}`, { headers: { cookie } });
 }
 
 function deleteComment(id: string, cookie: string): Promise<Response> {
@@ -58,15 +50,15 @@ function deleteComment(id: string, cookie: string): Promise<Response> {
 }
 
 describe('my comments', () => {
-  it('stores an owner hash on a posted comment without publishing it', async () => {
-    const pollId = await seedPoll({ title: 'Owner hash poll' });
-    const cookie = await register('owner-hash-user');
+  it('stores an author mark on a posted comment without publishing it', async () => {
+    const pollId = await seedPoll({ title: 'Author mark poll' });
+    const cookie = await register('author-mark-user');
     const id = await postComment(pollId, cookie);
 
-    // The row carries a hash the public API never returns.
-    const row = await env.DB.prepare('SELECT owner_hash FROM comments WHERE public_id = ?')
-      .bind(id).first<{ owner_hash: string | null }>();
-    expect(row?.owner_hash).toMatch(/^[0-9a-f]{64}$/);
+    // The row carries a mark the public API never returns.
+    const row = await env.DB.prepare('SELECT author_mark FROM comments WHERE public_id = ?')
+      .bind(id).first<{ author_mark: string | null }>();
+    expect(row?.author_mark).toMatch(/^[0-9a-f]{64}$/);
 
     const listing = await (await SELF.fetch(`${ORIGIN}/api/comments/${pollId}`)).json() as any;
     expect(listing.comments).toHaveLength(1);
@@ -75,7 +67,7 @@ describe('my comments', () => {
       comment: 'A comment on this public poll.',
       createdAt: expect.any(String)
     });
-    expect(JSON.stringify(listing)).not.toContain('owner');
+    expect(JSON.stringify(listing)).not.toContain('author');
   });
 
   it('lists the comments the account posted', async () => {
@@ -84,34 +76,28 @@ describe('my comments', () => {
     const first = await postComment(pollId, cookie, 'The first remark.');
     const second = await postComment(pollId, cookie, 'The second remark.');
 
-    const body = await (await listComments([first, second], cookie)).json() as any;
-    // Both comments come back with the poll they belong to. Their relative order is
-    // the client's business: the hour-coarsened timestamp cannot order them.
+    const body = await (await listComments(cookie)).json() as any;
+    // Both comments come back with the poll they belong to. They share one
+    // hour-coarsened timestamp, so the order is the server's business.
     expect(body.comments).toHaveLength(2);
     expect(body.comments.map((comment: any) => comment.comment).sort()).toEqual([
       'The first remark.', 'The second remark.'
     ]);
     expect(body.comments[0]).toMatchObject({ pollId, pollTitle: 'My comments poll' });
+    expect(body.page).toBe(1);
+    expect(body.hasMore).toBe(false);
+    expect([first, second]).toContain(body.comments[0].id);
   });
 
-  it('ignores ids the account does not own and rejects a malformed list', async () => {
+  it('does not list another account\u2019s comment', async () => {
     const pollId = await seedPoll({ title: 'Foreign comment poll' });
     const mine = await register('comment-owner');
     const theirs = await register('comment-other');
     const myId = await postComment(pollId, mine);
-    const theirId = await postComment(pollId, theirs);
+    await postComment(pollId, theirs);
 
-    // The other account's comment is not returned for my id list.
-    const body = await (await listComments([myId, theirId], mine)).json() as any;
+    const body = await (await listComments(mine)).json() as any;
     expect(body.comments.map((comment: any) => comment.id)).toEqual([myId]);
-
-    // A row created before the owner hash existed is never claimed.
-    await env.DB.prepare('UPDATE comments SET owner_hash = NULL WHERE public_id = ?').bind(myId).run();
-    const unclaimed = await (await listComments([myId], mine)).json() as any;
-    expect(unclaimed.comments).toEqual([]);
-
-    expect((await listComments(['not-an-id'], mine)).status).toBe(400);
-    expect(await (await listComments([], mine)).json()).toEqual({ comments: [] });
   });
 
   it('deletes only the account\u2019s own comment', async () => {
@@ -132,54 +118,27 @@ describe('my comments', () => {
       .bind(pollId).all<{ public_id: string }>();
     expect(remaining.results).toEqual([{ public_id: theirId }]);
     // The owner's list is empty again.
-    const body = await (await listComments([myId], mine)).json() as any;
+    const body = await (await listComments(mine)).json() as any;
     expect(body.comments).toEqual([]);
   });
 
   it('requires a signed-in account', async () => {
-    const response = await SELF.fetch(`${ORIGIN}/api/user/comments?ids=0123456789abcdef`);
+    const response = await SELF.fetch(`${ORIGIN}/api/user/comments?page=1`);
     expect(response.status).toBe(401);
-  });
-
-  it('refuses to store a comment when the server key is missing', async () => {
-    const pollId = await seedPoll({ title: 'No server key poll' });
-    const cookie = await register('no-server-key-user');
-
-    // The handler is called directly so the environment can omit the key the real
-    // binding provides.
-    const { handleCommentsRequest } = await import('../../worker/api/comments');
-    const url = new URL(`${ORIGIN}/api/comments`);
-    const response = await handleCommentsRequest(new Request(url, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', origin: ORIGIN, cookie },
-      body: JSON.stringify({ pollId, comment: 'A comment that must not be stored.' })
-    }), url, {
-      ...env,
-      SERVER_HMAC_KEY: undefined
-    } as unknown as HandlerEnv);
-
-    expect(response.status).toBe(503);
-    expect((await response.json() as any).error.code).toBe('SERVER_NOT_CONFIGURED');
-
-    // No row is written: a comment whose author can never be established must not
-    // exist, because nobody could ever list or delete it.
-    const row = await env.DB.prepare('SELECT id FROM comments WHERE poll_id = ?')
-      .bind(pollId).first();
-    expect(row).toBeNull();
   });
 
   it('limits the dashboard list per account', async () => {
     const pollId = await seedPoll({ title: 'List quota poll' });
     const cookie = await register('list-quota-user');
-    const id = await postComment(pollId, cookie);
+    await postComment(pollId, cookie);
 
     // The quota is 60 requests per hour, shared by both list endpoints.
     for (let attempt = 0; attempt < 60; attempt += 1) {
-      expect((await listComments([id], cookie)).status).toBe(200);
+      expect((await listComments(cookie)).status).toBe(200);
     }
 
-    // The next request is refused, so a stolen session cannot probe ids indefinitely.
-    const limited = await listComments([id], cookie);
+    // The next request is refused, so a stolen session cannot query indefinitely.
+    const limited = await listComments(cookie);
     expect(limited.status).toBe(429);
     expect((await limited.json() as any).error.code).toBe('RATE_LIMIT_EXCEEDED');
   });

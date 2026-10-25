@@ -19,10 +19,11 @@ export interface UserPoll {
   createdAt: string;
 }
 
-// The client remembers the poll ids it submitted; the server answers "my polls"
-// only for ids whose owner hash matches.
+// The server answers "my polls" as one page of the account's polls, newest first.
 interface PollsResponse {
   polls: UserPoll[];
+  page: number;
+  hasMore: boolean;
 }
 
 // The signed-in user is cached in memory so the header and pages can render
@@ -114,12 +115,10 @@ export async function logoutAllDevices(): Promise<void> {
   currentUser = null;
 }
 
-// Lists the remembered poll ids that the account actually owns.
-export async function getUserPolls(ids: number[]): Promise<UserPoll[]> {
-  if (ids.length === 0) return [];
-  const params = new URLSearchParams({ ids: ids.join(',') });
-  const result = await fetchJson<PollsResponse>(`/api/user/polls?${params}`);
-  return result.polls ?? [];
+// Lists one page of the account's polls, newest first.
+export async function getUserPolls(page = 1): Promise<{ polls: UserPoll[]; page: number; hasMore: boolean }> {
+  const result = await fetchJson<PollsResponse>(`/api/user/polls?page=${page}`);
+  return { polls: result.polls ?? [], page: result.page ?? page, hasMore: result.hasMore === true };
 }
 
 export interface UserComment {
@@ -133,26 +132,19 @@ export interface UserComment {
   createdAt: string;
 }
 
-// The client remembers the comment ids it posted; the server answers "my comments"
-// only for ids whose owner hash matches.
+// The server answers "my comments" as one page of the account's comments, newest
+// first.
 interface CommentsResponse {
   comments: UserComment[];
+  page: number;
+  hasMore: boolean;
 }
 
-// Lists the remembered comment ids that the account actually posted, newest first.
-//
-// `created_at` is coarsened to the hour, so comments posted in the same hour share a
-// timestamp and the server cannot tell them apart. The remembered ids are in posting
-// order, so they are reversed here: the dashboard lists the newest comment first.
-export async function getUserComments(ids: string[]): Promise<UserComment[]> {
-  if (ids.length === 0) return [];
-  const params = new URLSearchParams({ ids: ids.join(',') });
-  const result = await fetchJson<CommentsResponse>(`/api/user/comments?${params}`);
-  const byId = new Map((result.comments ?? []).map((comment) => [comment.id, comment]));
-  return [...ids].reverse().flatMap((id) => {
-    const comment = byId.get(id);
-    return comment ? [comment] : [];
-  });
+// Lists one page of the account's comments, newest first. The server order is
+// authoritative.
+export async function getUserComments(page = 1): Promise<{ comments: UserComment[]; page: number; hasMore: boolean }> {
+  const result = await fetchJson<CommentsResponse>(`/api/user/comments?page=${page}`);
+  return { comments: result.comments ?? [], page: result.page ?? page, hasMore: result.hasMore === true };
 }
 
 export async function deleteUserComment(id: string): Promise<void> {

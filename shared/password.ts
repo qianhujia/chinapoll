@@ -5,11 +5,16 @@
 // Object (worker/services/passwordHasher.ts), which calls the functions here so
 // the CPU-heavy derivation runs off the request Worker's CPU path.
 //
-// Storage format: "pbkdf2$<iterations>$<salt-hex>$<hash-hex>". The iteration
-// count is part of the stored value, so hashes created with an older (lower)
-// count still verify; callers rehash on successful sign-in when they see one.
+// Two stored formats exist:
+//   * Admin accounts: "pbkdf2$<iterations>$<salt-hex>$<hash-hex>".
+//   * Public accounts: "pbkdf2w$<iterations>$<salt-hex>$<verifier-hex>", where
+//     the PBKDF2 output is split into a "verifier" (checked at sign-in) and a
+//     "wrap" key (used to wrap the account's author key).
+// The iteration count is part of the stored value, so hashes created with an
+// older (lower) count still verify; callers rehash on successful sign-in when
+// they see one.
 
-import { constantTimeEqual, fromHex, toHex } from './crypto';
+import { constantTimeEqual, deriveKey, fromHex, toHex } from './crypto';
 
 // 100k iterations is the maximum Cloudflare's production WebCrypto accepts for
 // PBKDF2 (higher counts throw NotSupportedError). It is below the OWASP guidance
@@ -60,6 +65,58 @@ export async function derivePasswordHash(password: string, iterations = PBKDF2_I
   crypto.getRandomValues(salt);
   const hash = await derive(password, salt, iterations);
   return `pbkdf2$${iterations}$${toHex(salt)}$${hash}`;
+}
+
+// The password-derived material for a public account. `verifierHex` proves the
+// password at sign-in; `wrapKeyHex` unwraps the account's stored author key.
+// Both are derived from the PBKDF2 output `M`, which itself never leaves the
+// PasswordHasher Durable Object.
+export interface PasswordMaterial {
+  saltHex: string;
+  iterations: number;
+  verifierHex: string;
+  wrapKeyHex: string;
+}
+
+// Derives the public-account password material. When `saltHex` is omitted a
+// fresh 16-byte salt is generated; passing the stored salt re-derives the same
+// material for a sign-in check.
+export async function derivePasswordMaterial(
+  password: string,
+  saltHex?: string,
+  iterations = PBKDF2_ITERATIONS
+): Promise<PasswordMaterial> {
+  let salt: Uint8Array<ArrayBuffer>;
+  if (saltHex === undefined) {
+    salt = new Uint8Array(new ArrayBuffer(SALT_BYTES));
+    crypto.getRandomValues(salt);
+  } else {
+    salt = fromHex(saltHex);
+  }
+  const master = await derive(password, salt, iterations);
+  return {
+    saltHex: toHex(salt),
+    iterations,
+    verifierHex: await deriveKey(master, 'verifier'),
+    wrapKeyHex: await deriveKey(master, 'wrap')
+  };
+}
+
+export function formatUserPasswordHash(material: PasswordMaterial): string {
+  return `pbkdf2w$${material.iterations}$${material.saltHex}$${material.verifierHex}`;
+}
+
+// Parses the public-account password format ("pbkdf2w$..."). Returns null for
+// any value that is not a well-formed public hash, including the admin format.
+export function parseUserPasswordHash(
+  stored: string
+): { iterations: number; saltHex: string; verifierHex: string } | null {
+  const parts = stored.split('$');
+  if (parts.length !== 4 || parts[0] !== 'pbkdf2w') return null;
+  const iterations = Number(parts[1]);
+  if (!Number.isSafeInteger(iterations) || iterations < 10_000) return null;
+  if (!/^[0-9a-f]+$/i.test(parts[2])) return null;
+  return { iterations, saltHex: parts[2], verifierHex: parts[3] };
 }
 
 // Returns the stored iteration count, or null when the value is not a

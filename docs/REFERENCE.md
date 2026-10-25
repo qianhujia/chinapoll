@@ -172,34 +172,51 @@ recovery channel, so credentials must be kept safe like a crypto recovery phrase
   everywhere.
 - Submitting a poll and posting a comment both require an account; new polls stay
   pending until an admin approves them unless `auto_approve_polls` is enabled.
-- Both submissions need the server key. The owner hash it derives is the only thing
-  that lets the submitter list, close, or delete that content later, so a deployment
-  without `SERVER_HMAC_KEY` answers `503 SERVER_NOT_CONFIGURED` rather than storing a
-  row its own author could never manage. The same key verifies an existing row for
-  "my polls" and "my comments", so without it those lists answer empty and close,
-  withdraw, and delete refuse. Reading the site, and every other endpoint, is
-  unaffected.
+- Every poll and comment stores one fixed author mark for the account that wrote it,
+  so "my polls" and "my comments" are plain paginated queries and the browser
+  remembers nothing. Poll submission and comments no longer need the server key;
+  voting, reports, view counting, registration, sign-in, and recovery still do.
 
 Endpoints: `/api/auth` (session state, register, login, logout, recovery) and
-`/api/user` (`GET /api/user/polls?ids=`, `GET /api/user/comments?ids=`,
+`/api/user` (`GET /api/user/polls?page=`, `GET /api/user/comments?page=`,
 `POST /api/user/polls/:id/close`, `DELETE /api/user/polls/:id`,
 `DELETE /api/user/comments/:id`, and `GET`/`POST /api/user/recovery-code`).
 
-Both list endpoints answer only for the ids the browser sends, and every row must
-pass the owner-hash check, so a row is returned only to the account that owns it.
-They share one per-account quota (60 requests per hour, a fixed internal limit
-rather than a setting): a batch of ids makes them the only endpoint where a stolen
-session could otherwise probe a large candidate set cheaply.
+Both list endpoints return one page of the account's own content, newest first, as
+`{ polls/comment, page, hasMore }` with a page size of 20 and one extra row read to
+detect the next page. A `page` that is not a positive integer answers
+`400 INVALID_PAGE`. They share one per-account quota (60 requests per hour, a fixed
+internal limit rather than a setting). Ownership is proved by the stored author
+mark, so another account's row is answered as `404`.
 
-The dashboard shows each listed comment's public id with a copy action, and a
-comment id can be submitted back to the dashboard to reclaim a comment the browser
-no longer remembers (cleared browser storage, or a comment posted on another
-device). Claiming reuses the same ownership check, so a well-formed id that belongs
-to another account is answered as "not one of your comments", exactly as the id
-returned by the poll page is remembered from the post itself. The poll and comment
-three-dot menus each carry a claim entry as well, so an id that is already on the page
-is added without copying it; a signed-out visitor sees a sign-in link in its place,
-because the ownership check needs a session.
+## Account keys
+
+Each public account has a random 32-byte author key, generated at registration. The
+server never stores it in clear: it is stored only wrapped with AES-256-GCM.
+
+| Column | Value |
+| --- | --- |
+| `users.password_hash` | `pbkdf2w$<iter>$<salt>$<verifier>` |
+| `users.author_key_pw` | `wrapHex(wrapKeyHex from password, authorKeyHex)` |
+| `users.recovery_code_hash` | `sha256Hex(normalizedCode)` |
+| `users.author_key_rc` | `wrapHex(recoveryWrapKeyHex, authorKeyHex)` |
+| `user_sessions.author_key` | `wrapHex(sessionWrapKeyHex, authorKeyHex)` |
+| `polls.author_mark`, `comments.author_mark` | `authorMark(authorKeyHex)` |
+
+The three wrap keys are:
+
+- `recoveryWrapKeyHex = hmacSha256Hex(normalizeRecoveryCode(code), "recovery-wrap")`
+- `sessionWrapKeyHex = hmacSha256Hex(token, "session-wrap")`
+- the password wrap key, `deriveKey(M, "wrap")`, where
+  `M = PBKDF2-HMAC-SHA256(password, salt, iterations)` is derived inside the
+  `PasswordHasher` Durable Object and never leaves it.
+
+`authorMark(authorKeyHex) = hmacSha256Hex(fromHex(authorKeyHex), "author")`, and
+`deriveKey(masterHex, purpose) = hmacSha256Hex(fromHex(masterHex), purpose)`. Because
+the author key is recoverable only from the password or the recovery code, a database
+copy, even together with the server secret, cannot link a poll or comment to an
+account. All rows of one account share one author mark, so a database reader can tell
+that a set of rows came from the same anonymous author.
 
 ## Snapshot chain
 

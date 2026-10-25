@@ -1,23 +1,30 @@
 // Self-service endpoints for the signed-in account.
 //
-// Ownership is stored as a one-way owner hash (see worker/services/owner.ts), so
-// "my polls" is answered only for the poll ids the client remembers and "my
-// comments" only for the comment public ids it remembers, and only for rows whose
-// owner hash matches. Comments gain no public author link: the hash is never
-// published, and a comment created before the hash existed simply cannot be claimed.
+// Every poll and comment a signed-in account writes stores one fixed
+// `author_mark` value (see worker/services/author.ts). "My polls" and "my
+// comments" are therefore ordinary paginated queries by that mark; the browser
+// remembers nothing. The mark is never published, so readers still see anonymous
+// content.
 
 import type { HandlerEnv } from '../index';
-import { buildClearSessionCookie, isSecureRequest, requireUser } from '../services/session';
+import {
+  buildClearSessionCookie,
+  isSecureRequest,
+  requireUser,
+  type UserActor
+} from '../services/session';
 import { enforceSameOrigin } from '../services/csrf';
-import { verifyPassword } from '../services/passwordHasher';
-import { generateRecoveryCode } from '../services/recovery';
-import { commentOwnerHash, ownerHash } from '../services/owner';
+import { derivePasswordMaterialRemote } from '../services/passwordHasher';
+import { parseUserPasswordHash } from '../../shared/password';
+import { constantTimeEqual, wrapHex } from '../../shared/crypto';
+import { generateRecoveryCode, normalizeRecoveryCode } from '../services/recovery';
+import { recoveryWrapKeyHex } from '../services/author';
 import { checkRateLimit } from '../services/rateLimit';
-import { serverHmacKey } from '../services/ip';
 import { currentHour, writeSnapshotForPoll } from '../services/maintenance';
 import { apiError } from '../../shared/http';
 
-const MAX_IDS = 100;
+// Page size of "my polls" and "my comments".
+const PAGE_SIZE = 20;
 
 // Status and mode labels are mapped locally (rather than via worker/enums) so a
 // poll that is still pending under review does not raise.
@@ -41,13 +48,11 @@ function noStoreJson(data: unknown, status = 200, headers: Record<string, string
   });
 }
 
-// Both dashboard list endpoints answer for a signed-in account but accept a batch of
-// ids, so without a quota a stolen session could ask about a large candidate set to
-// learn which comments an account wrote. The endpoints are read-only, so the quota is
-// generous: a real dashboard is unaffected while bulk probing is made slow. It is a
-// fixed internal limit rather than a setting, so an operator cannot remove it by
-// accident. Both endpoints share one scope, so alternating between them cannot double
-// the budget.
+// Both dashboard list endpoints answer for a signed-in account. They are read-only,
+// so the quota is generous: a real dashboard is unaffected while a stolen session is
+// kept from making unlimited authenticated queries. It is a fixed internal limit
+// rather than a setting, so an operator cannot remove it by accident. Both endpoints
+// share one scope, so alternating between them cannot double the budget.
 const USER_LIST_RATE_LIMIT = '60/h';
 
 // Consumes one unit of the per-account dashboard quota. The key is the account id,
@@ -67,24 +72,24 @@ export async function handleUserRequest(request: Request, url: URL, env: UserEnv
 
   if (url.pathname === '/api/user/account') {
     if (request.method !== 'DELETE') return apiError('METHOD_NOT_ALLOWED', 405);
-    return deleteAccount(request, env, auth.user.id);
+    return deleteAccount(request, env, auth.user);
   }
 
   if (url.pathname === '/api/user/polls') {
     if (request.method !== 'GET') return apiError('METHOD_NOT_ALLOWED', 405);
     if (!await userListAllowed(env, auth.user.id)) return apiError('RATE_LIMIT_EXCEEDED', 429);
-    return listUserPolls(url, env, auth.user.id);
+    return listUserPolls(url, env, auth.user);
   }
 
   if (url.pathname === '/api/user/comments') {
     if (request.method !== 'GET') return apiError('METHOD_NOT_ALLOWED', 405);
     if (!await userListAllowed(env, auth.user.id)) return apiError('RATE_LIMIT_EXCEEDED', 429);
-    return listUserComments(url, env, auth.user.id);
+    return listUserComments(url, env, auth.user);
   }
 
   if (url.pathname === '/api/user/recovery-code') {
     if (request.method === 'GET') return recoveryCodeStatus(env, auth.user.id);
-    if (request.method === 'POST') return regenerateRecoveryCode(request, env, auth.user.id);
+    if (request.method === 'POST') return regenerateRecoveryCode(request, env, auth.user);
     return apiError('METHOD_NOT_ALLOWED', 405);
   }
 
@@ -99,32 +104,29 @@ export async function handleUserRequest(request: Request, url: URL, env: UserEnv
     if (!Number.isSafeInteger(pollId) || pollId < 1) return apiError('INVALID_POLL_ID', 400);
     if (pollMatch[2] === 'close') {
       if (request.method !== 'POST') return apiError('METHOD_NOT_ALLOWED', 405);
-      return closeUserPoll(env, auth.user.id, pollId);
+      return closeUserPoll(env, auth.user, pollId);
     }
     if (request.method !== 'DELETE') return apiError('METHOD_NOT_ALLOWED', 405);
-    return deleteUserPoll(env, auth.user.id, pollId);
+    return deleteUserPoll(env, auth.user, pollId);
   }
 
   const commentMatch = url.pathname.match(/^\/api\/user\/comments\/([A-Za-z0-9_-]+)$/);
   if (commentMatch) {
     if (request.method !== 'DELETE') return apiError('METHOD_NOT_ALLOWED', 405);
-    return deleteUserComment(env, auth.user.id, commentMatch[1]);
+    return deleteUserComment(env, auth.user, commentMatch[1]);
   }
 
   return apiError('RESOURCE_NOT_FOUND', 404);
 }
 
-// Parses the comma-separated `ids` query parameter used by the client-side list.
-function parseIds(url: URL): number[] | null {
-  const raw = (url.searchParams.get('ids') ?? '').trim();
-  if (!raw) return [];
-  const ids: number[] = [];
-  for (const part of raw.split(',').slice(0, MAX_IDS)) {
-    const value = Number(part);
-    if (!Number.isSafeInteger(value) || value < 1) return null;
-    ids.push(value);
-  }
-  return ids;
+// Parses the optional positive `page` query parameter. A missing or empty value is
+// page 1; anything else that is not a positive integer is invalid.
+function parsePage(url: URL): number | null {
+  const raw = url.searchParams.get('page');
+  if (raw === null || raw === '') return 1;
+  if (!/^\d+$/.test(raw)) return null;
+  const page = Number(raw);
+  return Number.isSafeInteger(page) && page >= 1 ? page : null;
 }
 
 interface OwnedPollRow {
@@ -136,63 +138,56 @@ interface OwnedPollRow {
   status: number;
   start_at: number | null;
   end_at: number | null;
-  owner_hash: string | null;
   created_at: number;
 }
 
-// Returns the poll row when the recomputed owner hash matches, otherwise null.
-async function findOwnedPoll(env: UserEnv, userId: number, pollId: number): Promise<OwnedPollRow | null> {
-  const row = await env.DB.prepare(
-    `SELECT id, title, description, mode, status, start_at, end_at, owner_hash, created_at
-     FROM polls WHERE id = ?`
-  ).bind(pollId).first<OwnedPollRow>();
-  if (!row) return null;
-  const expected = await ownerHash(userId, pollId, serverHmacKey(env));
-  if (!expected || expected !== row.owner_hash) return null;
-  return row;
+// Returns the poll row when the signed-in account's author mark matches, otherwise
+// null.
+async function findOwnedPoll(env: UserEnv, authorMark: string, pollId: number): Promise<OwnedPollRow | null> {
+  return await env.DB.prepare(
+    `SELECT id, number, title, description, mode, status, start_at, end_at, created_at
+     FROM polls WHERE id = ? AND author_mark = ?`
+  ).bind(pollId, authorMark).first<OwnedPollRow>();
 }
-// Lists the requested poll ids that the signed-in account actually owns. The
-// client supplies the ids it remembers from submission, so the server never has
-// to scan all polls.
-async function listUserPolls(url: URL, env: UserEnv, userId: number): Promise<Response> {
-  const ids = parseIds(url);
-  if (!ids) return apiError('INVALID_IDS', 400);
-  if (ids.length === 0) return noStoreJson({ polls: [] });
 
-  const placeholders = ids.map(() => '?').join(', ');
+// Lists the signed-in account's polls, newest first, one page at a time. One extra
+// row is requested to detect whether a further page exists.
+async function listUserPolls(url: URL, env: UserEnv, user: UserActor): Promise<Response> {
+  const page = parsePage(url);
+  if (page === null) return apiError('INVALID_PAGE', 400);
+
+  const offset = (page - 1) * PAGE_SIZE;
   const result = await env.DB.prepare(
-    `SELECT id, number, title, description, mode, status, start_at, end_at, owner_hash, created_at
-     FROM polls WHERE id IN (${placeholders})`
-  ).bind(...ids).all<OwnedPollRow>();
+    `SELECT id, number, title, description, mode, status, start_at, end_at, created_at
+     FROM polls WHERE author_mark = ?
+     ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?`
+  ).bind(user.authorMark, PAGE_SIZE + 1, offset).all<OwnedPollRow>();
 
-  const polls = [];
-  for (const row of result.results ?? []) {
-    const expected = await ownerHash(userId, Number(row.id), serverHmacKey(env));
-    if (!expected || expected !== row.owner_hash) continue;
-    polls.push({
-      id: Number(row.id),
-      number: row.number === null ? null : Number(row.number),
-      title: row.title,
-      description: row.description,
-      mode: pollModeLabel(Number(row.mode)),
-      status: pollStatusLabel(Number(row.status)),
-      startAt: toIso(row.start_at),
-      endAt: toIso(row.end_at),
-      createdAt: toIso(row.created_at)
-    });
-  }
+  const rows = result.results ?? [];
+  const hasMore = rows.length > PAGE_SIZE;
+  const polls = rows.slice(0, PAGE_SIZE).map((row) => ({
+    id: Number(row.id),
+    number: row.number === null ? null : Number(row.number),
+    title: row.title,
+    description: row.description,
+    mode: pollModeLabel(Number(row.mode)),
+    status: pollStatusLabel(Number(row.status)),
+    startAt: toIso(row.start_at),
+    endAt: toIso(row.end_at),
+    createdAt: toIso(row.created_at)
+  }));
 
-  return noStoreJson({ polls });
+  return noStoreJson({ polls, page, hasMore });
 }
 
-async function closeUserPoll(env: UserEnv, userId: number, pollId: number): Promise<Response> {
-  const poll = await findOwnedPoll(env, userId, pollId);
+async function closeUserPoll(env: UserEnv, user: UserActor, pollId: number): Promise<Response> {
+  const poll = await findOwnedPoll(env, user.authorMark, pollId);
   if (!poll) return apiError('POLL_NOT_FOUND', 404);
 
   await env.DB.prepare(
     `UPDATE polls SET status = 2, closed_at = unixepoch(), updated_at = unixepoch()
-     WHERE id = ? AND owner_hash = ?`
-  ).bind(pollId, poll.owner_hash).run();
+     WHERE id = ? AND author_mark = ?`
+  ).bind(pollId, user.authorMark).run();
 
   // Capture the terminal snapshot in the closing hour so the published chain
   // ends on the poll's final counts even when the hourly run has already passed.
@@ -201,8 +196,8 @@ async function closeUserPoll(env: UserEnv, userId: number, pollId: number): Prom
   return noStoreJson({ ok: true, pollId, status: 'closed' });
 }
 
-async function deleteUserPoll(env: UserEnv, userId: number, pollId: number): Promise<Response> {
-  const poll = await findOwnedPoll(env, userId, pollId);
+async function deleteUserPoll(env: UserEnv, user: UserActor, pollId: number): Promise<Response> {
+  const poll = await findOwnedPoll(env, user.authorMark, pollId);
   if (!poll) return apiError('POLL_NOT_FOUND', 404);
   // Only polls that have not been reviewed yet can be withdrawn.
   if (Number(poll.status) !== 4) {
@@ -210,8 +205,8 @@ async function deleteUserPoll(env: UserEnv, userId: number, pollId: number): Pro
   }
 
   // votes and comments cascade with the poll (ON DELETE CASCADE).
-  await env.DB.prepare('DELETE FROM polls WHERE id = ? AND owner_hash = ?')
-    .bind(pollId, poll.owner_hash).run();
+  await env.DB.prepare('DELETE FROM polls WHERE id = ? AND author_mark = ?')
+    .bind(pollId, user.authorMark).run();
   return noStoreJson({ ok: true, pollId, deleted: true });
 }
 
@@ -223,94 +218,71 @@ async function recoveryCodeStatus(env: UserEnv, userId: number): Promise<Respons
   return noStoreJson({ configured: Number(row?.configured ?? 0) === 1 });
 }
 
-// Parses the comma-separated `ids` query parameter of the comment list. The ids are
-// the random public ids the client remembered when it posted each comment.
-function parseCommentIds(url: URL): string[] | null {
-  const raw = (url.searchParams.get('ids') ?? '').trim();
-  if (!raw) return [];
-  const ids: string[] = [];
-  for (const part of raw.split(',').slice(0, MAX_IDS)) {
-    const id = part.trim();
-    if (!/^[0-9a-f]{16}$/i.test(id)) return null;
-    ids.push(id.toLowerCase());
-  }
-  return ids;
-}
+// Lists the signed-in account's comments, newest first, one page at a time. One
+// extra row is requested to detect whether a further page exists.
+async function listUserComments(url: URL, env: UserEnv, user: UserActor): Promise<Response> {
+  const page = parsePage(url);
+  if (page === null) return apiError('INVALID_PAGE', 400);
 
-// Returns the stored comment row of one account, or null when the row does not
-// exist or its owner hash does not match.
-async function findOwnedComment<T extends { owner_hash: string | null; public_id: string }>(
-  env: UserEnv,
-  userId: number,
-  row: T | null
-): Promise<T | null> {
-  if (!row) return null;
-  const expected = await commentOwnerHash(userId, row.public_id, serverHmacKey(env));
-  if (!expected || expected !== row.owner_hash) return null;
-  return row;
-}
-
-// Lists the comments of the requested public ids that the signed-in account
-// actually posted. The client supplies the ids it remembers from posting, so the
-// server never has to scan every comment, and the owner hash proves ownership.
-async function listUserComments(url: URL, env: UserEnv, userId: number): Promise<Response> {
-  const ids = parseCommentIds(url);
-  if (!ids) return apiError('INVALID_IDS', 400);
-  if (ids.length === 0) return noStoreJson({ comments: [] });
-
-  const placeholders = ids.map(() => '?').join(', ');
+  const offset = (page - 1) * PAGE_SIZE;
   const result = await env.DB.prepare(
-    `SELECT c.public_id, c.poll_id, c.comment, c.created_at, c.owner_hash, p.title, p.number AS poll_number
+    `SELECT c.public_id, c.poll_id, c.comment, c.created_at, p.title, p.number AS poll_number
      FROM comments c
      JOIN polls p ON p.id = c.poll_id
-     WHERE c.public_id IN (${placeholders})
-     ORDER BY c.created_at DESC, c.public_id DESC`
-  ).bind(...ids).all<{
+     WHERE c.author_mark = ?
+     ORDER BY c.created_at DESC, c.public_id DESC LIMIT ? OFFSET ?`
+  ).bind(user.authorMark, PAGE_SIZE + 1, offset).all<{
     public_id: string;
     poll_id: number;
     comment: string;
     created_at: number;
-    owner_hash: string | null;
     title: string | null;
     poll_number: number | null;
   }>();
 
-  const comments = [];
-  for (const row of result.results ?? []) {
-    if (!await findOwnedComment(env, userId, row)) continue;
-    comments.push({
-      id: row.public_id,
-      pollId: Number(row.poll_id),
-      pollNumber: row.poll_number === null ? null : Number(row.poll_number),
-      pollTitle: row.title,
-      comment: row.comment,
-      createdAt: toIso(Number(row.created_at))
-    });
-  }
-  // The order is fixed (newest hour first, then by public id) so a refresh does not
-  // shuffle the list. Comments posted in the same hour share a coarsened timestamp,
-  // so the client, which knows its own posting order, is what shows the newest first.
-  return noStoreJson({ comments });
+  const rows = result.results ?? [];
+  const hasMore = rows.length > PAGE_SIZE;
+  const comments = rows.slice(0, PAGE_SIZE).map((row) => ({
+    id: row.public_id,
+    pollId: Number(row.poll_id),
+    pollNumber: row.poll_number === null ? null : Number(row.poll_number),
+    pollTitle: row.title,
+    comment: row.comment,
+    createdAt: toIso(Number(row.created_at))
+  }));
+
+  return noStoreJson({ comments, page, hasMore });
 }
 
-// Deletes one of the account's own comments. The owner hash is compared again, so
+// Deletes one of the account's own comments. The author mark is compared again, so
 // a comment id from another account is a 404 rather than a deletion.
-async function deleteUserComment(env: UserEnv, userId: number, publicId: string): Promise<Response> {
+async function deleteUserComment(env: UserEnv, user: UserActor, publicId: string): Promise<Response> {
   if (!/^[0-9a-f]{16}$/i.test(publicId)) return apiError('INVALID_COMMENT_ID', 400);
-  const row = await findOwnedComment(env, userId, await env.DB.prepare(
-    'SELECT public_id, owner_hash FROM comments WHERE public_id = ?'
-  ).bind(publicId).first<{ public_id: string; owner_hash: string | null }>());
-  if (!row) return apiError('COMMENT_NOT_FOUND', 404);
+  const id = publicId.toLowerCase();
+  const result = await env.DB.prepare('DELETE FROM comments WHERE public_id = ? AND author_mark = ?')
+    .bind(id, user.authorMark).run();
+  if (Number(result.meta.changes ?? 0) !== 1) return apiError('COMMENT_NOT_FOUND', 404);
+  return noStoreJson({ ok: true, id, deleted: true });
+}
 
-  await env.DB.prepare('DELETE FROM comments WHERE public_id = ? AND owner_hash = ?')
-    .bind(row.public_id, row.owner_hash).run();
-  return noStoreJson({ ok: true, id: row.public_id, deleted: true });
+// Confirms the account's current password by re-deriving the verifier from the
+// stored salt and iteration count. Used before destructive account actions.
+async function confirmPassword(env: UserEnv, userId: number, password: string): Promise<boolean> {
+  const user = await env.DB.prepare(
+    'SELECT username, password_hash FROM users WHERE id = ?'
+  ).bind(userId).first<{ username: string; password_hash: string }>();
+  if (!user) return false;
+  const parsed = parseUserPasswordHash(user.password_hash);
+  if (!parsed) return false;
+  const material = await derivePasswordMaterialRemote(env, user.username, password, parsed.saltHex, parsed.iterations);
+  return constantTimeEqual(material.verifierHex, parsed.verifierHex);
 }
 
 // Replaces the recovery code and returns the new plaintext code once. The
 // current password must be supplied so a hijacked session cannot lock the real
-// owner out of recovery.
-async function regenerateRecoveryCode(request: Request, env: UserEnv, userId: number): Promise<Response> {
+// owner out of recovery. The author key is re-wrapped under the new code's wrap
+// key in the same update.
+async function regenerateRecoveryCode(request: Request, env: UserEnv, user: UserActor): Promise<Response> {
   let body: unknown;
   try {
     body = await request.json();
@@ -324,18 +296,19 @@ async function regenerateRecoveryCode(request: Request, env: UserEnv, userId: nu
     return apiError('CURRENT_PASSWORD_REQUIRED', 400);
   }
 
-  // The password hasher is sharded by username, so the username is read here.
-  const user = await env.DB.prepare(
-    'SELECT username, password_hash FROM users WHERE id = ?'
-  ).bind(userId).first<{ username: string; password_hash: string }>();
-  if (!user || !await verifyPassword(env, user.username, currentPassword, user.password_hash)) {
+  if (!await confirmPassword(env, user.id, currentPassword)) {
     return apiError('CURRENT_PASSWORD_INCORRECT', 403);
   }
 
   const recoveryCode = await generateRecoveryCode();
+  const authorKeyRc = await wrapHex(
+    await recoveryWrapKeyHex(normalizeRecoveryCode(recoveryCode.code)),
+    user.authorKeyHex
+  );
   await env.DB.prepare(
-    'UPDATE users SET recovery_code_hash = ?, recovery_code_updated_at = unixepoch(), updated_at = unixepoch() WHERE id = ?'
-  ).bind(recoveryCode.hash, userId).run();
+    `UPDATE users SET recovery_code_hash = ?, author_key_rc = ?, recovery_code_updated_at = unixepoch(),
+       updated_at = unixepoch() WHERE id = ?`
+  ).bind(recoveryCode.hash, authorKeyRc, user.id).run();
   return noStoreJson({ ok: true, recoveryCode: recoveryCode.code });
 }
 
@@ -349,9 +322,10 @@ async function logoutAllSessions(request: Request, env: UserEnv, userId: number)
 }
 
 // Deletes the account after confirming the password. Sessions are revoked and
-// the account row is removed. Submitted polls and comments stay public but carry
-// no account link (poll ownership is a one-way hash).
-async function deleteAccount(request: Request, env: UserEnv, userId: number): Promise<Response> {
+// the account row is removed. Submitted polls and comments keep their author
+// mark, which no longer corresponds to any account, so they stay public and
+// permanently anonymous.
+async function deleteAccount(request: Request, env: UserEnv, user: UserActor): Promise<Response> {
   let body: unknown;
   try {
     body = await request.json();
@@ -365,17 +339,13 @@ async function deleteAccount(request: Request, env: UserEnv, userId: number): Pr
     return apiError('CURRENT_PASSWORD_REQUIRED', 400);
   }
 
-  // The password hasher is sharded by username, so the username is read here.
-  const user = await env.DB.prepare(
-    'SELECT username, password_hash FROM users WHERE id = ?'
-  ).bind(userId).first<{ username: string; password_hash: string }>();
-  if (!user || !await verifyPassword(env, user.username, currentPassword, user.password_hash)) {
+  if (!await confirmPassword(env, user.id, currentPassword)) {
     return apiError('CURRENT_PASSWORD_INCORRECT', 403);
   }
 
   await env.DB.batch([
-    env.DB.prepare('DELETE FROM user_sessions WHERE user_id = ?').bind(userId),
-    env.DB.prepare('DELETE FROM users WHERE id = ?').bind(userId)
+    env.DB.prepare('DELETE FROM user_sessions WHERE user_id = ?').bind(user.id),
+    env.DB.prepare('DELETE FROM users WHERE id = ?').bind(user.id)
   ]);
 
   return noStoreJson({ ok: true, deleted: true });

@@ -20,7 +20,6 @@ import {
   type UserComment,
   type UserPoll
 } from '../lib/session';
-import { forgetMyComment, forgetMyPoll, getMyCommentIds, getMyPollIds, rememberMyComment, rememberMyPoll } from '../lib/poll';
 import { escapeHtml, getErrorMessage, renderFooter, renderHeader, renderRecoveryCode, renderToast, showToast, t } from '../ui';
 
 // The sections of the dashboard, in menu order.
@@ -89,24 +88,10 @@ function pollCardMarkup(poll: UserPoll): string {
     <li class="flex flex-wrap items-center justify-between gap-3 border-b border-border py-3.5">
       <div class="grid gap-1">
         <a class="font-semibold text-primary" href="/poll/${poll.number ?? poll.id}" data-route="/poll/${poll.number ?? poll.id}">#${poll.number ?? poll.id} ${escapeHtml(poll.title ?? '')}</a>
-        <span class="text-xs text-muted">${statusLabel(poll.status)} · ${escapeHtml(poll.createdAt)}</span>
+        <span class="text-xs text-muted">${statusLabel(poll.status)} \u00b7 ${escapeHtml(poll.createdAt)}</span>
       </div>
       <div class="flex items-center gap-2">${actions}</div>
     </li>
-  `;
-}
-
-// The comment's public id, shown to its author so it can be carried to another
-// device and claimed there (see the claim form below). The id is not a secret: the
-// server still proves ownership through the one-way owner hash, so an id belonging
-// to another account is answered as "not one of your comments".
-function commentIdMarkup(id: string): string {
-  return `
-        <span class="flex flex-wrap items-center gap-2 text-xs text-muted">
-          <span>${t('accountCommentIdLabel')}</span>
-          <code class="font-mono [overflow-wrap:anywhere]">${escapeHtml(id)}</code>
-          <button class="cursor-pointer rounded-full border border-border bg-panel px-2 py-0.5 text-xs text-ink hover:border-primary hover:text-primary" type="button" data-copy-comment-id="${escapeHtml(id)}">${t('accountCopyId')}</button>
-        </span>
   `;
 }
 
@@ -117,14 +102,19 @@ function commentCardMarkup(comment: UserComment): string {
         <p class="m-0 whitespace-pre-wrap break-words">${escapeHtml(comment.comment)}</p>
         <span class="text-xs text-muted">
           <a class="text-primary" href="/poll/${comment.pollNumber ?? comment.pollId}" data-route="/poll/${comment.pollNumber ?? comment.pollId}">#${comment.pollNumber ?? comment.pollId} ${escapeHtml(comment.pollTitle ?? '')}</a>
-          · ${escapeHtml(comment.createdAt)}
+          \u00b7 ${escapeHtml(comment.createdAt)}
         </span>
-        ${commentIdMarkup(comment.id)}
       </div>
       <button class="shrink-0 cursor-pointer rounded-full border border-border bg-panel px-3 py-1.5 text-sm text-ink hover:border-[#d95b5b] hover:text-[#d95b5b]" type="button" data-delete-comment="${escapeHtml(comment.id)}">${t('accountDeleteComment')}</button>
     </li>
   `;
 }
+
+// A "Load more" button, shown under a list only while a further page exists.
+function loadMoreMarkup(target: 'polls' | 'comments'): string {
+  return `<button class="mt-4 cursor-pointer rounded-full border border-border bg-panel px-3.5 py-2 text-sm text-ink hover:border-primary hover:text-primary" type="button" data-load-more-${target}>${t('accountLoadMore')}</button>`;
+}
+
 
 // The "My account" panel: who is signed in, the recovery code, signing other devices
 // out, and deleting the account.
@@ -144,6 +134,7 @@ export function accountPanelMarkup(user: { username: string; createdAt: string }
       <h2 class="m-0 text-xl font-bold">${t('recoveryCodeTitle')}</h2>
       <p class="m-0 text-muted">${t('recoveryCodeAccountBody')}</p>
       <p class="m-0 text-sm text-muted">${hasRecoveryCode ? t('recoveryCodeConfigured') : t('recoveryCodeNotConfigured')}</p>
+      <p class="m-0 rounded-[14px] border border-[#f0c36d] bg-[#fff7e6] px-3.5 py-3 text-sm text-ink" role="note">${t('recoveryCodeWarning')}</p>
       <p class="m-0 rounded-[14px] border border-[#f0c36d] bg-[#fff7e6] px-3.5 py-3 text-sm text-ink" role="note">${t('recoveryCodeRegenerateNote')}</p>
       <div>
         <button class="cursor-pointer rounded-full border border-border bg-panel px-3.5 py-2 text-sm text-ink hover:border-primary hover:text-primary" type="button" data-regenerate-recovery>${t('recoveryCodeRegenerate')}</button>
@@ -167,9 +158,9 @@ export function accountPanelMarkup(user: { username: string; createdAt: string }
   `;
 }
 
-// The "My polls" panel: the polls this browser submitted, plus the form that adds a
-// poll id it no longer remembers.
-export function accountPollsPanelMarkup(polls: UserPoll[], loadError: string): string {
+// The "My polls" panel: the polls this account submitted, newest first, one page at
+// a time.
+export function accountPollsPanelMarkup(polls: UserPoll[], hasMore: boolean, loadError: string): string {
   const body = loadError
     ? `<p class="m-0 text-muted">${escapeHtml(t('accountLoadFailed'))} ${escapeHtml(loadError)}</p>`
     : polls.length
@@ -179,38 +170,26 @@ export function accountPollsPanelMarkup(polls: UserPoll[], loadError: string): s
   return `
     <section class="rounded-[22px] border border-border bg-panel p-6 shadow-card">
       <h1 class="mb-3.5 text-2xl font-bold">${t('accountPollsTitle')}</h1>
-      <p class="m-0 mb-4 text-sm text-muted">${t('accountPollsBrowserNote')}</p>
       ${body}
-      <form class="mt-4 flex flex-wrap items-center gap-2" data-remember-poll-form>
-        <input class="w-40 rounded-full border border-border bg-panel px-3 py-1.5 text-sm text-ink outline-none focus:border-primary" type="text" inputmode="numeric" autocomplete="off" data-remember-poll-input placeholder="${t('accountAddPollPlaceholder')}" aria-label="${t('accountAddPollLabel')}" />
-        <button class="cursor-pointer rounded-full border border-primary bg-primary px-3 py-1.5 text-sm text-white" type="submit">${t('accountAddPollAction')}</button>
-      </form>
+      ${loadError ? '' : (hasMore ? loadMoreMarkup('polls') : '')}
     </section>
   `;
 }
 
-// The "My comments" panel: the comments this browser posted, newest first, plus the
-// form that adds a comment id it no longer remembers (for example because browser
-// storage was cleared, or because the comment was posted on another device).
-export function accountCommentsPanelMarkup(comments: UserComment[], loadError: string): string {
+// The "My comments" panel: the comments this account posted, newest first, one page
+// at a time.
+export function accountCommentsPanelMarkup(comments: UserComment[], hasMore: boolean, loadError: string): string {
   const body = loadError
     ? `<p class="m-0 text-muted">${escapeHtml(t('accountLoadFailed'))} ${escapeHtml(loadError)}</p>`
     : comments.length
       ? `<ul class="m-0 grid list-none gap-0 p-0">${comments.map(commentCardMarkup).join('')}</ul>`
       : `<p class="m-0 text-muted">${t('accountNoComments')}</p>`;
-  const note = comments.length > 0
-    ? `<p class="m-0 mb-4 text-sm text-muted">${t('accountCommentsBrowserNote')}</p>`
-    : '';
 
   return `
     <section class="rounded-[22px] border border-border bg-panel p-6 shadow-card">
       <h1 class="mb-3.5 text-2xl font-bold">${t('accountCommentsTitle')}</h1>
-      ${note}
       ${body}
-      <form class="mt-4 flex flex-wrap items-center gap-2" data-remember-comment-form>
-        <input class="w-56 rounded-full border border-border bg-panel px-3 py-1.5 text-sm text-ink outline-none focus:border-primary" type="text" autocomplete="off" spellcheck="false" maxlength="16" data-remember-comment-input placeholder="${t('accountAddCommentPlaceholder')}" aria-label="${t('accountAddCommentLabel')}" />
-        <button class="cursor-pointer rounded-full border border-primary bg-primary px-3 py-1.5 text-sm text-white" type="submit">${t('accountAddCommentAction')}</button>
-      </form>
+      ${loadError ? '' : (hasMore ? loadMoreMarkup('comments') : '')}
     </section>
   `;
 }
@@ -257,31 +236,36 @@ export async function mountAccountPage(
     return;
   }
 
-  const reload = () => mountAccountPage(app, bindNavigation, navigate, active);
-
-  // Only the open section loads its own data.
   let polls: UserPoll[] = [];
+  let comments: UserComment[] = [];
+  let pollPage = 1;
+  let commentPage = 1;
+  let pollHasMore = false;
+  let commentHasMore = false;
   let pollError = '';
+  let commentError = '';
+  let hasRecoveryCode = false;
+
+  // Only the open section loads its own first page.
   if (active === 'polls') {
     try {
-      polls = await getUserPolls(getMyPollIds());
+      const result = await getUserPolls(1);
+      polls = result.polls;
+      pollPage = result.page;
+      pollHasMore = result.hasMore;
     } catch (error) {
       pollError = getErrorMessage(error);
     }
-  }
-
-  let comments: UserComment[] = [];
-  let commentError = '';
-  if (active === 'comments') {
+  } else if (active === 'comments') {
     try {
-      comments = await getUserComments(getMyCommentIds());
+      const result = await getUserComments(1);
+      comments = result.comments;
+      commentPage = result.page;
+      commentHasMore = result.hasMore;
     } catch (error) {
       commentError = getErrorMessage(error);
     }
-  }
-
-  let hasRecoveryCode = false;
-  if (active === 'account') {
+  } else {
     try {
       hasRecoveryCode = await getRecoveryCodeStatus();
     } catch {
@@ -289,177 +273,161 @@ export async function mountAccountPage(
     }
   }
 
-  const panels: Record<AccountSection, string> = {
-    account: accountPanelMarkup(user, hasRecoveryCode),
-    polls: accountPollsPanelMarkup(polls, pollError),
-    comments: accountCommentsPanelMarkup(comments, commentError)
+  const render = () => {
+    const panels: Record<AccountSection, string> = {
+      account: accountPanelMarkup(user, hasRecoveryCode),
+      polls: accountPollsPanelMarkup(polls, pollHasMore, pollError),
+      comments: accountCommentsPanelMarkup(comments, commentHasMore, commentError)
+    };
+    app.innerHTML = accountDashboardMarkup(active, panels[active]);
+    bindHandlers();
   };
-  app.innerHTML = accountDashboardMarkup(active, panels[active]);
 
-  document.querySelector('[data-regenerate-recovery]')?.addEventListener('click', async (event) => {
-    const button = event.currentTarget as HTMLButtonElement;
-    const currentPassword = window.prompt(t('accountPasswordPrompt')) ?? '';
-    if (!currentPassword) return;
+  const loadMorePolls = async (button: HTMLButtonElement) => {
     button.disabled = true;
     try {
-      const code = await regenerateRecoveryCode(currentPassword);
-      const output = document.querySelector<HTMLElement>('[data-recovery-output]');
-      if (output) output.innerHTML = renderRecoveryCode(code);
-      showToast(t('recoveryCodeRegenerated'));
-    } catch (error) {
-      showToast(`${t('accountActionFailed')} ${getErrorMessage(error)}`, 'error');
-    } finally {
-      button.disabled = false;
-    }
-  });
+      const result = await getUserPolls(pollPage + 1);
+      polls = [...polls, ...result.polls];
+      pollPage = result.page;
+      pollHasMore = result.hasMore;
 
-  document.querySelector('[data-logout-all]')?.addEventListener('click', async (event) => {
-    const button = event.currentTarget as HTMLButtonElement;
-    button.disabled = true;
-    try {
-      await logoutAllDevices();
-      showToast(t('accountLogoutAllDone'));
-      navigate('/login');
+      render();
     } catch (error) {
       showToast(`${t('accountActionFailed')} ${getErrorMessage(error)}`, 'error');
       button.disabled = false;
     }
-  });
+  };
 
-  document.querySelector('[data-delete-account]')?.addEventListener('click', async (event) => {
-    const button = event.currentTarget as HTMLButtonElement;
-    if (!window.confirm(t('accountDeleteConfirm'))) return;
-    const currentPassword = window.prompt(t('accountPasswordPrompt')) ?? '';
-    if (!currentPassword) return;
+  const loadMoreComments = async (button: HTMLButtonElement) => {
     button.disabled = true;
     try {
-      await deleteAccount(currentPassword);
-      showToast(t('accountDeleted'));
-      navigate('/');
+      const result = await getUserComments(commentPage + 1);
+      comments = [...comments, ...result.comments];
+      commentPage = result.page;
+      commentHasMore = result.hasMore;
+      render();
     } catch (error) {
       showToast(`${t('accountActionFailed')} ${getErrorMessage(error)}`, 'error');
       button.disabled = false;
     }
-  });
-
-  document.querySelector('[data-logout]')?.addEventListener('click', async () => {
-    try {
-      await logoutUser();
-      showToast(t('logoutDone'));
-      navigate('/login');
-    } catch (error) {
-      showToast(`${t('accountActionFailed')} ${getErrorMessage(error)}`, 'error');
-    }
-  });
+  };
 
 
-  document.querySelectorAll<HTMLButtonElement>('[data-close-poll]').forEach((button) => {
-    button.addEventListener('click', async () => {
+  const bindHandlers = () => {
+    document.querySelector('[data-regenerate-recovery]')?.addEventListener('click', async (event) => {
+      const button = event.currentTarget as HTMLButtonElement;
+      const currentPassword = window.prompt(t('accountPasswordPrompt')) ?? '';
+      if (!currentPassword) return;
       button.disabled = true;
       try {
-        await closeUserPoll(Number(button.dataset.closePoll));
-        showToast(t('accountClosed'));
-        await reload();
+        const code = await regenerateRecoveryCode(currentPassword);
+        const output = document.querySelector<HTMLElement>('[data-recovery-output]');
+        if (output) output.innerHTML = renderRecoveryCode(code);
+        showToast(t('recoveryCodeRegenerated'));
+      } catch (error) {
+        showToast(`${t('accountActionFailed')} ${getErrorMessage(error)}`, 'error');
+      } finally {
+        button.disabled = false;
+      }
+    });
+
+    document.querySelector('[data-logout-all]')?.addEventListener('click', async (event) => {
+      const button = event.currentTarget as HTMLButtonElement;
+      button.disabled = true;
+      try {
+        await logoutAllDevices();
+        showToast(t('accountLogoutAllDone'));
+        navigate('/login');
       } catch (error) {
         showToast(`${t('accountActionFailed')} ${getErrorMessage(error)}`, 'error');
         button.disabled = false;
       }
     });
-  });
 
-  document.querySelectorAll<HTMLButtonElement>('[data-delete-poll]').forEach((button) => {
-    button.addEventListener('click', async () => {
+    document.querySelector('[data-delete-account]')?.addEventListener('click', async (event) => {
+      const button = event.currentTarget as HTMLButtonElement;
+      if (!window.confirm(t('accountDeleteConfirm'))) return;
+      const currentPassword = window.prompt(t('accountPasswordPrompt')) ?? '';
+      if (!currentPassword) return;
       button.disabled = true;
       try {
+        await deleteAccount(currentPassword);
+        showToast(t('accountDeleted'));
+        navigate('/');
+      } catch (error) {
+        showToast(`${t('accountActionFailed')} ${getErrorMessage(error)}`, 'error');
+        button.disabled = false;
+      }
+    });
+
+    document.querySelector('[data-logout]')?.addEventListener('click', async () => {
+      try {
+        await logoutUser();
+        showToast(t('logoutDone'));
+        navigate('/login');
+      } catch (error) {
+        showToast(`${t('accountActionFailed')} ${getErrorMessage(error)}`, 'error');
+      }
+    });
+
+
+    document.querySelectorAll<HTMLButtonElement>('[data-close-poll]').forEach((button) => {
+      button.addEventListener('click', async () => {
+        const pollId = Number(button.dataset.closePoll);
+        button.disabled = true;
+        try {
+          await closeUserPoll(pollId);
+          polls = polls.map((poll) => (poll.id === pollId ? { ...poll, status: 'closed' as const } : poll));
+          showToast(t('accountClosed'));
+          render();
+        } catch (error) {
+          showToast(`${t('accountActionFailed')} ${getErrorMessage(error)}`, 'error');
+          button.disabled = false;
+        }
+      });
+    });
+
+    document.querySelectorAll<HTMLButtonElement>('[data-delete-poll]').forEach((button) => {
+      button.addEventListener('click', async () => {
         const pollId = Number(button.dataset.deletePoll);
-        await deleteUserPoll(pollId);
-        forgetMyPoll(pollId);
-        showToast(t('accountWithdrawn'));
-        await reload();
-      } catch (error) {
-        showToast(`${t('accountActionFailed')} ${getErrorMessage(error)}`, 'error');
-        button.disabled = false;
-      }
+        button.disabled = true;
+        try {
+          await deleteUserPoll(pollId);
+          polls = polls.filter((poll) => poll.id !== pollId);
+          showToast(t('accountWithdrawn'));
+          render();
+        } catch (error) {
+          showToast(`${t('accountActionFailed')} ${getErrorMessage(error)}`, 'error');
+          button.disabled = false;
+        }
+      });
     });
-  });
 
-  document.querySelectorAll<HTMLButtonElement>('[data-delete-comment]').forEach((button) => {
-    button.addEventListener('click', async () => {
-      const id = button.dataset.deleteComment ?? '';
-      button.disabled = true;
-      try {
-        await deleteUserComment(id);
-        forgetMyComment(id);
-        showToast(t('accountCommentDeleted'));
-        await reload();
-      } catch (error) {
-        showToast(`${t('accountActionFailed')} ${getErrorMessage(error)}`, 'error');
-        button.disabled = false;
-      }
+    document.querySelectorAll<HTMLButtonElement>('[data-delete-comment]').forEach((button) => {
+      button.addEventListener('click', async () => {
+        const id = button.dataset.deleteComment ?? '';
+        button.disabled = true;
+        try {
+          await deleteUserComment(id);
+          comments = comments.filter((comment) => comment.id !== id);
+          showToast(t('accountCommentDeleted'));
+          render();
+        } catch (error) {
+          showToast(`${t('accountActionFailed')} ${getErrorMessage(error)}`, 'error');
+          button.disabled = false;
+        }
+      });
     });
-  });
 
-  document.querySelector<HTMLFormElement>('[data-remember-poll-form]')?.addEventListener('submit', async (event) => {
-    event.preventDefault();
-    const input = document.querySelector<HTMLInputElement>('[data-remember-poll-input]');
-    const pollId = Number((input?.value ?? '').trim());
-    if (!Number.isSafeInteger(pollId) || pollId < 1) {
-      showToast(t('accountAddPollInvalid'), 'error');
-      return;
-    }
-    try {
-      // The server confirms ownership before the id is remembered locally.
-      const owned = await getUserPolls([pollId]);
-      if (owned.length === 0) {
-        showToast(t('accountAddPollNotFound'), 'error');
-        return;
-      }
-      rememberMyPoll(pollId);
-      showToast(t('accountAddPollSuccess'));
-      await reload();
-    } catch (error) {
-      showToast(`${t('accountActionFailed')} ${getErrorMessage(error)}`, 'error');
-    }
-  });
-
-  document.querySelectorAll<HTMLButtonElement>('[data-copy-comment-id]').forEach((button) => {
-    button.addEventListener('click', async () => {
-      const id = button.dataset.copyCommentId ?? '';
-      if (!id) return;
-      try {
-        await navigator.clipboard.writeText(id);
-        showToast(t('accountCopiedId'));
-      } catch {
-        // A blocked or unavailable clipboard is not fatal: the id stays selectable.
-        showToast(t('accountCopyIdFailed'), 'error');
-      }
+    document.querySelector<HTMLButtonElement>('[data-load-more-polls]')?.addEventListener('click', (event) => {
+      void loadMorePolls(event.currentTarget as HTMLButtonElement);
     });
-  });
 
-  document.querySelector<HTMLFormElement>('[data-remember-comment-form]')?.addEventListener('submit', async (event) => {
-    event.preventDefault();
-    const input = document.querySelector<HTMLInputElement>('[data-remember-comment-input]');
-    const id = (input?.value ?? '').trim().toLowerCase();
-    // The server accepts only the 16-character hex public id (see worker/api/user.ts).
-    if (!/^[0-9a-f]{16}$/.test(id)) {
-      showToast(t('accountAddCommentInvalid'), 'error');
-      return;
-    }
-    try {
-      // The server confirms ownership before the id is remembered locally.
-      const owned = await getUserComments([id]);
-      if (owned.length === 0) {
-        showToast(t('accountAddCommentNotFound'), 'error');
-        return;
-      }
-      rememberMyComment(id);
-      showToast(t('accountAddCommentSuccess'));
-      await reload();
-    } catch (error) {
-      showToast(`${t('accountActionFailed')} ${getErrorMessage(error)}`, 'error');
-    }
-  });
+    document.querySelector<HTMLButtonElement>('[data-load-more-comments]')?.addEventListener('click', (event) => {
+      void loadMoreComments(event.currentTarget as HTMLButtonElement);
+    });
+  };
 
+  render();
   bindNavigation();
 }
-

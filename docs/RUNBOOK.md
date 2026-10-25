@@ -16,8 +16,8 @@ are run from the repository root.
    The baseline creates the final shape of every table, index, and constraint - the poll
    types and per-poll options, `vote_selections` with `votes` reduced to a ballot row, the
    report and view tables, the ballot/view/option-count columns of the single-format
-   snapshot chain, the `publish_state` and `publish_runs` tables, and the nullable
-   `comments.owner_hash` - so no intermediate rebuild runs on a fresh database. A **fresh**
+   snapshot chain, the `publish_state` and `publish_runs` tables, and the
+   `polls.author_mark`/`comments.author_mark` columns - so no intermediate rebuild runs on a fresh database. A **fresh**
    database is created by applying the baseline and then every later migration in order;
    `npm run db:reset` does this locally.
    A one-off rename of `categories` to `topics` upgraded the production database that
@@ -148,15 +148,13 @@ Test a restore at least quarterly against a staging database.
 
 ## Key rotation
 
-`SERVER_HMAC_KEY` derives the network hashes in `auth_attempts` *and* the ownership
-hashes on polls and comments, so rotating it is not free. Values already in
-`auth_attempts` stop matching, which only relaxes the rolling account cap for one day,
-but every stored `polls.owner_hash` and `comments.owner_hash` also stops matching: no
-existing poll or comment can be attributed to its author again, so "my polls" and "my
-comments" answer empty and close, withdraw, and delete refuse for that content. That
-is irreversible, because the hashes are one-way and no second key is accepted. When
-the old key is known - for example a value that leaked - ownership can be preserved
-before rotating; see [SERVER_KEY_ROTATION.md](SERVER_KEY_ROTATION.md).
+`SERVER_HMAC_KEY` derives the keyed network hashes in `auth_attempts` and the
+rate-limit network buckets, so rotating it only invalidates values already in
+`auth_attempts`, which relaxes the rolling account cap for one day. Rotating the
+server key does **not** affect poll or comment ownership: an `author_mark` is derived
+from the account's own author key, never from the server secret, so "my polls" and
+"my comments" and close, withdraw, and delete keep working unchanged after a
+rotation.
 Rotate the Turnstile secret by uploading a new value with
 `npx wrangler secret put TURNSTILE_SECRET_KEY`, and rotate the
 GitHub publish token the same way (see [Audit publishing](#audit-publishing)).
@@ -175,11 +173,12 @@ than a secret, so it does travel with the data.
 Reuse the same value on the new account
 (`npx wrangler secret put SERVER_HMAC_KEY --env production`) and confirm
 `GET /api/health` reports `"serverKey": true` before opening the site. A deployment
-that starts with a *different* key still works, but it cannot match any stored
-ownership hash (see [Key rotation](#key-rotation)): every pre-migration poll and
-comment becomes permanently unclaimable. A deployment with *no* key refuses votes,
-registration, sign-in, poll submission, and comments with `503`, so the health check
-is the one signal that catches the mistake in either case.
+that starts with a *different* key still works and does not affect poll or comment
+ownership (that no longer depends on the server secret); only the values already in
+`auth_attempts` stop matching, which relaxes the rolling account cap for one day. A
+deployment with *no* key refuses voting, reports, view counting, registration,
+sign-in, and recovery with `503`; poll submission and comments no longer depend on
+the key. The health check is the one signal that catches a missing or unusable key.
 
 ## Release notes
 

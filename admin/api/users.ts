@@ -3,8 +3,8 @@
 // These accounts belong to the public application (the `users` table). They sign
 // up with a username and password only and have no recovery channel, so the
 // dashboard deliberately offers no password reset. Disabling or deleting a user
-// revokes their sessions; deleting keeps their polls and comments but detaches
-// them from the removed account.
+// revokes their sessions; deleting keeps their polls and comments, which keep an
+// author mark that no longer corresponds to any account.
 
 import type { AdminActor, AdminEnv } from '../auth';
 import { logAudit } from '../lib/audit';
@@ -186,7 +186,7 @@ async function deleteUser(userId: number, env: AdminEnv, actor: AdminActor): Pro
   if (!user) return noStoreJson({ message: `user ${userId} was not found` }, 404);
 
   // Sessions cascade with the account row. Submitted polls and comments stay
-  // public but carry no account link (poll ownership is a one-way hash).
+  // public; they keep an author mark that no longer corresponds to any account.
   await env.DB.batch([
     env.DB.prepare('DELETE FROM user_sessions WHERE user_id = ?').bind(userId),
     env.DB.prepare('DELETE FROM users WHERE id = ?').bind(userId)
@@ -199,7 +199,7 @@ async function deleteUser(userId: number, env: AdminEnv, actor: AdminActor): Pro
 
   return noStoreJson({
     ok: true,
-    message: `Deleted ${user.username}. Their polls and comments were kept but are no longer linked to the account.`
+    message: `Deleted ${user.username}. Their polls and comments were kept; their author mark no longer corresponds to any account.`
   });
 }
 
