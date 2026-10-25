@@ -32,6 +32,11 @@ const SOURCE_REPOSITORY_URL = 'https://github.com/qianhujia/chinapoll';
 // the server-rendered hero matches the icon the SPA draws.
 const PLUS_ICON = '<svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14" /><path d="M12 5v14" /></svg>';
 
+// The Lucide chevrons on the previous/next poll navigation, inlined so the
+// server-rendered nav matches the icons the SPA draws.
+const CHEVRON_LEFT_ICON = '<svg class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>';
+const CHEVRON_RIGHT_ICON = '<svg class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6" /></svg>';
+
 // The same three dictionaries the SPA ships, so the server-rendered first paint
 // is in the site's default language instead of always English.
 const DICTIONARIES: Record<Locale, Record<string, string>> = {
@@ -333,23 +338,23 @@ ${renderFooter(settings, t)}
     </div>`;
 }
 
-// The previous/next links for a poll page, each carrying the poll number and
-// title. The whole block is omitted when the poll sits at both ends of the list,
-// so a poll with no neighbors adds no empty navigation.
+// The previous/next links for a poll page, inside one full-width card. Each link
+// shows a chevron and the poll's public number and title; the direction is carried
+// by the icon and the accessible name, not by visible label text. The whole block
+// is omitted when the poll sits at both ends of the list, so a poll with no
+// neighbors adds no empty navigation.
 function pollNavMarkup(poll: SsrPollDetail, t: Translate): string {
   if (!poll.prev && !poll.next) return '';
-  const link = (neighbor: PollNeighbor, label: string, align: string): string => {
-    const href = `/poll/${neighbor.number}`;
-    return `
-          <a class="flex min-w-0 max-w-full flex-col gap-0.5 rounded-[14px] border border-border bg-[#f9fbff] px-3.5 py-2.5 no-underline hover:border-primary sm:max-w-[48%] ${align}" href="${href}" data-route="${href}">
-            <span class="text-xs text-muted">${escapeHtml(label)}</span>
-            <span class="truncate text-sm text-ink">${escapeHtml(`#${neighbor.number} ${neighbor.title}`)}</span>
-          </a>`;
-  };
-  const prev = poll.prev ? link(poll.prev, `← ${t('prevPoll')}`, '') : '';
-  const next = poll.next ? link(poll.next, `${t('nextPoll')} →`, 'ml-auto items-end text-right') : '';
+  const label = (neighbor: PollNeighbor): string => escapeHtml(`#${neighbor.number} ${neighbor.title}`);
+  const prev = poll.prev
+    ? `<a class="flex min-w-0 items-center gap-2 no-underline hover:text-primary" href="/poll/${poll.prev.number}" data-route="/poll/${poll.prev.number}" aria-label="${escapeHtml(t('prevPoll'))}" data-poll-nav="prev">${CHEVRON_LEFT_ICON}<span class="truncate text-sm text-ink">${label(poll.prev)}</span></a>`
+    : '';
+  const next = poll.next
+    ? `<a class="ml-auto flex min-w-0 items-center gap-2 no-underline hover:text-primary" href="/poll/${poll.next.number}" data-route="/poll/${poll.next.number}" aria-label="${escapeHtml(t('nextPoll'))}" data-poll-nav="next"><span class="truncate text-sm text-ink">${label(poll.next)}</span>${CHEVRON_RIGHT_ICON}</a>`
+    : '';
   return `
-        <nav class="flex flex-wrap items-stretch justify-between gap-3" aria-label="${escapeHtml(t('pollNavLabel'))}">${prev}${next}
+        <nav class="rounded-[22px] border border-border bg-panel p-6 shadow-card" aria-label="${escapeHtml(t('pollNavLabel'))}">
+          <div class="flex flex-wrap items-center gap-3">${prev}${next}</div>
         </nav>`;
 }
 

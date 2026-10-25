@@ -125,6 +125,14 @@ describe('renderPollNav', () => {
       { id: 14, number: 9, title: 'Newer poll' }
     );
 
+    // Both directions share one full-width card instead of a box each.
+    expect(markup).toContain('<nav class="rounded-[22px] border border-border bg-panel p-6 shadow-card"');
+    // The direction is a chevron icon, with no visible arrow or label text.
+    expect(markup).toContain('m15 18-6-6 6-6');
+    expect(markup).toContain('m9 18 6-6-6-6');
+    expect(markup).not.toContain('←');
+    expect(markup).not.toContain('→');
+    expect(markup).not.toContain('text-xs text-muted');
     // The links follow the public number, not the primary key.
     expect(markup).toContain('href="/poll/4"');
     expect(markup).toContain('#4 Older poll');
@@ -132,7 +140,8 @@ describe('renderPollNav', () => {
     expect(markup).toContain('#9 Newer poll');
     expect(markup).not.toContain('/poll/10');
     expect(markup).not.toContain('/poll/14');
-    // Translations are not loaded here, so `t()` falls back to the i18n key.
+    // Translations are not loaded here, so `t()` falls back to the i18n key; the
+    // direction stays available to assistive technology through the aria-label.
     expect(markup).toContain('pollNavLabel');
     expect(markup).toContain('prevPoll');
     expect(markup).toContain('nextPoll');
@@ -143,6 +152,9 @@ describe('renderPollNav', () => {
 
     expect(markup).toContain('href="/poll/9"');
     expect(markup).not.toContain('prevPoll');
+    expect(markup).toContain('data-poll-nav="next"');
+    expect(markup).not.toContain('data-poll-nav="prev"');
+    expect(markup).not.toContain('m15 18-6-6 6-6');
   });
 
   it('escapes a neighbour title', () => {

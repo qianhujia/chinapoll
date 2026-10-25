@@ -1,4 +1,4 @@
-import { CircleAlert, CircleCheck, EllipsisVertical, Eye, Plus, Search, X, type IconNode } from 'lucide';
+import { ChevronLeft, ChevronRight, CircleAlert, CircleCheck, EllipsisVertical, Eye, Plus, Search, X, type IconNode } from 'lucide';
 import { DEFAULT_LOCALE, getLocaleText, resolveLocale } from './i18n';
 import { getComments, hasCommentReportedLocally, type CommentsResponse, type PollSummary } from './lib/poll';
 import { getCurrentUser } from './lib/session';
@@ -38,6 +38,15 @@ export function moreIconMarkup(cssClass: string): string {
 // Plus icon used by the "New Poll" call to action on the home hero.
 export function plusIconMarkup(cssClass: string): string {
   return iconMarkup(Plus, cssClass);
+}
+
+// Chevron icons used by the previous/next poll navigation on the detail page.
+export function chevronLeftIconMarkup(cssClass: string): string {
+  return iconMarkup(ChevronLeft, cssClass);
+}
+
+export function chevronRightIconMarkup(cssClass: string): string {
+  return iconMarkup(ChevronRight, cssClass);
 }
 
 const toastIcons: Record<'success' | 'error', IconNode> = {

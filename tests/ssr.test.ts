@@ -171,6 +171,14 @@ describe('server-side poll page', () => {
     expect(html).toContain('Poll navigation');
     expect(html).toContain('Previous poll');
     expect(html).toContain('Next poll');
+    // Both directions share one full-width card, and the direction is a chevron
+    // icon rather than an arrow character or a visible label.
+    expect(html)
+      .toContain('<nav class="rounded-[22px] border border-border bg-panel p-6 shadow-card" aria-label="Poll navigation">');
+    expect(html).toContain('m15 18-6-6 6-6');
+    expect(html).toContain('m9 18 6-6-6-6');
+    expect(html).not.toContain('←');
+    expect(html).not.toContain('→');
     // Each link carries the public number and title and points at that route, not
     // at the primary key the row happens to have.
     expect(html).toContain('href="/poll/4"');

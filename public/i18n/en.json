@@ -215,6 +215,7 @@
   "accountCommentDeleted": "Comment deleted.",
   "accountComment": "Comment (5–140 characters)",
   "commentLoginRequired": "Sign in to comment.",
+  "commentLoginAction": "Sign in to comment",
   "proposalLoginRequired": "You need an account to submit a poll.",
   "statusOpen": "Open",
   "statusClosed": "Closed",

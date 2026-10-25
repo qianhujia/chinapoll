@@ -262,7 +262,9 @@ describe('server-rendered pages', () => {
     // title, labelled in the site default locale.
     expect(html).toContain(`href="/poll/${newerNumber}"`);
     expect(html).toContain(`#${newerNumber} Newer navigation poll`);
-    expect(html).toContain(`${zhDictionary.nextPoll} →`);
+    // The direction is a chevron icon now, not a "Next poll →" text label.
+    expect(html).toContain('m9 18 6-6-6-6');
+    expect(html).not.toContain(`${zhDictionary.nextPoll} →`);
     // The bootstrap island carries the same neighbors the API computes, and the
     // oldest poll has none behind it.
     expect(payload!.poll?.detail?.poll.prev).toBeNull();

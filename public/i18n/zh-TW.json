@@ -215,6 +215,7 @@
   "accountCommentDeleted": "评论已删除。",
   "accountComment": "评论（5–140 字）",
   "commentLoginRequired": "登录后即可评论。",
+  "commentLoginAction": "登录评论",
   "proposalLoginRequired": "提交投票需要一个账号。",
   "statusOpen": "进行中",
   "statusClosed": "已结束",

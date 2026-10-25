@@ -33,6 +33,8 @@ import { localizedTopicName } from '../../shared/categories';
 import { renderTurnstile, resetTurnstile, revealTurnstile, turnstileSiteKey, turnstileToken } from '../lib/turnstile';
 import { apiErrorCode } from '../lib/apiError';
 import {
+  chevronLeftIconMarkup,
+  chevronRightIconMarkup,
   commentMenuEntriesMarkup,
   getCommentsPerPage,
   escapeHtml,
@@ -90,24 +92,24 @@ export function renderChoiceInputs(
   `;
 }
 
-// The previous/next links for the detail page, each showing the poll number and
-// title. Returns an empty string when the poll sits at both ends of the list, so
-// no empty navigation is rendered. The markup mirrors the server-rendered nav in
+// The previous/next links for the detail page, inside one full-width card. Each
+// link shows a chevron and the poll's public number and title; the direction is
+// carried by the icon and the accessible name, not by visible label text. Returns
+// an empty string when the poll sits at both ends of the list, so no empty
+// navigation is rendered. The markup mirrors the server-rendered nav in
 // worker/services/ssr.ts so the first paint and the client paint look alike.
 export function renderPollNav(prev: PollNeighbor | null, next: PollNeighbor | null): string {
   if (!prev && !next) return '';
-  const link = (neighbor: PollNeighbor, label: string, align: string): string => {
-    const href = `/poll/${neighbor.number}`;
-    return `
-      <a class="flex min-w-0 max-w-full flex-col gap-0.5 rounded-[14px] border border-border bg-[#f9fbff] px-3.5 py-2.5 no-underline hover:border-primary sm:max-w-[48%] ${align}" href="${href}" data-route="${href}">
-        <span class="text-xs text-muted">${escapeHtml(label)}</span>
-        <span class="truncate text-sm text-ink">${escapeHtml(`#${neighbor.number} ${neighbor.title}`)}</span>
-      </a>`;
-  };
-  const prevLink = prev ? link(prev, `← ${t('prevPoll')}`, '') : '';
-  const nextLink = next ? link(next, `${t('nextPoll')} →`, 'ml-auto items-end text-right') : '';
+  const label = (neighbor: PollNeighbor): string => escapeHtml(`#${neighbor.number} ${neighbor.title}`);
+  const prevLink = prev
+    ? `<a class="flex min-w-0 items-center gap-2 no-underline hover:text-primary" href="/poll/${prev.number}" data-route="/poll/${prev.number}" aria-label="${escapeHtml(t('prevPoll'))}" data-poll-nav="prev">${chevronLeftIconMarkup('h-4 w-4 shrink-0')}<span class="truncate text-sm text-ink">${label(prev)}</span></a>`
+    : '';
+  const nextLink = next
+    ? `<a class="ml-auto flex min-w-0 items-center gap-2 no-underline hover:text-primary" href="/poll/${next.number}" data-route="/poll/${next.number}" aria-label="${escapeHtml(t('nextPoll'))}" data-poll-nav="next"><span class="truncate text-sm text-ink">${label(next)}</span>${chevronRightIconMarkup('h-4 w-4 shrink-0')}</a>`
+    : '';
   return `
-      <nav class="flex flex-wrap items-stretch justify-between gap-3" aria-label="${escapeHtml(t('pollNavLabel'))}">${prevLink}${nextLink}
+      <nav class="rounded-[22px] border border-border bg-panel p-6 shadow-card" aria-label="${escapeHtml(t('pollNavLabel'))}">
+        <div class="flex flex-wrap items-center gap-3">${prevLink}${nextLink}</div>
       </nav>`;
 }
 
@@ -269,34 +271,28 @@ export function reportModalMarkup(): string {
   `;
 }
 
-// The comments card header. The Comment button sits at the top right of the
-// comments list: pressing it reveals the form card above the list and moves the
-// caret to the textarea. A signed-out visitor gets no button, because the form is
-// replaced by the sign-in prompt.
+// The comments card header. The action button sits right after the heading: a
+// signed-in visitor gets a Comment button that reveals the form card above the
+// list and moves the caret to the textarea, and a signed-out visitor gets a
+// sign-in button that leads to the login page instead of a comment form.
 export function renderCommentsHeader(signedIn: boolean): string {
-  const toggle = signedIn
+  const action = signedIn
     ? `<button class="shrink-0 cursor-pointer rounded-full border border-primary bg-primary px-4 py-2.5 text-white" type="button" aria-expanded="false" aria-controls="comment-form" data-toggle-comment>${t('commentToggle')}</button>`
-    : '';
+    : `<a class="shrink-0 cursor-pointer rounded-full border border-primary bg-primary px-4 py-2.5 text-white no-underline" href="/login" data-route="/login">${t('commentLoginAction')}</a>`;
   return `
-    <div class="mb-3.5 flex items-start justify-between gap-4">
+    <div class="mb-3.5 flex flex-wrap items-center gap-3">
       <h2 class="m-0 text-xl font-bold">${t('commentsTitle')}</h2>
-      ${toggle}
+      ${action}
     </div>
   `;
 }
 
-// The comment form card above the comments list. The card itself is the toggle
-// target, so collapsing it leaves no empty card behind. A signed-out visitor sees
-// the sign-in prompt in its place.
+// The comment form card above the comments list, shown only to a signed-in
+// visitor. The card itself is the toggle target, so collapsing it leaves no empty
+// card behind. A signed-out visitor has no form: the comments header carries the
+// sign-in button that leads to the login page.
 export function renderCommentForm(signedIn: boolean): string {
-  if (!signedIn) {
-    return `
-    <section class="grid gap-3 rounded-[22px] border border-border bg-panel p-6 shadow-card">
-      <p class="m-0 text-center text-muted">${t('commentLoginRequired')}</p>
-      <a class="mx-auto cursor-pointer rounded-full border border-primary bg-primary px-4 py-2.5 text-white no-underline" href="/login" data-route="/login">${t('loginRequiredAction')}</a>
-    </section>
-  `;
-  }
+  if (!signedIn) return '';
 
   return `
     <section class="grid gap-3 rounded-[22px] border border-border bg-panel p-6 shadow-card" id="comment-form" hidden>
