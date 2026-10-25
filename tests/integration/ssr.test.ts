@@ -15,6 +15,10 @@ interface IslandPayload {
   settings?: Record<string, unknown>;
   locale?: string;
   i18n?: Record<string, string>;
+  /** The `GET /api/topics` body, on the first document of a poll-list route. */
+  topics?: unknown;
+  /** The `GET /api/polls` body for the poll-list view, on the same route. */
+  polls?: { page: number; query: string; topic: string; body: unknown };
   poll?: {
     id: number;
     commentsPage: number;
@@ -89,6 +93,40 @@ describe('server-rendered pages', () => {
     // alongside the injected ones.
     expect(html).not.toContain('<title>ChinaPoll</title>');
     expect(html.match(/name="description"/g)).toHaveLength(1);
+  });
+
+  // The home page's topic chip row is server-rendered and the topics travel in the
+  // bootstrap island, so the client does not call GET /api/topics on the first load.
+  it('embeds the topic list so the client does not fetch it for the chip row', async () => {
+    const response = await SELF.fetch(`${ORIGIN}/`);
+    const payload = islandFrom(await response.text());
+
+    expect(payload!.topics).toBeDefined();
+    // The island carries exactly what the endpoint answers with.
+    const endpoint = await (await SELF.fetch(`${ORIGIN}/api/topics`)).json();
+    expect(payload!.topics).toEqual(endpoint);
+  });
+
+  // The poll list travels the same way: the first document carries the list for
+  // the homepage view so the client does not call GET /api/polls.
+  it('embeds the poll list for the home view so the client does not fetch it', async () => {
+    const response = await SELF.fetch(`${ORIGIN}/`);
+    const payload = islandFrom(await response.text());
+
+    expect(payload!.polls).toMatchObject({ page: 1, query: '', topic: '' });
+    const endpoint = await (await SELF.fetch(`${ORIGIN}/api/polls?page=1`)).json();
+    expect(payload!.polls?.body).toEqual(endpoint);
+  });
+
+  // A topic page renders the list filtered to that topic and records the filter,
+  // so the client only reuses it for the same view.
+  it('embeds the topic-filtered poll list on a topic page', async () => {
+    const response = await SELF.fetch(`${ORIGIN}/topic/politics`);
+    const payload = islandFrom(await response.text());
+
+    expect(payload!.polls).toMatchObject({ page: 1, query: '', topic: 'politics' });
+    const endpoint = await (await SELF.fetch(`${ORIGIN}/api/polls?page=1&topic=politics`)).json();
+    expect(payload!.polls?.body).toEqual(endpoint);
   });
 
   it('renders the copy in the site default locale', async () => {

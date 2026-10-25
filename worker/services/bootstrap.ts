@@ -2,11 +2,12 @@
 // document, serialized into that same document.
 //
 // The client boots from the served document, so `/api/settings/public`,
-// `/i18n/<locale>.json`, and (on a poll page) the poll detail, its results, and
-// its first comment page are embedded in a `<script type="application/json"
-// id="bootstrap">` element. The client reads them from there and only falls back
-// to the fetch when the island is absent or does not describe the current view
-// (a client-side route change serves no new document).
+// `/i18n/<locale>.json`, (on a poll-list route) `/api/topics` and `/api/polls`,
+// and (on a poll page) the poll detail, its results, and its first comment page
+// are embedded in a `<script type="application/json" id="bootstrap">` element. The
+// client reads them from there and only falls back to the fetch when the island is
+// absent or does not describe the current view (a client-side route change serves
+// no new document).
 //
 // The island carries nothing the client could not fetch itself: private settings
 // are stripped by `publicSettingsPayload` (see ../api/settings), and the
@@ -18,6 +19,7 @@
 // `'unsafe-inline'`. Every value is escaped by `serializeJsonScript`, so a poll
 // title or translation containing markup cannot close the element.
 
+import { handleTopicsRequest } from '../api/categories';
 import { handleCommentsRequest } from '../api/comments';
 import { handlePollsRequest } from '../api/polls';
 import { publicSettingsPayload, type PublicSettings } from '../api/settings';
@@ -52,6 +54,23 @@ export interface BootstrapPayload {
   i18n: Record<string, string>;
   /** Poll page payload; absent on every other route. */
   poll?: BootstrapPollPayload;
+  /** The `GET /api/topics` body; present on the routes whose list shows the
+   * topic chip row, so the client renders the chips without that request. */
+  topics?: unknown;
+  /** The `GET /api/polls` body for the poll-list view; present on the same
+   * routes, so the client renders the list without that request. */
+  polls?: BootstrapPollsPayload;
+}
+
+export interface BootstrapPollsPayload {
+  /** The view this poll list describes. The client only uses the payload when
+   * its page, search query, and topic filter all match, so a stale list from a
+   * different view is never rendered. */
+  page: number;
+  query: string;
+  topic: string;
+  /** The `GET /api/polls` body. */
+  body: unknown;
 }
 
 export function renderBootstrapScript(payload: BootstrapPayload): string {
@@ -109,15 +128,61 @@ export async function buildPollBootstrap(
   return { id: pollId, commentsPage, commentsPageSize, detail, stats, comments };
 }
 
+// The island's topics section: the same body `GET /api/topics` answers with, so
+// the poll-list chip row is rendered from the document instead of a request.
+// Returns undefined when the lookup fails, and the client falls back to the
+// endpoint.
+export async function buildTopicsBootstrap(env: HandlerEnv, origin: string): Promise<unknown | undefined> {
+  // The topics handler takes (request, env); `callJson` passes the URL too, so the
+  // adapter keeps the handler's public signature unchanged.
+  return callJson(
+    (request, _url, handlerEnv) => handleTopicsRequest(request, handlerEnv),
+    env,
+    `${origin}/api/topics`
+  );
+}
+
+// The topics and polls a poll-list route embeds. `list` describes the exact view
+// (page, search, topic filter) the `/api/polls` body was built for, so the client
+// only renders it when it matches.
+export async function buildPollListBootstrap(
+  env: HandlerEnv,
+  origin: string,
+  list: { page: number; query: string; topic: string; pageSize: number }
+): Promise<{ topics: unknown | undefined; polls: BootstrapPollsPayload | undefined }> {
+  const params = new URLSearchParams({ page: String(list.page), pageSize: String(list.pageSize) });
+  if (list.query) params.set('q', list.query);
+  if (list.topic) params.set('topic', list.topic);
+
+  const [topics, body] = await Promise.all([
+    buildTopicsBootstrap(env, origin),
+    callJson(handlePollsRequest, env, `${origin}/api/polls?${params.toString()}`)
+  ]);
+
+  return {
+    topics,
+    polls: body === undefined
+      ? undefined
+      : { page: list.page, query: list.query, topic: list.topic, body }
+  };
+}
+
+export interface BootstrapOptions {
+  /** The poll page's data, when the route is a found poll page. */
+  poll?: { id: number; commentsPage: number; commentsPageSize: number };
+  /** The poll-list view to embed, when the route renders the poll list. */
+  list?: { page: number; query: string; topic: string; pageSize: number };
+}
+
 // Builds the whole island payload for one document. `settings` is the loaded
 // public settings (never the merged environment, whose bindings and server secret
 // must not reach the document); `env` is used for the Turnstile fields and for the
-// in-process API lookups of the poll payload.
+// in-process API lookups of the topic list, the poll list, and the poll payload.
 export async function buildBootstrapPayload(
   env: HandlerEnv,
   settings: PublicSettings,
   origin: string,
-  poll?: { id: number; commentsPage: number; commentsPageSize: number }
+  options: BootstrapOptions = {}
 ): Promise<BootstrapPayload> {
   const payload: BootstrapPayload = {
     settings: publicSettingsPayload(settings, env),
@@ -125,13 +190,19 @@ export async function buildBootstrapPayload(
     i18n: dictionaryFor(settings.default_locale)
   };
 
-  if (poll) {
+  if (options.list) {
+    const { topics, polls } = await buildPollListBootstrap(env, origin, options.list);
+    if (topics !== undefined) payload.topics = topics;
+    if (polls !== undefined) payload.polls = polls;
+  }
+
+  if (options.poll) {
     const pollPayload = await buildPollBootstrap(
       env,
       origin,
-      poll.id,
-      poll.commentsPage,
-      poll.commentsPageSize
+      options.poll.id,
+      options.poll.commentsPage,
+      options.poll.commentsPageSize
     );
     if (pollPayload) payload.poll = pollPayload;
   }

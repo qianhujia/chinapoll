@@ -1,4 +1,5 @@
 import { getTopics, getPolls } from '../lib/poll';
+import { bootstrapPolls, bootstrapTopics } from '../bootstrap';
 import { getPublicSettings } from '../config';
 import { localizedTopicName } from '../../shared/categories';
 import {
@@ -149,22 +150,34 @@ function bindTopicChips(app: HTMLElement): void {
 export async function mountHome(app: HTMLElement, page: number, bindNavigation: () => void, settings?: Record<string, any>, topicSlug?: string): Promise<void> {
   const pollsPerPage = getPollsPerPage();
   const searchQuery = getQueryValue('q');
-  const categoryFilter = topicSlug ?? getQueryValue('category');
+  // The topic filter travels as `topic`, matching the API and the paging links;
+  // the legacy `category` is still read so an old link keeps working.
+  const categoryFilter = topicSlug ?? (getQueryValue('topic') || getQueryValue('category'));
   let pollStats: Awaited<ReturnType<typeof getPolls>>['polls'];
-  let topics: Awaited<ReturnType<typeof getTopics>> | null = null;
+  // The chip row and the poll list are server-provided: on a poll-list route the
+  // document's bootstrap island carries the topics and the same body GET /api/polls
+  // answers with for this exact view (page, search query, topic filter), so the
+  // first load renders both without those requests. A client-side route change
+  // serves no new document, so its island (if any) does not describe this view and
+  // the endpoints are used.
+  let topics: Awaited<ReturnType<typeof getTopics>> | null = bootstrapTopics();
+  const embeddedList = bootstrapPolls(page, searchQuery, categoryFilter);
+  const embeddedPolls = embeddedList
+    ? (embeddedList.body as Awaited<ReturnType<typeof getPolls>>)
+    : null;
   let openPolls: number;
   let totalPolls: number;
   let totalVotes: number;
   try {
     const [response, topicData] = await Promise.all([
-      getPolls(page, pollsPerPage, searchQuery, categoryFilter),
-      getTopics().catch(() => null)
+      embeddedPolls ?? getPolls(page, pollsPerPage, searchQuery, categoryFilter),
+      topics ? Promise.resolve(null) : getTopics().catch(() => null)
     ]);
     pollStats = response.polls;
     openPolls = response.total;
     totalPolls = response.totalPolls;
     totalVotes = response.totalVotes;
-    topics = topicData;
+    topics = topics ?? topicData;
   } catch (error) {
     app.innerHTML = `
       <div class="mx-auto max-w-[var(--page-width)] px-5 pt-6 pb-16">

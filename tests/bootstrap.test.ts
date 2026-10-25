@@ -5,7 +5,7 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import zhDictionary from '../public/i18n/zh.json';
-import { bootstrapPoll, readBootstrap, BOOTSTRAP_ELEMENT_ID } from '../src/bootstrap';
+import { bootstrapPoll, bootstrapPolls, bootstrapTopics, readBootstrap, BOOTSTRAP_ELEMENT_ID } from '../src/bootstrap';
 import { DEFAULT_PUBLIC_SETTINGS, publicSettingsPayload } from '../worker/api/settings';
 import type { PublicSettings } from '../worker/api/settings';
 import {
@@ -155,6 +155,40 @@ describe('bootstrap island reader', () => {
     expect(bootstrapPoll(8, 1, 30)).toBeNull();
     expect(bootstrapPoll(7, 2, 30)).toBeNull();
     expect(bootstrapPoll(7, 1, 15)).toBeNull();
+  });
+
+  it('reads the topic list the poll-list page would otherwise fetch', () => {
+    const topic = {
+      slug: 'politics',
+      name: 'Politics',
+      count: 2,
+      names: { en: 'Politics', 'zh-CN': '政治', 'zh-TW': '政治' }
+    };
+    stubIsland(JSON.stringify({ topics: { topics: [topic], total: 2 } }));
+    expect(bootstrapTopics()).toEqual({ topics: [topic], total: 2 });
+
+    // A missing or malformed section means the client fetches the endpoint instead.
+    stubIsland(JSON.stringify({}));
+    expect(bootstrapTopics()).toBeNull();
+    stubIsland(JSON.stringify({ topics: 'nope' }));
+    expect(bootstrapTopics()).toBeNull();
+  });
+
+  it('reads the poll list only for the view it describes', () => {
+    const body = { polls: [], page: 1, pageSize: 15, total: 0, query: '', totalPolls: 0, totalVotes: 0 };
+    stubIsland(JSON.stringify({ polls: { page: 1, query: '', topic: '', body } }));
+    expect(bootstrapPolls(1, '', '')).toEqual({ page: 1, query: '', topic: '', body });
+
+    // A different page, search query, or topic filter means the client fetches
+    // instead of rendering a list for the wrong view.
+    expect(bootstrapPolls(2, '', '')).toBeNull();
+    expect(bootstrapPolls(1, 'term', '')).toBeNull();
+    expect(bootstrapPolls(1, '', 'politics')).toBeNull();
+
+    stubIsland(JSON.stringify({}));
+    expect(bootstrapPolls(1, '', '')).toBeNull();
+    stubIsland(JSON.stringify({ polls: 'nope' }));
+    expect(bootstrapPolls(1, '', '')).toBeNull();
   });
 
   it('lets the client boot without fetching the settings or the dictionary', async () => {

@@ -164,6 +164,10 @@ interface PublicPage {
   seo: SeoContext;
   body: string;
   status: number;
+  /** The poll-list view this document server-renders, when the route is one; its
+   * `page`, `query`, and `topic` match what the client will compute, so the list
+   * in the bootstrap island is only used for exactly that view. */
+  list?: { page: number; query: string; topic: string; pageSize: number };
 }
 
 function readPageParam(search: URLSearchParams, key = 'page'): number {
@@ -219,7 +223,8 @@ async function buildPublicPage(
         totalVotes: data?.totalVotes ?? 0,
         showHero: (data?.page ?? page) === 1 && query === '' && activeTopic === ''
       }, t),
-      status: 200
+      status: 200,
+      list: { page, query, topic: activeTopic, pageSize: settings.polls_per_page }
     };
   }
   if (pathname.startsWith('/topic/')) {
@@ -268,7 +273,8 @@ async function buildPublicPage(
         totalVotes: data?.totalVotes ?? 0,
         showHero: (data?.page ?? page) === 1 && topicSlug === ''
       }, t),
-      status: 200
+      status: 200,
+      list: { page, query: '', topic: topicSlug, pageSize: settings.polls_per_page }
     };
   }
 
@@ -337,26 +343,26 @@ async function withSeoMetadata(
   const shell = applyHtmlLang(await response.text(), settings.default_locale);
   const rendered = injectAppBody(injectSeoIntoHtml(shell, metaTags, page.seo.title), page.body);
 
-  // The bootstrap island carries the settings, the translation dictionary, and -
-  // on a poll page that was found - the poll data, so the client does not issue
-  // those requests right after the document. A poll page that answered 404 has no
-  // data to embed.
+  // The bootstrap island carries the settings, the translation dictionary, the
+  // topic list and the poll list on a poll-list route, and - on a poll page that
+  // was found - the poll data, so the client does not issue those requests right
+  // after the document. A poll page that answered 404 has no data to embed.
   const pollPath = page.status === 200 ? /^\/(?:poll|vote)\/(\d+)$/.exec(url.pathname) : null;
   const envWithSettings: HandlerEnv = { ...env, ...settings };
   // `settings` is passed on its own: the merged environment also holds the bindings
-  // and the server secret, which must never be serialized into the document.
-  const payload = await buildBootstrapPayload(
-    envWithSettings,
-    settings,
-    origin,
-    pollPath
+  // and the server secret, which must never be serialized into the document. The
+  // list view (when this route server-renders one) carries the topics and the poll
+  // list so the client renders both without calling the endpoints.
+  const payload = await buildBootstrapPayload(envWithSettings, settings, origin, {
+    list: page.list,
+    poll: pollPath
       ? {
         id: Number(pollPath[1]),
         commentsPage: readPageParam(url.searchParams, 'commentsPage'),
         commentsPageSize: settings.comments_per_page
       }
       : undefined
-  );
+  });
   const html = injectBootstrapScript(rendered, renderBootstrapScript(payload));
 
   return new Response(html, {
