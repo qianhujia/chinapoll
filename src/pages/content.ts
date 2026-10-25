@@ -12,15 +12,17 @@ import { getCurrentUser } from '../lib/session';
 import { renderFooter, renderHeader, renderToast, t } from '../ui';
 
 
-// One About section: a heading and its bullet points, both translated.
+// One About section: a heading and its bullet points, both translated. It is a
+// plain block (no panel of its own) so every section lives inside the single
+// About page box, separated by a top border.
 function aboutSectionMarkup(section: AboutSection): string {
   return `
-        <section class="rounded-[22px] border border-border bg-panel p-6 shadow-card">
-          <h2 class="mt-0 mb-3 text-xl font-bold">${t(section.title)}</h2>
-          <ul class="m-0 list-disc space-y-2 pl-6 text-muted">
-            ${section.points.map((key) => `<li>${t(key)}</li>`).join('')}
-          </ul>
-        </section>
+          <div class="mt-6 border-t border-border pt-6">
+            <h2 class="mt-0 mb-3 text-xl font-bold">${t(section.title)}</h2>
+            <ul class="m-0 list-disc space-y-2 pl-6 text-muted">
+              ${section.points.map((key) => `<li>${t(key)}</li>`).join('')}
+            </ul>
+          </div>
   `;
 }
 
@@ -38,8 +40,8 @@ export function mountAboutPage(app: HTMLElement, bindNavigation: () => void): vo
             <li>${t('aboutPointThree')}</li>
           </ul>
           <p class="mt-4 mb-0 text-sm text-muted">${t('aiPrivacyNote')}</p>
+          ${ABOUT_SECTIONS.map(aboutSectionMarkup).join('')}
         </section>
-        ${ABOUT_SECTIONS.map(aboutSectionMarkup).join('')}
       </main>
       ${renderToast()}
       ${renderFooter()}
