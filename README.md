@@ -5,16 +5,41 @@ A local-first, privacy-focused polling app built on Cloudflare Workers and D1.
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/qianhujia/chinapoll)
 
 The button clones this repository and deploys the public Worker, which serves the
-SPA and `/api/*` from one hostname, together with a provisioned D1 database. On
-the setup page choose the build command `npm run build` and the deploy command
-`npm run deploy`, and set `SERVER_HMAC_KEY` to 64 random hex characters
-(`openssl rand -hex 32`). No database UUID is committed: `[env.production]`
-binds the database by name and wrangler resolves it at deploy time, so the deploy
-command must name the environment. A bare `npx wrangler deploy` runs against the
-local placeholder and fails with
+SPA and `/api/*` from one hostname, together with a provisioned D1 database. No
+database UUID is committed: `[env.production]` binds the database by name and
+wrangler resolves it at deploy time, so the deploy command must name the
+environment. A bare `npx wrangler deploy` runs against the local placeholder and
+fails with
 `binding DB of type d1 must have a valid database_id specified [code: 10021]`.
-Deploy the admin dashboard as a second Worker that shares the database, with the
-deploy command `npm run deploy:admin:remote` (see [Admin Worker](#admin-worker)).
+The public Worker needs `SERVER_HMAC_KEY` set to 64 random hex characters
+(`openssl rand -hex 32`).
+
+### Deploying from the Cloudflare dashboard
+
+Both Workers are deployed from the repository root: the admin Worker imports
+`shared/*` and reads `../migrations`, so it also points at the root. When the
+dashboard (or the Deploy button's setup page) asks for build settings, fill them
+in as follows:
+
+| Worker | Build command | Deploy command | Preview command |
+| --- | --- | --- | --- |
+| Public (`chinapoll-worker`) | `npm run build` | `npm run deploy` | leave empty |
+| Admin (`chinapoll-admin-worker`) | `npm run build` | `npm run deploy:admin:remote` | leave empty |
+
+- `npm run build` must run in the public project before its Worker is deployed, so
+  `dist/web` exists to upload as static assets.
+- `npm run deploy` applies the migrations (`--env production --remote`) and then
+  deploys the public Worker; `npm run deploy:admin:remote` does the same for the
+  admin Worker. Both select `[env.production]`, which is required.
+- Leave the preview command empty. The repository has no preview environment, and
+  the top-level (non-`production`) configuration binds the local placeholder
+  database, so a preview deploy fails with the `[code: 10021]` error above. Add an
+  `[env.preview]` with its own D1 first if you want preview deployments.
+- Secrets cannot be set from a build command, so set `SERVER_HMAC_KEY` (and, if
+  you use Turnstile, `TURNSTILE_SECRET_KEY`) in each project's Settings before the
+  first deploy. The admin dashboard is a second project on the same repository and
+  shares the database (see [Admin Worker](#admin-worker)).
+
 Full steps: [docs/RUNBOOK.md](docs/RUNBOOK.md).
 
 ## Local startup
@@ -39,10 +64,11 @@ no polls because the repository ships no seed or demo data.
   `wrangler secret put <NAME>` in production. Never commit them to `.env` or
   `wrangler.toml`.
 - `SERVER_HMAC_KEY` (64 hex characters) is required by the public Worker for
-  keyed, daily-rotated network hashing and for poll and comment ownership; without
-  it voting, registration, sign-in, poll submission, and comments return `503`.
-  The earlier `IP_HASH_KEY` name is no longer read, so the secret must be stored as
-  `SERVER_HMAC_KEY`.
+  keyed, daily-rotated network hashing (rate limits and the per-network account
+  cap); without it voting, reports, view counting, registration, sign-in, and
+  recovery return `503`. It no longer affects poll or comment ownership, which is
+  derived from each account's own author key. The earlier `IP_HASH_KEY` name is no
+  longer read, so the secret must be stored as `SERVER_HMAC_KEY`.
 - `TURNSTILE_SITE_KEY` and `TURNSTILE_SECRET_KEY` enable Turnstile when both are
   set; otherwise it stays off, which is the local default.
 - **Application settings** are rows in the D1 `settings` table, served publicly
@@ -113,8 +139,9 @@ manage admins and users, read the audit log, and edit settings. Each view has it
 own URL. A fresh install shows a one-time setup form; the first account is the
 super admin, and accounts added later are regular admins. It imports `shared/*`
 and points its `migrations_dir` at `../migrations`, so the Deploy button points
-at the repository root. See [admin/README.md](admin/README.md) for the endpoint
-reference.
+at the repository root; its build and deploy commands are in the
+[table above](#deploying-from-the-cloudflare-dashboard). See
+[admin/README.md](admin/README.md) for the endpoint reference.
 
 ## Testing
 

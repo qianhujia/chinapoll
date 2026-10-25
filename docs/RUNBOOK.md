@@ -63,7 +63,11 @@ driven from the dashboard instead of the CLI. Set the public deploy command to
 `npm run deploy` and the admin one to `npm run deploy:admin:remote`; both apply
 the migrations by database name with `--env production` and then deploy the
 `[env.production]` Worker. Set each project's build command to `npm run build` so that
-`dist/web` exists before the public Worker is deployed.
+`dist/web` exists before the public Worker is deployed. Leave the preview
+(non-production branch) command empty: there is no preview environment, and the
+top-level configuration binds the local placeholder database, so a preview deploy
+fails with the `[code: 10021]` error above; add an `[env.preview]` with its own D1
+first if preview deployments are wanted.
 
 ## Troubleshooting
 
