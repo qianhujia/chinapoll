@@ -150,7 +150,7 @@ export function buildWebsiteJsonLd(settings: PublicSettingsSeo, origin: string):
 // The ordered list of polls shown on a listing page, so a crawler sees the same
 // items and their order the visitor sees.
 export function buildPollListJsonLd(
-  polls: ReadonlyArray<{ id: number; title: string }>,
+  polls: ReadonlyArray<{ number: number; title: string }>,
   settings: PublicSettingsSeo,
   origin: string
 ): Record<string, unknown> {
@@ -162,7 +162,9 @@ export function buildPollListJsonLd(
     itemListElement: polls.map((poll, index) => ({
       '@type': 'ListItem',
       position: index + 1,
-      url: `${origin}/poll/${poll.id}`,
+      // The public number, so the structured data points at the same URL a
+      // visitor follows instead of at the internal primary key.
+      url: `${origin}/poll/${poll.number}`,
       name: poll.title
     }))
   };

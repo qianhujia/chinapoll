@@ -114,12 +114,12 @@ async function listPolls(url: URL, env: AdminEnv): Promise<Response> {
 
   const query = (url.searchParams.get('q') ?? '').trim().slice(0, MAX_QUERY_LENGTH);
   const likePattern = query ? `%${query.replace(/[\\%_]/g, (character) => `\\${character}`)}%` : '';
-  const searchClause = query ? " AND i.title LIKE ? ESCAPE '\\'" : '';
-  const statusClause = statusFilter === 'all' ? '' : ' AND i.status = ?';
+  const searchClause = query ? " AND p.title LIKE ? ESCAPE '\\'" : '';
+  const statusClause = statusFilter === 'all' ? '' : ' AND p.status = ?';
   const statusBind = statusFilter === 'all' ? [] : [POLL_STATUS_VALUES[statusFilter]];
 
   const countResult = await env.DB.prepare(
-    `SELECT COUNT(*) AS total FROM polls i WHERE 1 = 1${statusClause}${searchClause}`
+    `SELECT COUNT(*) AS total FROM polls p WHERE 1 = 1${statusClause}${searchClause}`
   ).bind(...statusBind, ...(query ? [likePattern] : [])).first<{ total: number }>();
 
   const total = Number(countResult?.total ?? 0);
@@ -129,19 +129,19 @@ async function listPolls(url: URL, env: AdminEnv): Promise<Response> {
 
   const result = await env.DB.prepare(
     `WITH page AS (
-       SELECT id FROM polls i
+       SELECT id FROM polls p
        WHERE 1 = 1${statusClause}${searchClause}
-       ORDER BY i.created_at DESC, i.id DESC LIMIT ? OFFSET ?
+       ORDER BY p.created_at DESC, p.id DESC LIMIT ? OFFSET ?
      )
-SELECT i.id, i.title, i.description, i.mode, i.poll_type, i.duration_seconds,
-             i.start_at, i.end_at, i.status,
-             i.created_at, i.updated_at,
-             i.topic_id, t.slug AS topic_slug, t.name AS topic_name,
-             (SELECT COALESCE(SUM(pv.views), 0) FROM poll_views pv WHERE pv.poll_id = i.id) AS views
+SELECT p.id, p.title, p.description, p.mode, p.poll_type, p.duration_seconds,
+             p.start_at, p.end_at, p.status,
+             p.created_at, p.updated_at,
+             p.topic_id, t.slug AS topic_slug, t.name AS topic_name,
+             (SELECT COALESCE(SUM(pv.views), 0) FROM poll_views pv WHERE pv.poll_id = p.id) AS views
       FROM page
-      JOIN polls i ON i.id = page.id
-      LEFT JOIN topics t ON t.id = i.topic_id
-      ORDER BY i.created_at DESC, i.id DESC`
+      JOIN polls p ON p.id = page.id
+      LEFT JOIN topics t ON t.id = p.topic_id
+      ORDER BY p.created_at DESC, p.id DESC`
   ).bind(
     ...statusBind, ...(query ? [likePattern] : []),
     pageSize, offset

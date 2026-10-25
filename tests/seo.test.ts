@@ -78,7 +78,7 @@ describe('structured data', () => {
 
   it('numbers the poll list items in order', () => {
     const jsonLd = buildPollListJsonLd(
-      [{ id: 3, title: 'Third' }, { id: 7, title: 'Seventh' }],
+      [{ number: 3, title: 'Third' }, { number: 7, title: 'Seventh' }],
       settings,
       ORIGIN
     );

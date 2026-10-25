@@ -19,6 +19,7 @@
 import { PollMode, PollStatus, PollType } from '../enums';
 import { countBallots, getOptionsForPolls, type PollOption } from './options';
 import { runPublisher } from './publisher';
+import { chunk } from '../../shared/db';
 import { makeSnapshot, serializeOptionCounts, type SnapshotOptionCount } from './snapshot';
 
 interface MaintenanceEnv {
@@ -206,7 +207,6 @@ async function writeSnapshots(env: MaintenanceEnv, tsHour: number, now: number):
   if (entries.length === 0) return;
 
   const pollIds = entries.map((entry) => entry.id);
-  const placeholders = pollIds.map(() => '?').join(', ');
 
   // Every type is counted through the shared engine; the helper shapes the
   // result for the snapshot columns.
@@ -215,27 +215,33 @@ async function writeSnapshots(env: MaintenanceEnv, tsHour: number, now: number):
     entries.map((entry) => ({ id: entry.id, poll_type: entry.pollType }))
   );
 
+  // The two id lists are bound in batches: a D1 statement takes at most 100
+  // parameters, and every open poll is snapshotted in this pass.
   const previous = new Map<number, string>();
-  const hashRows = await env.DB.prepare(
-    `SELECT s.poll_id, s.hash
-     FROM stats_snapshots s
-     JOIN (SELECT poll_id, MAX(ts_hour) AS ts_hour FROM stats_snapshots
-           WHERE poll_id IN (${placeholders}) AND ts_hour < ?
-           GROUP BY poll_id) latest
-       ON latest.poll_id = s.poll_id AND latest.ts_hour = s.ts_hour`
-  ).bind(...pollIds, tsHour).all<{ poll_id: number; hash: string }>();
-  for (const row of hashRows.results ?? []) {
-    previous.set(Number(row.poll_id), row.hash);
-  }
-
-  // Cumulative views per poll, carried into the signed snapshot.
   const viewsByPoll = new Map<number, number>();
-  const viewsRows = await env.DB.prepare(
-    `SELECT poll_id, COALESCE(SUM(views), 0) AS views FROM poll_views
-     WHERE poll_id IN (${placeholders}) GROUP BY poll_id`
-  ).bind(...pollIds).all<{ poll_id: number; views: number }>();
-  for (const row of viewsRows.results ?? []) {
-    viewsByPoll.set(Number(row.poll_id), Number(row.views));
+  for (const batch of chunk(pollIds)) {
+    const placeholders = batch.map(() => '?').join(', ');
+
+    const hashRows = await env.DB.prepare(
+      `SELECT s.poll_id, s.hash
+       FROM stats_snapshots s
+       JOIN (SELECT poll_id, MAX(ts_hour) AS ts_hour FROM stats_snapshots
+             WHERE poll_id IN (${placeholders}) AND ts_hour < ?
+             GROUP BY poll_id) latest
+         ON latest.poll_id = s.poll_id AND latest.ts_hour = s.ts_hour`
+    ).bind(...batch, tsHour).all<{ poll_id: number; hash: string }>();
+    for (const row of hashRows.results ?? []) {
+      previous.set(Number(row.poll_id), row.hash);
+    }
+
+    // Cumulative views per poll, carried into the signed snapshot.
+    const viewsRows = await env.DB.prepare(
+      `SELECT poll_id, COALESCE(SUM(views), 0) AS views FROM poll_views
+       WHERE poll_id IN (${placeholders}) GROUP BY poll_id`
+    ).bind(...batch).all<{ poll_id: number; views: number }>();
+    for (const row of viewsRows.results ?? []) {
+      viewsByPoll.set(Number(row.poll_id), Number(row.views));
+    }
   }
 
   const insert = env.DB.prepare(INSERT_SNAPSHOT_SQL);

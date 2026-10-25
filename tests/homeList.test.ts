@@ -31,8 +31,10 @@ function makeEntry(overrides: {
   const hidden = overrides.hidden ?? false;
   return {
     poll: {
+      // The primary key and the public number differ on purpose: every link the
+      // row renders has to follow the number.
       id: 7,
-      number: 7,
+      number: 42,
       title: 'Sample poll',
       description: null,
       mode: 'evergreen',
@@ -64,8 +66,10 @@ describe('renderPollRow', () => {
     expect(markup).not.toContain('data-vote-group');
     expect(markup).not.toContain('data-option');
     expect(markup).not.toContain('data-home-vote');
-    // The title and the vote link both point at the poll page.
-    expect(markup.match(/href="\/poll\/7"/g)).toHaveLength(2);
+    // The title and the vote link both point at the poll's public number, not at
+    // its primary key.
+    expect(markup.match(/href="\/poll\/42"/g)).toHaveLength(2);
+    expect(markup).not.toContain('/poll/7');
     expect(markup).toContain('>vote</a>');
     // Every poll counts ballots now, so the unit is always "ballots".
     expect(markup).toContain('12 ballots');
@@ -86,7 +90,7 @@ describe('renderPollRow', () => {
     for (const markup of [single, multi]) {
       expect(markup).toContain(ROW_LAYOUT);
       expect(markup).not.toContain('<button');
-      expect(markup.match(/href="\/poll\/7"/g)).toHaveLength(2);
+      expect(markup.match(/href="\/poll\/42"/g)).toHaveLength(2);
       expect(markup).toContain('>vote</a>');
     }
     expect(multi).toContain('12 ballots');
@@ -112,7 +116,7 @@ describe('renderPollRow', () => {
     expect(markup).toContain('12 ballots');
     // The row still offers a link rather than voting in place.
     expect(markup).not.toContain('<button');
-    expect(markup.match(/href="\/poll\/7"/g)).toHaveLength(2);
+    expect(markup.match(/href="\/poll\/42"/g)).toHaveLength(2);
   });
 
   it('shows the threshold notice instead of the total and keeps the vote link', () => {

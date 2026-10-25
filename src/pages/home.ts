@@ -49,7 +49,7 @@ export function renderPollRow({ poll, stats, views }: Awaited<ReturnType<typeof 
       <div class="col-start-2 row-start-1 flex items-center justify-center gap-5 max-[700px]:col-start-1">
         ${voteTotalLine}
         ${views ? `<span class="inline-flex shrink-0 items-center gap-1 text-xs leading-[1.2] text-muted" title="${t('views')}">${viewIconMarkup('h-3.5 w-3.5')}${views.total}</span>` : ''}
-        <a class="shrink-0 whitespace-nowrap rounded-full border border-border bg-panel px-3 py-1.5 text-xs text-ink no-underline hover:border-primary hover:text-primary max-[700px]:col-start-1" href="/poll/${poll.id}" data-route="/poll/${poll.id}">${t('vote')}</a>
+        <a class="shrink-0 whitespace-nowrap rounded-full border border-border bg-panel px-3 py-1.5 text-xs text-ink no-underline hover:border-primary hover:text-primary max-[700px]:col-start-1" href="/poll/${poll.number}" data-route="/poll/${poll.number}">${t('vote')}</a>
       </div>
     </article>
   `;

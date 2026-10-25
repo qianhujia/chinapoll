@@ -1,8 +1,8 @@
 // The public poll number: assigned once when a poll is approved, never reused.
 import { beforeAll, describe, expect, it } from 'vitest';
-import { env } from 'cloudflare:test';
+import { env, SELF } from 'cloudflare:test';
 import { assignPollNumber } from '../../worker/services/pollNumber';
-import { applySchema, seedPoll } from './helpers';
+import { ORIGIN, applySchema, seedPoll } from './helpers';
 
 function storedNumber(pollId: number): Promise<number | null> {
   return env.DB.prepare('SELECT number FROM polls WHERE id = ?')
@@ -44,5 +44,35 @@ describe('poll number', () => {
     await expect(
       env.DB.prepare('UPDATE polls SET number = ? WHERE id = ?').bind(await storedNumber(a), b).run()
     ).rejects.toThrow();
+  });
+
+  // The number is the identifier the site publishes, so every public link and the
+  // route itself follow it even when it is far from the primary key.
+  it('links and resolves by number when it differs from the primary key', async () => {
+    const older = await seedPoll({ title: 'Older numbered poll' });
+    const newer = await seedPoll({ title: 'Newer numbered poll' });
+    await env.DB.prepare('UPDATE polls SET number = 9001 WHERE id = ?').bind(older).run();
+    await env.DB.prepare('UPDATE polls SET number = 9002 WHERE id = ?').bind(newer).run();
+
+    // The detail route resolves the number, and the response still carries the
+    // internal id that the vote, comment, and view calls use.
+    const detail = await (await SELF.fetch(`${ORIGIN}/api/polls/9001`)).json() as {
+      poll: { id: number; number: number };
+    };
+    expect(detail.poll.id).toBe(older);
+    expect(detail.poll.number).toBe(9001);
+
+    // The server-rendered list links the number and never the primary key.
+    const home = await (await SELF.fetch(`${ORIGIN}/`)).text();
+    expect(home).toContain('href="/poll/9001"');
+    expect(home).not.toContain(`href="/poll/${older}"`);
+
+    // The poll page's canonical URL and its previous/next links follow the numbers
+    // as well.
+    const page = await (await SELF.fetch(`${ORIGIN}/poll/9001`)).text();
+    expect(page).toContain(`rel="canonical" href="${ORIGIN}/poll/9001"`);
+    expect(page).toContain('href="/poll/9002"');
+    expect(page).toContain('#9002 Newer numbered poll');
+    expect(page).not.toContain(`href="/poll/${newer}"`);
   });
 });

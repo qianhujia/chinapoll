@@ -1,4 +1,5 @@
 import { getPoll } from './lib/poll';
+import { ApiError } from './lib/apiError';
 import { getErrorMessage, t } from './ui';
 
 let navigateTo: ((route: string) => void) | null = null;
@@ -67,8 +68,10 @@ async function submitSearch(rawValue: string): Promise<void> {
       navigateTo(`/poll/${poll.number}`);
       return;
     } catch (error) {
-      const message = getErrorMessage(error);
-      searchStatus(message.includes('(404)') ? t('searchPollNotFound') : message);
+      // A poll that is not there answers 404: the status field says so, instead of
+      // matching the "(404)" the message text happens to carry.
+      const missing = error instanceof ApiError && error.status === 404;
+      searchStatus(missing ? t('searchPollNotFound') : getErrorMessage(error));
       return;
     }
   }

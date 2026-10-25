@@ -133,9 +133,9 @@ async function listReports(url: URL, env: AdminEnv): Promise<Response> {
   // Priority polls first, then by open count, so the urgent rows lead the list.
   const result = await env.DB.prepare(
     `${aggregate}
-     SELECT a.poll_id, i.title AS poll_title, a.total_count, a.open_count, a.priority_count
+     SELECT a.poll_id, p.title AS poll_title, a.total_count, a.open_count, a.priority_count
      FROM agg a
-     LEFT JOIN polls i ON i.id = a.poll_id
+     LEFT JOIN polls p ON p.id = a.poll_id
      ${statusClause}
      ORDER BY (a.priority_count > 0) DESC, a.open_count DESC, a.poll_id DESC
      LIMIT ? OFFSET ?`

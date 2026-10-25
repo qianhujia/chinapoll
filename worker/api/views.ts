@@ -16,6 +16,7 @@ import { enforceSameOrigin } from '../services/csrf';
 import { countView } from '../services/viewCounter';
 import { clientAddress, hashedNetworkBucket, serverHmacKey } from '../services/ip';
 import { apiError } from '../../shared/http';
+import { chunk } from '../../shared/db';
 
 const VIEW_PATH_PATTERN = /^\/api\/polls\/([1-9]\d*)\/view$/;
 
@@ -87,16 +88,20 @@ export async function loadViewCounts(
   const counts = new Map<number, PollViewCounts>();
   if (pollIds.length === 0) return counts;
 
-  const placeholders = pollIds.map(() => '?').join(', ');
-  const result = await db.prepare(
-    `SELECT poll_id,
-            COALESCE(SUM(views), 0) AS total,
-            COALESCE(SUM(CASE WHEN ts_day >= ? THEN views ELSE 0 END), 0) AS last7
-     FROM poll_views WHERE poll_id IN (${placeholders}) GROUP BY poll_id`
-  ).bind(last7DayCutoff(now), ...pollIds).all<{ poll_id: number; total: number; last7: number }>();
+  // One query per batch: the cutoff and the id list share the statement's
+  // parameters, and a page of polls can reach the 100-parameter ceiling.
+  for (const batch of chunk(pollIds)) {
+    const placeholders = batch.map(() => '?').join(', ');
+    const result = await db.prepare(
+      `SELECT poll_id,
+              COALESCE(SUM(views), 0) AS total,
+              COALESCE(SUM(CASE WHEN ts_day >= ? THEN views ELSE 0 END), 0) AS last7
+       FROM poll_views WHERE poll_id IN (${placeholders}) GROUP BY poll_id`
+    ).bind(last7DayCutoff(now), ...batch).all<{ poll_id: number; total: number; last7: number }>();
 
-  for (const row of result.results ?? []) {
-    counts.set(Number(row.poll_id), { total: Number(row.total), last7Days: Number(row.last7) });
+    for (const row of result.results ?? []) {
+      counts.set(Number(row.poll_id), { total: Number(row.total), last7Days: Number(row.last7) });
+    }
   }
   return counts;
 }

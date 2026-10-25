@@ -21,12 +21,6 @@ import { apiError } from '../../shared/http';
 
 const MAX_PAGE_SIZE = 100;
 const MAX_QUERY_LENGTH = 100;
-// Window and page cap for the recently closed poll listing used by the snapshot
-// publisher. Polls are purged 30 days after close, so slightly more than 30 days
-// keeps a missed publish run inside the window.
-const RECENT_CLOSED_DAYS = 35;
-const RECENT_CLOSED_MAX_DAYS = 365;
-const RECENT_CLOSED_LIMIT = 500;
 
 interface PollRow {
   id: number;
@@ -38,7 +32,6 @@ interface PollRow {
   start_at: number | null;
   end_at: number | null;
   status: PollStatus;
-  ballots: number;
   topic_slug: string | null;
   topic_name: string | null;
 }
@@ -57,12 +50,6 @@ function buildSearch(query: string, prefix = ''): { clause: string; pattern: str
 export async function handlePollsRequest(request: Request, url: URL, env: HandlerEnv): Promise<Response> {
   if (request.method !== 'GET') {
     return apiError('METHOD_NOT_ALLOWED', 405);
-  }
-
-  // Recently closed polls are listed for the snapshot publisher, so a poll that
-  // closed since the last publish run still has its final chain copied out.
-  if (url.pathname === '/api/polls/recent-closed') {
-    return listRecentlyClosed(url, env);
   }
 
   const pollIdText = url.pathname.slice('/api/polls/'.length);
@@ -130,13 +117,12 @@ export async function handlePollsRequest(request: Request, url: URL, env: Handle
        WHERE status = ? AND mode IN (?, ?)${search.clause}${topicClause}
        ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?
      )
-     SELECT i.id, i.number, i.title, i.description, i.mode, i.poll_type, i.start_at, i.end_at, i.status,
-       t.slug AS topic_slug, t.name AS topic_name,
-       (SELECT COUNT(*) FROM votes b WHERE b.poll_id = i.id) AS ballots
+     SELECT p.id, p.number, p.title, p.description, p.mode, p.poll_type, p.start_at, p.end_at, p.status,
+       t.slug AS topic_slug, t.name AS topic_name
      FROM page
-     JOIN polls i ON i.id = page.id
-     LEFT JOIN topics t ON t.id = i.topic_id
-     ORDER BY i.created_at DESC, i.id DESC`
+     JOIN polls p ON p.id = page.id
+     LEFT JOIN topics t ON t.id = p.topic_id
+     ORDER BY p.created_at DESC, p.id DESC`
   ).bind(
     PollStatus.Open, PollMode.Deadline, PollMode.Evergreen,
     ...searchBinds, ...topicBinds,
@@ -209,35 +195,6 @@ function publicOption(option: PollOption): { id: number; position: number; label
     position: option.position,
     label: option.label
   };
-}
-
-// Lists polls that closed within the last `days` days so the snapshot publisher
-// can fetch their final chain. Only the identity, status, and close time are
-// returned; the chains themselves are read from /api/snapshots/:id.
-async function listRecentlyClosed(url: URL, env: HandlerEnv): Promise<Response> {
-  const rawDays = url.searchParams.get('days');
-  const days = rawDays === null ? RECENT_CLOSED_DAYS : Number(rawDays);
-  if (!Number.isSafeInteger(days) || days < 1 || days > RECENT_CLOSED_MAX_DAYS) {
-    return apiError('INVALID_DAYS', 400);
-  }
-
-  const since = Math.floor(Date.now() / 1000) - days * 86400;
-  const result = await env.DB.prepare(
-    `SELECT id, status, closed_at FROM polls
-     WHERE status IN (?, ?) AND closed_at IS NOT NULL AND closed_at >= ?
-     ORDER BY closed_at DESC, id DESC LIMIT ?`
-  ).bind(PollStatus.Closed, PollStatus.Archived, since, RECENT_CLOSED_LIMIT)
-    .all<{ id: number; status: PollStatus; closed_at: number }>();
-
-  const polls = (result.results ?? []).map((row) => ({
-    id: Number(row.id),
-    status: getPollStatusLabel(row.status),
-    closedAt: toIsoDate(row.closed_at)
-  }));
-
-  return Response.json({ polls, total: polls.length }, {
-    headers: { 'cache-control': 'no-store' }
-  });
 }
 
 interface PollDetailRowResult {

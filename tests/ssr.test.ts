@@ -28,8 +28,10 @@ const settings: SsrSettings = {
 };
 
 const poll: SsrPollCard = {
+  // The primary key and the public number differ on purpose: the list has to link
+  // the number, not the key.
   id: 12,
-  number: 12,
+  number: 34,
   title: 'Should the city build more bike lanes?',
   mode: PollMode.Evergreen,
   pollType: 2,
@@ -81,8 +83,11 @@ describe('server-side poll list', () => {
       showHero: true
     });
 
-    expect(html).toContain('href="/poll/12" data-route="/poll/12"');
+    expect(html).toContain('href="/poll/34" data-route="/poll/34"');
     expect(html).toContain('Should the city build more bike lanes?');
+    // The row shows the public number and never links the primary key.
+    expect(html).toContain('>#34</span>');
+    expect(html).not.toContain('href="/poll/12"');
     expect(html).toContain('href="/topic/politics"');
     expect(html).toContain('href="/about"');
     expect(html).toContain('page=2');
@@ -146,8 +151,8 @@ describe('server-side poll page', () => {
   it('renders the title, description, and option labels', () => {
     const html = renderPollBody(detail, settings);
 
-    // The detail page heading is prefixed with the poll number as "#12".
-    expect(html).toContain(`#${detail.id} Should the city build more bike lanes?`);
+    // The detail page heading is prefixed with the poll number as "#34".
+    expect(html).toContain(`#${detail.number} Should the city build more bike lanes?`);
     expect(html).toContain('Should the city build more bike lanes?');
     expect(html).toContain('A short summary.');
     expect(html).toContain('Yes');
@@ -159,18 +164,21 @@ describe('server-side poll page', () => {
   it('links the previous and next poll with their numbers and titles', () => {
     const html = renderPollBody({
       ...detail,
-      prev: { id: 10, number: 10, title: 'Older poll' },
-      next: { id: 14, number: 14, title: 'Newer poll' }
+      prev: { id: 10, number: 4, title: 'Older poll' },
+      next: { id: 14, number: 9, title: 'Newer poll' }
     }, settings);
 
     expect(html).toContain('Poll navigation');
     expect(html).toContain('Previous poll');
     expect(html).toContain('Next poll');
-    // Each link carries the poll number and title and points at its route.
-    expect(html).toContain('href="/poll/10"');
-    expect(html).toContain('#10 Older poll');
-    expect(html).toContain('href="/poll/14"');
-    expect(html).toContain('#14 Newer poll');
+    // Each link carries the public number and title and points at that route, not
+    // at the primary key the row happens to have.
+    expect(html).toContain('href="/poll/4"');
+    expect(html).toContain('#4 Older poll');
+    expect(html).toContain('href="/poll/9"');
+    expect(html).toContain('#9 Newer poll');
+    expect(html).not.toContain('href="/poll/10"');
+    expect(html).not.toContain('href="/poll/14"');
   });
 
   it('escapes a neighbor title', () => {

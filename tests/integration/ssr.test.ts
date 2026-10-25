@@ -55,9 +55,20 @@ beforeAll(async () => {
   await env.DB.prepare("INSERT INTO settings (key, value) VALUES ('default_locale', 'zh-CN')").run();
 });
 
+// A published poll always has a public number, and the seed helper inserts polls
+// without one (see tests/integration/pollNumber.test.ts, which owns the sequence).
+// Give a poll a number far from its primary key, so an assertion proves the links
+// follow the number rather than the row key.
+async function publishWithNumber(pollId: number): Promise<number> {
+  const pollNumber = pollId + 1000;
+  await env.DB.prepare('UPDATE polls SET number = ? WHERE id = ?').bind(pollNumber, pollId).run();
+  return pollNumber;
+}
+
 describe('server-rendered pages', () => {
   it('renders the home page poll list, metadata, and structured data', async () => {
     const pollId = await seedPoll({ title: 'Should the city build more bike lanes?' });
+    const pollNumber = await publishWithNumber(pollId);
 
     const response = await SELF.fetch(`${ORIGIN}/`);
     const html = await response.text();
@@ -65,7 +76,9 @@ describe('server-rendered pages', () => {
     expect(response.status).toBe(200);
     expect(response.headers.get('content-type')).toContain('text/html');
     expect(html).toContain('Should the city build more bike lanes?');
-    expect(html).toContain(`href="/poll/${pollId}"`);
+    // The list links the public number, never the primary key.
+    expect(html).toContain(`href="/poll/${pollNumber}"`);
+    expect(html).not.toContain(`href="/poll/${pollId}"`);
     expect(html).toContain('name="description"');
     expect(html).toContain('property="og:locale"');
     expect(html).toContain('application/ld+json');
@@ -95,20 +108,21 @@ describe('server-rendered pages', () => {
 
   it('renders a poll page with its options', async () => {
     const pollId = await seedPoll({ title: 'Bike lanes on Main Street' });
+    const pollNumber = await publishWithNumber(pollId);
     await seedOptions(pollId, [
       { position: 1, label: 'Build them' },
       { position: 2, label: 'Keep the road as is' }
     ]);
 
-    const response = await SELF.fetch(`${ORIGIN}/poll/${pollId}`);
+    const response = await SELF.fetch(`${ORIGIN}/poll/${pollNumber}`);
     const html = await response.text();
 
     expect(response.status).toBe(200);
     expect(html).toContain('<h1');
-    expect(html).toContain(`#${pollId} Bike lanes on Main Street`);
+    expect(html).toContain(`#${pollNumber} Bike lanes on Main Street`);
     expect(html).toContain('Build them');
     expect(html).toContain(zhDictionary.optionsLabel);
-    expect(html).toContain(`rel="canonical" href="${ORIGIN}/poll/${pollId}"`);
+    expect(html).toContain(`rel="canonical" href="${ORIGIN}/poll/${pollNumber}"`);
   });
 
   it('renders the about page copy', async () => {
@@ -198,16 +212,18 @@ describe('server-rendered pages', () => {
     // so the older of the two has no previous poll and links to the newer one.
     const olderId = await seedPollAt('Older navigation poll', 1000000000);
     const newerId = await seedPollAt('Newer navigation poll', 1000000000);
+    const olderNumber = await publishWithNumber(olderId);
+    const newerNumber = await publishWithNumber(newerId);
 
-    const response = await SELF.fetch(`${ORIGIN}/poll/${olderId}`);
+    const response = await SELF.fetch(`${ORIGIN}/poll/${olderNumber}`);
     const html = await response.text();
     const payload = islandFrom(html);
 
     expect(response.status).toBe(200);
     // The server-rendered navigation links to the newer poll with its number and
     // title, labelled in the site default locale.
-    expect(html).toContain(`href="/poll/${newerId}"`);
-    expect(html).toContain(`#${newerId} Newer navigation poll`);
+    expect(html).toContain(`href="/poll/${newerNumber}"`);
+    expect(html).toContain(`#${newerNumber} Newer navigation poll`);
     expect(html).toContain(`${zhDictionary.nextPoll} →`);
     // The bootstrap island carries the same neighbors the API computes, and the
     // oldest poll has none behind it.

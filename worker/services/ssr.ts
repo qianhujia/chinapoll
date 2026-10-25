@@ -210,7 +210,9 @@ function renderTopicChips(
 }
 
 function renderPollRow(poll: SsrPollCard, settings: SsrSettings, t: Translate): string {
-  const href = `/poll/${poll.id}`;
+  // The public number is what the site publishes and what a crawler should index;
+  // the primary key only identifies the row internally.
+  const href = `/poll/${poll.number}`;
   const topic = poll.topic ? topicBadge(poll.topic, settings) : '';
   const typeLabel = pollTypeLabel(poll.pollType, t);
   return `
@@ -337,11 +339,11 @@ ${renderFooter(settings, t)}
 function pollNavMarkup(poll: SsrPollDetail, t: Translate): string {
   if (!poll.prev && !poll.next) return '';
   const link = (neighbor: PollNeighbor, label: string, align: string): string => {
-    const href = `/poll/${neighbor.id}`;
+    const href = `/poll/${neighbor.number}`;
     return `
           <a class="flex min-w-0 max-w-full flex-col gap-0.5 rounded-[14px] border border-border bg-[#f9fbff] px-3.5 py-2.5 no-underline hover:border-primary sm:max-w-[48%] ${align}" href="${href}" data-route="${href}">
             <span class="text-xs text-muted">${escapeHtml(label)}</span>
-            <span class="truncate text-sm text-ink">${escapeHtml(`#${neighbor.id} ${neighbor.title}`)}</span>
+            <span class="truncate text-sm text-ink">${escapeHtml(`#${neighbor.number} ${neighbor.title}`)}</span>
           </a>`;
   };
   const prev = poll.prev ? link(poll.prev, `← ${t('prevPoll')}`, '') : '';
@@ -482,11 +484,11 @@ export async function loadHomeSsrData(
        WHERE status = ? AND mode IN (?, ?)${searchClause}${topicClause}
        ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?
      )
-     SELECT i.id, i.number, i.title, i.mode, i.poll_type,
+     SELECT p.id, p.number, p.title, p.mode, p.poll_type,
        t.slug AS topic_slug, t.name AS topic_name
-     FROM page JOIN polls i ON i.id = page.id
-     LEFT JOIN topics t ON t.id = i.topic_id
-     ORDER BY i.created_at DESC, i.id DESC`
+     FROM page JOIN polls p ON p.id = page.id
+     LEFT JOIN topics t ON t.id = p.topic_id
+     ORDER BY p.created_at DESC, p.id DESC`
   ).bind(
     PollStatus.Open, PollMode.Deadline, PollMode.Evergreen,
     ...searchBinds, ...topicBinds, pageSize, offset

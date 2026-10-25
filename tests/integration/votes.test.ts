@@ -203,4 +203,19 @@ describe('vote endpoint', () => {
     );
     expect(response.status).toBe(423);
   });
+
+  // `null` is valid JSON, so parsing alone is not enough: the body shape is checked
+  // and a non-object answers 400 instead of throwing on a property read.
+  it('answers 400 for a JSON body that is not an object', async () => {
+    for (const path of ['/api/vote', '/api/vote/status']) {
+      const response = await SELF.fetch(`${ORIGIN}${path}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', origin: ORIGIN },
+        body: 'null'
+      });
+
+      expect(response.status).toBe(400);
+      expect(await response.json()).toMatchObject({ error: { code: 'INVALID_JSON' } });
+    }
+  });
 });

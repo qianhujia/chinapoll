@@ -35,9 +35,15 @@ export async function handleVoteStatusRequest(request: Request, env: HandlerEnv)
     return apiError('POST_ONLY', 405);
   }
 
-  let body: any;
+  // `null` is valid JSON, so the shape is checked rather than only parsed: a body
+  // that is not an object is a bad request, not a server error.
+  let body: Record<string, unknown>;
   try {
-    body = await request.json();
+    const parsed: unknown = await request.json();
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+      throw new Error('not an object');
+    }
+    body = parsed as Record<string, unknown>;
   } catch {
     return apiError('INVALID_JSON', 400);
   }
@@ -91,9 +97,15 @@ export async function handleVoteRequest(request: Request, env: HandlerEnv): Prom
   const csrf = enforceSameOrigin(request);
   if (csrf) return csrf;
 
-  let body: any;
+  // Same shape check as the status endpoint: `null` parses as JSON but is not a
+  // ballot, and it has to be a 400 rather than a thrown property read.
+  let body: Record<string, unknown>;
   try {
-    body = await request.json();
+    const parsed: unknown = await request.json();
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+      throw new Error('not an object');
+    }
+    body = parsed as Record<string, unknown>;
   } catch {
     return apiError('INVALID_JSON', 400, { extra: { ok: false } });
   }

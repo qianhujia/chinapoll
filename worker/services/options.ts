@@ -11,6 +11,7 @@
 
 import { PollType, type PollTypeLabel } from '../enums';
 import { pollTypeLabel, requiredSelectionCount } from './pollType';
+import { chunk } from '../../shared/db';
 import { errorMessage, type ApiErrorCode } from '../../shared/errors';
 
 export interface PollOption {
@@ -86,15 +87,19 @@ export async function getOptionsForPolls(
   for (const pollId of pollIds) byPoll.set(pollId, []);
   if (pollIds.length === 0) return byPoll;
 
-  const placeholders = pollIds.map(() => '?').join(', ');
-  const result = await env.DB.prepare(
-    `SELECT poll_id, ${OPTION_COLUMNS} FROM poll_options
-     WHERE poll_id IN (${placeholders})
-     ORDER BY poll_id ASC, position ASC`
-  ).bind(...pollIds).all<OptionRow & { poll_id: number }>();
+  // One query per batch: a D1 statement binds at most 100 parameters, and a page
+  // of polls can reach that.
+  for (const batch of chunk(pollIds)) {
+    const placeholders = batch.map(() => '?').join(', ');
+    const result = await env.DB.prepare(
+      `SELECT poll_id, ${OPTION_COLUMNS} FROM poll_options
+       WHERE poll_id IN (${placeholders})
+       ORDER BY poll_id ASC, position ASC`
+    ).bind(...batch).all<OptionRow & { poll_id: number }>();
 
-  for (const row of result.results ?? []) {
-    byPoll.get(Number(row.poll_id))?.push(toOption(row));
+    for (const row of result.results ?? []) {
+      byPoll.get(Number(row.poll_id))?.push(toOption(row));
+    }
   }
   return byPoll;
 }
@@ -153,22 +158,26 @@ export async function countBallots(
   for (const pollId of pollIds) tallies.set(pollId, { ballots: 0, counts: new Map() });
   if (pollIds.length === 0) return tallies;
 
-  const placeholders = pollIds.map(() => '?').join(', ');
-  const ballotRows = await env.DB.prepare(
-    `SELECT poll_id, COUNT(*) AS ballots FROM votes
-     WHERE poll_id IN (${placeholders}) GROUP BY poll_id`
-  ).bind(...pollIds).all<{ poll_id: number; ballots: number }>();
-  for (const row of ballotRows.results ?? []) {
-    const tally = tallies.get(Number(row.poll_id));
-    if (tally) tally.ballots = Number(row.ballots);
-  }
+  // One pair of queries per batch: a D1 statement binds at most 100 parameters,
+  // and a page of polls can reach that.
+  for (const batch of chunk(pollIds)) {
+    const placeholders = batch.map(() => '?').join(', ');
+    const ballotRows = await env.DB.prepare(
+      `SELECT poll_id, COUNT(*) AS ballots FROM votes
+       WHERE poll_id IN (${placeholders}) GROUP BY poll_id`
+    ).bind(...batch).all<{ poll_id: number; ballots: number }>();
+    for (const row of ballotRows.results ?? []) {
+      const tally = tallies.get(Number(row.poll_id));
+      if (tally) tally.ballots = Number(row.ballots);
+    }
 
-  const countRows = await env.DB.prepare(
-    `SELECT poll_id, option_id, COUNT(*) AS count FROM vote_selections
-     WHERE poll_id IN (${placeholders}) GROUP BY poll_id, option_id`
-  ).bind(...pollIds).all<{ poll_id: number; option_id: number; count: number }>();
-  for (const row of countRows.results ?? []) {
-    tallies.get(Number(row.poll_id))?.counts.set(Number(row.option_id), Number(row.count));
+    const countRows = await env.DB.prepare(
+      `SELECT poll_id, option_id, COUNT(*) AS count FROM vote_selections
+       WHERE poll_id IN (${placeholders}) GROUP BY poll_id, option_id`
+    ).bind(...batch).all<{ poll_id: number; option_id: number; count: number }>();
+    for (const row of countRows.results ?? []) {
+      tallies.get(Number(row.poll_id))?.counts.set(Number(row.option_id), Number(row.count));
+    }
   }
 
   return tallies;

@@ -121,14 +121,17 @@ describe('renderPollNav', () => {
 
   it('links the previous and next poll with their numbers and titles', () => {
     const markup = renderPollNav(
-      { id: 10, number: 10, title: 'Older poll' },
-      { id: 14, number: 14, title: 'Newer poll' }
+      { id: 10, number: 4, title: 'Older poll' },
+      { id: 14, number: 9, title: 'Newer poll' }
     );
 
-    expect(markup).toContain('href="/poll/10"');
-    expect(markup).toContain('#10 Older poll');
-    expect(markup).toContain('href="/poll/14"');
-    expect(markup).toContain('#14 Newer poll');
+    // The links follow the public number, not the primary key.
+    expect(markup).toContain('href="/poll/4"');
+    expect(markup).toContain('#4 Older poll');
+    expect(markup).toContain('href="/poll/9"');
+    expect(markup).toContain('#9 Newer poll');
+    expect(markup).not.toContain('/poll/10');
+    expect(markup).not.toContain('/poll/14');
     // Translations are not loaded here, so `t()` falls back to the i18n key.
     expect(markup).toContain('pollNavLabel');
     expect(markup).toContain('prevPoll');
@@ -136,9 +139,9 @@ describe('renderPollNav', () => {
   });
 
   it('renders only the direction that exists', () => {
-    const markup = renderPollNav(null, { id: 14, number: 14, title: 'Newer poll' });
+    const markup = renderPollNav(null, { id: 14, number: 9, title: 'Newer poll' });
 
-    expect(markup).toContain('href="/poll/14"');
+    expect(markup).toContain('href="/poll/9"');
     expect(markup).not.toContain('prevPoll');
   });
 

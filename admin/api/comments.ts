@@ -81,9 +81,9 @@ async function listComments(url: URL, env: AdminEnv): Promise<Response> {
   const offset = (currentPage - 1) * pageSize;
 
   const result = await env.DB.prepare(
-    `SELECT c.id, c.poll_id, c.comment, c.created_at, i.title AS poll_title
+    `SELECT c.id, c.poll_id, c.comment, c.created_at, p.title AS poll_title
      FROM comments c
-     LEFT JOIN polls i ON i.id = c.poll_id
+     LEFT JOIN polls p ON p.id = c.poll_id
      ${where}
      ORDER BY c.created_at DESC, c.id DESC
      LIMIT ? OFFSET ?`
