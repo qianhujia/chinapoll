@@ -214,6 +214,9 @@ function renderTopicChips(
       </nav>`;
 }
 
+// One row of the poll list. The title is the only link, so a row offers no vote
+// button; the client then fills the reserved right column with the vote count
+// (which needs the ballots the server-rendered card does not carry).
 function renderPollRow(poll: SsrPollCard, settings: SsrSettings, t: Translate): string {
   // The public number is what the site publishes and what a crawler should index;
   // the primary key only identifies the row internally.
@@ -228,9 +231,6 @@ function renderPollRow(poll: SsrPollCard, settings: SsrSettings, t: Translate): 
             ${badge(modeLabel(poll.mode, t))}
             ${badge(typeLabel)}
             ${topic}
-          </div>
-          <div class="col-start-2 row-start-1 flex items-center justify-center gap-5 max-[700px]:col-start-1">
-            <a class="shrink-0 whitespace-nowrap rounded-full border border-border bg-panel px-3 py-1.5 text-xs text-ink no-underline hover:border-primary hover:text-primary" href="${href}" data-route="${href}">${escapeHtml(t('vote'))}</a>
           </div>
         </article>`;
 }

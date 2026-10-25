@@ -15,25 +15,26 @@ import {
   renderToast,
   t,
   plusIconMarkup,
-  viewIconMarkup
+  voteIconMarkup
 } from '../ui';
 
 // One row of the poll list. Every poll is rendered the same way: identity,
-// badges, the ballot total (or the threshold notice), the view count, and a vote
-// link to the poll page. The list page never votes in place, so no vote controls
-// are built here.
-export function renderPollRow({ poll, stats, views }: Awaited<ReturnType<typeof getPolls>>['polls'][number]): string {
+// badges, and the vote count as a ballot icon and a number (or the threshold
+// notice while the total is withheld). The title is the only link: the list page
+// never votes in place, so no vote button or vote controls are built here, and a
+// poll's view count is not shown in the list.
+export function renderPollRow({ poll, stats }: Awaited<ReturnType<typeof getPolls>>['polls'][number]): string {
   const pollType = poll.pollType ?? stats.pollType ?? 'single_choice';
   const locale = (getPublicSettings().default_locale ?? 'en') as 'en' | 'zh-CN' | 'zh-TW';
   // An untopicalized poll shows nothing.
   const topicBadge = poll.topic
     ? `<span class="shrink-0 rounded-full bg-[#eef3fb] px-2 py-0.5 text-xs text-muted" data-poll-topic>${escapeHtml(localizedTopicName(poll.topic.slug, poll.topic.name, locale))}</span>`
     : '';
-  const resultsHidden = stats.hidden === true;
-  // The threshold notice replaces the ballot total, never the link.
-  const voteTotalLine = resultsHidden
+  // The threshold notice replaces the ballot total while it is withheld, so a
+  // small sample cannot reveal how an individual voted.
+  const voteCount = stats.hidden === true
     ? `<span class="shrink-0 whitespace-nowrap text-xs leading-[1.2] text-muted">${t('resultsHidden').replace('{n}', String(stats.threshold))}</span>`
-    : `<span class="shrink-0 whitespace-nowrap text-xs leading-[1.2] text-muted">${stats.ballots} ${t('ballots')}</span>`;
+    : `<span class="inline-flex shrink-0 items-center gap-1 text-xs leading-[1.2] text-muted" title="${t('ballots')}" data-vote-count>${voteIconMarkup('h-3.5 w-3.5')}${stats.ballots}</span>`;
 
   return `
     <article class="grid grid-cols-[minmax(0,1fr)_minmax(190px,240px)] items-center gap-x-8 border-b border-border py-[22px] max-[700px]:grid-cols-1 max-[700px]:gap-y-3" data-poll-row="${poll.id}">
@@ -48,9 +49,7 @@ export function renderPollRow({ poll, stats, views }: Awaited<ReturnType<typeof 
       </div>
 
       <div class="col-start-2 row-start-1 flex items-center justify-center gap-5 max-[700px]:col-start-1">
-        ${voteTotalLine}
-        ${views ? `<span class="inline-flex shrink-0 items-center gap-1 text-xs leading-[1.2] text-muted" title="${t('views')}">${viewIconMarkup('h-3.5 w-3.5')}${views.total}</span>` : ''}
-        <a class="shrink-0 whitespace-nowrap rounded-full border border-border bg-panel px-3 py-1.5 text-xs text-ink no-underline hover:border-primary hover:text-primary max-[700px]:col-start-1" href="/poll/${poll.number}" data-route="/poll/${poll.number}">${t('vote')}</a>
+        ${voteCount}
       </div>
     </article>
   `;

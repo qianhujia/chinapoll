@@ -439,7 +439,7 @@ export async function mountVotePage(identifier: number, app: HTMLElement, bindNa
   // The view count is shown in the title row when it clears the display
   // threshold; otherwise `views` is null and nothing is rendered.
   const viewsLine = views
-    ? `<span class="inline-flex shrink-0 items-center gap-1 text-xs text-muted">${viewIconMarkup('h-3.5 w-3.5')}${views.total} ${t('views')}</span>`
+    ? `<span class="inline-flex shrink-0 items-center gap-1 text-xs text-muted" title="${t('views')}">${viewIconMarkup('h-3.5 w-3.5')}${views.total}</span>`
     : '';
   const alreadyReported = hasReportedLocally(poll.id);
   // The claim entries need a session, so a signed-out visitor sees a sign-in link

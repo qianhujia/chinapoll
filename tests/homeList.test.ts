@@ -13,8 +13,8 @@ import { renderPollRow, renderTopicChips, TOPIC_CHIP_LIMIT } from '../src/pages/
 import { renderFooter } from '../src/ui';
 import type { PollWithStats } from '../src/lib/poll';
 
-// The shared row layout: identity and badges on the left, the ballot total, the
-// view count, and the vote link on the right.
+// The shared row layout: identity and badges on the left, the vote count on the
+// right.
 const ROW_LAYOUT = 'grid grid-cols-[minmax(0,1fr)_minmax(190px,240px)] items-center gap-x-8';
 
 // One list entry, shaped like the `/api/polls` page response. Translations are
@@ -25,7 +25,6 @@ function makeEntry(overrides: {
   hidden?: boolean;
   ballots?: number;
   options?: PollWithStats['poll']['options'];
-  views?: PollWithStats['views'];
 } = {}): PollWithStats {
   const pollType = overrides.pollType ?? 'single_choice';
   const hidden = overrides.hidden ?? false;
@@ -52,27 +51,31 @@ function makeEntry(overrides: {
       options: hidden ? null : [],
       voted: false
     },
-    views: overrides.views ?? null
+    views: null
   };
 }
 
 describe('renderPollRow', () => {
-  it('lists a poll with a vote link and no vote controls', () => {
+  it('lists a poll with the vote count and no vote button', () => {
     const markup = renderPollRow(makeEntry({ pollType: 'single_choice', ballots: 12 }));
 
     expect(markup).toContain('data-poll-row="7"');
-    // Voting happens on the poll page: the row offers links only.
+    // Voting happens on the poll page: the row offers no controls and no vote
+    // button, so the title is the only way in.
     expect(markup).not.toContain('<button');
     expect(markup).not.toContain('data-vote-group');
     expect(markup).not.toContain('data-option');
     expect(markup).not.toContain('data-home-vote');
-    // The title and the vote link both point at the poll's public number, not at
-    // its primary key.
-    expect(markup.match(/href="\/poll\/42"/g)).toHaveLength(2);
+    expect(markup).not.toContain('>vote</a>');
+    // The title is the only link, and it points at the public number.
+    expect(markup.match(/href="\/poll\/42"/g)).toHaveLength(1);
     expect(markup).not.toContain('/poll/7');
-    expect(markup).toContain('>vote</a>');
-    // Every poll counts ballots now, so the unit is always "ballots".
-    expect(markup).toContain('12 ballots');
+    // The count is the ballot icon and the number, not "12 ballots".
+    expect(markup).toContain('data-vote-count');
+    expect(markup).toContain('m9 12 2 2 4-4');
+    expect(markup).not.toContain('12 ballots');
+    // The list shows no view count.
+    expect(markup).not.toContain('title="views"');
   });
 
   it('lists a multiple choice poll exactly like a single choice poll', () => {
@@ -90,10 +93,9 @@ describe('renderPollRow', () => {
     for (const markup of [single, multi]) {
       expect(markup).toContain(ROW_LAYOUT);
       expect(markup).not.toContain('<button');
-      expect(markup.match(/href="\/poll\/42"/g)).toHaveLength(2);
-      expect(markup).toContain('>vote</a>');
+      expect(markup.match(/href="\/poll\/42"/g)).toHaveLength(1);
+      expect(markup).toContain('data-vote-count');
     }
-    expect(multi).toContain('12 ballots');
     expect(multi).toContain('pollTypeMultiChoice');
   });
 
@@ -113,28 +115,19 @@ describe('renderPollRow', () => {
     expect(markup).toContain('pollTypeVerdict');
     expect(markup).not.toContain('pollTypeSingleChoice');
     expect(markup).not.toContain('options');
-    expect(markup).toContain('12 ballots');
-    // The row still offers a link rather than voting in place.
+    expect(markup).toContain('data-vote-count');
+    // The row still offers the title link rather than voting in place.
     expect(markup).not.toContain('<button');
-    expect(markup.match(/href="\/poll\/42"/g)).toHaveLength(2);
+    expect(markup.match(/href="\/poll\/42"/g)).toHaveLength(1);
   });
 
-  it('shows the threshold notice instead of the total and keeps the vote link', () => {
+  it('shows the threshold notice instead of the vote count', () => {
     const markup = renderPollRow(makeEntry({ hidden: true, ballots: 3 }));
 
     expect(markup).toContain('resultsHidden');
+    // The notice replaces the count, so no ballot icon and number are shown.
+    expect(markup).not.toContain('data-vote-count');
     expect(markup).not.toContain('3 ballots');
-    // The notice replaces the total only, never the link to the poll.
-    expect(markup).toContain('>vote</a>');
-  });
-
-  it('shows the view count only when the server publishes it', () => {
-    const published = renderPollRow(makeEntry({ views: { total: 42, last7Days: 5 } }));
-    const withheld = renderPollRow(makeEntry({ views: null }));
-
-    expect(published).toContain('title="views"');
-    expect(published).toContain('42');
-    expect(withheld).not.toContain('title="views"');
   });
 
   it('escapes the poll title', () => {

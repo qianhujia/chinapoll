@@ -108,7 +108,10 @@ describe('home server-provided data', () => {
     expect(app.innerHTML).toContain('data-topic-chips');
     expect(app.innerHTML).toContain('Politics');
     expect(app.innerHTML).toContain('Should the city build more bike lanes?');
-    expect(app.innerHTML).toContain('12 ballots');
+    // The vote count is the ballot icon and the number, and the view count is not
+    // part of the list.
+    expect(app.innerHTML).toContain('data-vote-count');
+    expect(app.innerHTML).not.toContain('title="views"');
   });
 
   it('falls back to the endpoints when the document carries no island data', async () => {

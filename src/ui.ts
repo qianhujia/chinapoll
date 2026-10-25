@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, CircleAlert, CircleCheck, EllipsisVertical, Eye, Plus, Search, X, type IconNode } from 'lucide';
+import { ChevronLeft, ChevronRight, CircleAlert, CircleCheck, EllipsisVertical, Eye, Plus, Search, Vote, X, type IconNode } from 'lucide';
 import { DEFAULT_LOCALE, getLocaleText, resolveLocale } from './i18n';
 import { getComments, hasCommentReportedLocally, type CommentsResponse, type PollSummary } from './lib/poll';
 import { getCurrentUser } from './lib/session';
@@ -38,6 +38,11 @@ export function moreIconMarkup(cssClass: string): string {
 // Plus icon used by the "New Poll" call to action on the home hero.
 export function plusIconMarkup(cssClass: string): string {
   return iconMarkup(Plus, cssClass);
+}
+
+// Ballot icon used by the vote count in the poll lists.
+export function voteIconMarkup(cssClass: string): string {
+  return iconMarkup(Vote, cssClass);
 }
 
 // Chevron icons used by the previous/next poll navigation on the detail page.
