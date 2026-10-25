@@ -48,7 +48,7 @@
   "aboutAccountsTitle": "Accounts",
   "aboutAccountsNeeded": "An account is needed only to submit a poll or a comment. Voting, reading, and reporting a problem stay open to everyone.",
   "aboutAccountsPseudonymous": "Only a username and a password are asked for — no email address. A new account waits a while before it can post, and a one-time recovery code resets a forgotten password.",
-  "aboutAccountsDashboard": "The account page lists the polls and comments this browser submitted so they can be closed or withdrawn, and an item posted on another device can be claimed back with its id.",
+  "aboutAccountsDashboard": "The account page lists every poll and comment the account submitted, on any device, so they can be closed, withdrawn, or deleted.",
   "aboutSubmittingTitle": "Submitting a poll",
   "aboutSubmittingReview": "A submission starts as a pending poll. It is reviewed before publication unless the operator has enabled auto-approval, with an optional AI review, so the poll goes live immediately.",
   "aboutSubmittingNumber": "Every poll has a sequential number, such as #12. That number is the poll's public link (/poll/12) and the id used in reports, snapshots, and the audit log.",

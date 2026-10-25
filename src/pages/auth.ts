@@ -190,6 +190,7 @@ function renderRecoveryCodeStep(
       <main class="grid gap-5">
         <section class="grid gap-4 rounded-[22px] border border-border bg-panel p-6 shadow-card">
           ${renderRecoveryCode(code)}
+          <p class="m-0 rounded-[14px] border border-[#f0c36d] bg-[#fff7e6] px-3.5 py-3 text-sm text-ink" role="note">${t('recoveryCodeWarning')}</p>
           <div class="flex flex-wrap items-center gap-3">
             <button class="cursor-pointer rounded-full border border-border bg-panel px-4 py-2.5 text-sm text-ink hover:border-primary hover:text-primary" type="button" data-copy-recovery>${t('recoveryCodeCopy')}</button>
             <button class="cursor-pointer rounded-full border border-primary bg-primary px-4 py-2.5 text-white" type="button" data-continue-account>${continueLabel}</button>

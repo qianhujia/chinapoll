@@ -150,7 +150,8 @@ Test a restore at least quarterly against a staging database.
 
 `SERVER_HMAC_KEY` derives the keyed network hashes in `auth_attempts` and the
 rate-limit network buckets, so rotating it only invalidates values already in
-`auth_attempts`, which relaxes the rolling account cap for one day. Rotating the
+`auth_attempts`, which relaxes the rolling per-network account cap for the rest of
+the current calendar month and resets the daily rate-limit buckets. Rotating the
 server key does **not** affect poll or comment ownership: an `author_mark` is derived
 from the account's own author key, never from the server secret, so "my polls" and
 "my comments" and close, withdraw, and delete keep working unchanged after a
@@ -175,7 +176,8 @@ Reuse the same value on the new account
 `GET /api/health` reports `"serverKey": true` before opening the site. A deployment
 that starts with a *different* key still works and does not affect poll or comment
 ownership (that no longer depends on the server secret); only the values already in
-`auth_attempts` stop matching, which relaxes the rolling account cap for one day. A
+`auth_attempts` stop matching, which relaxes the rolling per-network account cap for
+the rest of the current calendar month and resets the daily rate-limit buckets. A
 deployment with *no* key refuses voting, reports, view counting, registration,
 sign-in, and recovery with `503`; poll submission and comments no longer depend on
 the key. The health check is the one signal that catches a missing or unusable key.

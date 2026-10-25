@@ -48,7 +48,7 @@
   "aboutAccountsTitle": "账号",
   "aboutAccountsNeeded": "只有在提交投票或评论时才需要账号。投票、浏览和举报对所有人开放。",
   "aboutAccountsPseudonymous": "注册只要求用户名和密码，不收邮箱地址。新账号需要等待一段时间才能发布内容，一次性恢复码可用于重置忘记的密码。",
-  "aboutAccountsDashboard": "账号页会列出这个浏览器提交过的投票和评论，可以关闭或撤回；在别的设备发布的内容，也可以用它的编号找回。",
+  "aboutAccountsDashboard": "账号页会列出该账号在任何设备上提交过的全部投票和评论，可以关闭、撤回或删除。",
   "aboutSubmittingTitle": "提交投票",
   "aboutSubmittingReview": "提交后先成为待审投票。除非站点开启了自动审核（可选 AI 预审）而立即发布，否则都会由管理员审核后再公开。",
   "aboutSubmittingNumber": "每个投票都有连续编号，例如 #12。这个编号既是它的公开链接（/poll/12），也是举报、快照和审计日志中使用的标识。",

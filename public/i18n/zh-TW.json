@@ -48,7 +48,7 @@
   "aboutAccountsTitle": "帳號",
   "aboutAccountsNeeded": "只有在提交投票或評論時才需要帳號。投票、瀏覽與檢舉對所有人開放。",
   "aboutAccountsPseudonymous": "註冊只要求使用者名稱與密碼，不收電子郵件位址。新帳號需要等待一段時間才能發佈內容，一次性復原碼可用於重設忘記的密碼。",
-  "aboutAccountsDashboard": "帳號頁會列出這個瀏覽器提交過的投票與評論，可以關閉或撤回；在別的裝置發佈的內容，也可以用它自己的編號找回。",
+  "aboutAccountsDashboard": "帳號頁會列出該帳號在任何裝置上提交過的全部投票與評論，可以關閉、撤回或刪除。",
   "aboutSubmittingTitle": "提交投票",
   "aboutSubmittingReview": "送出後先成為待審投票。除非站點開啟了自動審核（可選 AI 預審）而立即發佈，否則都會由管理員審核後才公開。",
   "aboutSubmittingNumber": "每個投票都有連續編號，例如 #12。這個編號既是它的公開連結（/poll/12），也是檢舉、快照與稽核日誌中使用的識別碼。",
