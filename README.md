@@ -92,7 +92,8 @@ Every setting key and value is listed in [docs/REFERENCE.md](docs/REFERENCE.md).
   database is built by applying every migration in order (`npm run db:reset` locally).
   No seed data ships.
 - Three SQLite-backed Durable Objects: `RateLimiter` (rate limits),
-  `PasswordHasher` (PBKDF2-HMAC-SHA256 at 100,000 iterations, sharded 16 ways),
+  `PasswordHasher` (PBKDF2-HMAC-SHA256 at `PBKDF2_ITERATIONS`, 100,000, sharded
+  16 ways),
   and `ViewCounter` (buffers poll views, flushing on a five-minute alarm). The
   admin Worker declares the first two.
 - An hourly maintenance run writes a tamper-evident snapshot chain and can copy

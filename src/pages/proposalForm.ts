@@ -1,5 +1,5 @@
-// Proposal form behaviour: the options editor, the AI buttons, the
-// confirmation step, and the final submission.
+// Proposal form behaviour: the options editor, the confirmation step, and the
+// final submission.
 //
 // The client rules mirror `validateProposal` in worker/api/proposal.ts so a
 // submission is rejected client-side before it is sent.
@@ -15,8 +15,6 @@ import {
 } from '../lib/poll';
 import { getPublicSettings } from '../config';
 import { getErrorMessage, showToast, t } from '../ui';
-import { categorise, enhanceDescription, type AiLocale } from '../lib/ai';
-import { renderTurnstile, turnstileToken } from '../lib/turnstile';
 import {
   DESCRIPTION_MAX_ROWS,
   DESCRIPTION_MIN_ROWS,
@@ -26,7 +24,6 @@ import {
   optionRowMarkup,
   templateOptionLabels
 } from './proposal';
-import { bindAiButtons } from './proposalAi';
 
 export type OptionRowCheck =
   | { ok: true; options: Array<{ position: number; label: string }> }
@@ -95,7 +92,7 @@ export function openConfirmation(
   });
 }
 
-export function bindProposalForm(app: HTMLElement, bindNavigation: () => void, aiEnabled: boolean): void {
+export function bindProposalForm(app: HTMLElement, bindNavigation: () => void): void {
   const form = app.querySelector<HTMLFormElement>('[data-proposal-form]');
   if (!form) return;
 
@@ -105,16 +102,8 @@ export function bindProposalForm(app: HTMLElement, bindNavigation: () => void, a
   const optionsFieldset = form.querySelector<HTMLFieldSetElement>('[data-options-fieldset]');
   const optionRows = form.querySelector<HTMLDivElement>('[data-option-rows]');
   const addOptionButton = form.querySelector<HTMLButtonElement>('[data-add-option]');
-  const aiSuggestions = form.querySelector<HTMLUListElement>('[data-ai-suggestions]');
-  const aiDiscardButton = form.querySelector<HTMLButtonElement>('[data-ai-discard]');
-  const aiOptionsButton = form.querySelector<HTMLButtonElement>('[data-ai-options]');
-  const aiEnhanceButton = form.querySelector<HTMLButtonElement>('[data-ai-enhance]');
-  const aiEnhanceDescriptionButton = form.querySelector<HTMLButtonElement>('[data-ai-enhance-description]');
-  const aiHint = form.querySelector<HTMLElement>('[data-ai-hint]');
   const submitButton = form.querySelector<HTMLButtonElement>('button[type="submit"]')!;
   const categorySelect = form.querySelector('[data-category]') as HTMLSelectElement | null;
-  const categoryButton = form.querySelector<HTMLButtonElement>('[data-ai-category]');
-  const categoryAiTag = form.querySelector<HTMLElement>('[data-category-ai-tag]');
   const categoryDescription = form.querySelector<HTMLElement>('[data-category-description]');
 
   // The card the user picked. Every card maps to a stored poll type, so the form
@@ -174,15 +163,6 @@ export function bindProposalForm(app: HTMLElement, bindNavigation: () => void, a
   descriptionInput?.addEventListener('input', syncDescriptionHeight);
   syncDescriptionHeight();
 
-  const syncAiGates = () => {
-    if (!aiEnabled) return;
-    const longEnough = (titleInput?.value.trim().length ?? 0) >= 10;
-    if (aiEnhanceButton) aiEnhanceButton.disabled = !longEnough;
-    if (aiOptionsButton) aiOptionsButton.disabled = !longEnough;
-    if (aiEnhanceDescriptionButton) aiEnhanceDescriptionButton.disabled = !longEnough;
-    if (aiHint) aiHint.hidden = longEnough;
-  };
-
   // Fills the editor with the rows the picked type starts from. Every row is
   // editable: the verdict type pre-fills the three verdict words and the user may
   // rename them, drop to two, or add up to seven. The other two types have nothing
@@ -210,22 +190,9 @@ export function bindProposalForm(app: HTMLElement, bindNavigation: () => void, a
     fillTemplateRows();
     renumber();
     syncOptionButtons();
-    syncAiGates();
   };
 
   syncOptionEditor();
-
-  // Render Turnstile widgets for AI buttons when AI is enabled and Turnstile is configured.
-  if (aiEnabled) {
-    const enhanceWidget = form.querySelector<HTMLElement>('[data-turnstile-enhance]');
-    const optionsWidget = form.querySelector<HTMLElement>('[data-turnstile-options]');
-    const categoryWidget = form.querySelector<HTMLElement>('[data-turnstile-category]');
-    const enhanceDescriptionWidget = form.querySelector<HTMLElement>('[data-turnstile-enhance-description]');
-    if (enhanceWidget) renderTurnstile('ai-enhance', enhanceWidget);
-    if (optionsWidget) renderTurnstile('ai-options', optionsWidget);
-    if (categoryWidget) renderTurnstile('ai-category', categoryWidget);
-    if (enhanceDescriptionWidget) renderTurnstile('ai-enhance-description', enhanceDescriptionWidget);
-  }
 
   addOptionButton?.addEventListener('click', () => {
     if (rows().length >= MAX_OPTIONS) return;
@@ -244,14 +211,6 @@ export function bindProposalForm(app: HTMLElement, bindNavigation: () => void, a
     syncOptionButtons();
   });
 
-  // Editing a row drops its "AI" tag: the text is the user's from then on.
-  optionRows?.addEventListener('input', (event) => {
-    const row = (event.target as HTMLElement).closest<HTMLDivElement>('[data-option-row]');
-    if (!row || row.dataset.suggested !== '1') return;
-    delete row.dataset.suggested;
-    row.querySelector('[data-ai-tag]')?.remove();
-  });
-
   form.querySelectorAll<HTMLInputElement>('[data-poll-type]').forEach((radio) => {
     radio.addEventListener('change', () => {
       const next = radio.value as PollType;
@@ -263,12 +222,7 @@ export function bindProposalForm(app: HTMLElement, bindNavigation: () => void, a
       syncOptionEditor();
     });
   });
-  titleInput?.addEventListener('input', syncAiGates);
-
-  // The topic dropdown is filled from the enabled topics. The AI button is
-  // only shown when the feature is on, and the tag marks a suggestion the
-  // submitter has not changed.
-  if (aiEnabled && categoryButton) categoryButton.hidden = false;
+  // The topic dropdown is filled from the enabled topics.
   getTopics().then((result) => {
     if (!categorySelect) return;
     const locale = (getPublicSettings().default_locale ?? 'en') as 'en' | 'zh-CN' | 'zh-TW';
@@ -287,7 +241,6 @@ export function bindProposalForm(app: HTMLElement, bindNavigation: () => void, a
   });
 
   categorySelect?.addEventListener('change', () => {
-    if (categoryAiTag) categoryAiTag.hidden = true;
     if (categoryDescription) {
       const selectedSlug = categorySelect.value;
       const category = categoriesWithDescription.find((c) => c.slug === selectedSlug);
@@ -301,68 +254,6 @@ export function bindProposalForm(app: HTMLElement, bindNavigation: () => void, a
     }
   });
 
-  categoryButton?.addEventListener('click', async () => {
-    const title = titleInput?.value.trim() ?? '';
-    if (!categorySelect || title.length < 10) return;
-    categoryButton.disabled = true;
-    categoryButton.textContent = t('aiEnhancing');
-    try {
-      const result = await categorise({
-        title,
-        description: descriptionInput?.value.trim() ?? '',
-        turnstileToken: turnstileToken('ai-category')
-      });
-      const known = result.slug !== 'none'
-        && Array.from(categorySelect.options).some((option) => option.value === result.slug);
-      categorySelect.value = known ? result.slug : '';
-      if (categoryAiTag) categoryAiTag.hidden = !known;
-    } catch (error) {
-      showToast(`${t('aiFailed')} ${getErrorMessage(error)}`, 'error');
-    } finally {
-      categoryButton.textContent = t('categorySuggest');
-      categoryButton.disabled = false;
-    }
-  });
-
-  aiEnhanceDescriptionButton?.addEventListener('click', async () => {
-    if (!titleInput || titleInput.value.trim().length < 10) return;
-    aiEnhanceDescriptionButton.disabled = true;
-    aiEnhanceDescriptionButton.textContent = t('aiEnhancing');
-    try {
-      const options = rows().map((row) =>
-        row.querySelector<HTMLInputElement>('[data-option-label]')?.value.trim() ?? ''
-      ).filter((label) => label.length > 0);
-      const result = await enhanceDescription({
-        title: titleInput.value.trim(),
-        description: descriptionInput?.value.trim() ?? '',
-        options,
-        locale: (getPublicSettings().default_locale ?? 'en') as AiLocale,
-        turnstileToken: turnstileToken('ai-enhance-description')
-      });
-      if (descriptionInput) descriptionInput.value = result.description;
-      syncDescriptionHeight();
-    } catch (error) {
-      showToast(`${t('aiFailed')} ${getErrorMessage(error)}`, 'error');
-    } finally {
-      aiEnhanceDescriptionButton.textContent = t('aiEnhanceDescription');
-      aiEnhanceDescriptionButton.disabled = false;
-    }
-  });
-
-  // The AI buttons are only wired when the setting is on.
-  bindAiButtons(form, {
-    aiEnabled,
-    locale: (getPublicSettings().default_locale ?? 'en') as AiLocale,
-    rows,
-    renumber,
-    syncOptionButtons,
-    syncAiGates,
-    currentPollType: () => pollType,
-    titleInput,
-    descriptionInput,
-    aiSuggestions,
-    aiDiscardButton
-  });
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
     const title = titleInput?.value.trim() ?? '';
@@ -427,16 +318,12 @@ export function bindProposalForm(app: HTMLElement, bindNavigation: () => void, a
       if (categorySelect) {
         categorySelect.value = '';
       }
-      if (categoryAiTag) categoryAiTag.hidden = true;
       if (categoryDescription) {
         categoryDescription.textContent = '';
         categoryDescription.classList.add('hidden');
       }
       rows().forEach((row) => row.remove());
       syncOptionEditor();
-      if (aiSuggestions) aiSuggestions.hidden = true;
-      if (aiDiscardButton) aiDiscardButton.hidden = true;
-      syncAiGates();
     } catch (error) {
       showToast(`${t('proposalSubmitFailed')} ${getErrorMessage(error)}`, 'error');
       confirming = false;

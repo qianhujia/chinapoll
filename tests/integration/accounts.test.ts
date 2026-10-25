@@ -48,4 +48,31 @@ describe('account gates', () => {
     expect(rejected.status).toBe(403);
     expect(await rejected.json()).toMatchObject({ message: 'cross-origin request rejected' });
   });
+
+  // The login write must not put the exact second back into the row: `last_login_at`
+  // is rounded to the day so it cannot be joined against precise timestamps, and an
+  // exact `updated_at` would hand that precision straight back.
+  it('rounds the login timestamps to the day', async () => {
+    await register('rounded-login');
+
+    const login = await SELF.fetch(`${ORIGIN}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: ORIGIN },
+      body: JSON.stringify({ username: 'rounded-login', password: 'test-password-123' })
+    });
+    expect(login.status).toBe(200);
+
+    const row = await env.DB.prepare('SELECT last_login_at, updated_at FROM users WHERE username = ?')
+      .bind('rounded-login').first<{ last_login_at: number | null; updated_at: number }>();
+    const lastLogin = Number(row?.last_login_at);
+    const updatedAt = Number(row?.updated_at);
+
+    expect(lastLogin % 86400).toBe(0);
+    expect(updatedAt % 86400).toBe(0);
+    // Both carry the same day bucket the login wrote.
+    expect(updatedAt).toBe(lastLogin);
+    const age = Math.floor(Date.now() / 1000) - lastLogin;
+    expect(age).toBeGreaterThanOrEqual(0);
+    expect(age).toBeLessThan(2 * 86400);
+  });
 });

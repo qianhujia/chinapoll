@@ -6,11 +6,13 @@
 // row every five minutes; there are no per-view rows anywhere, so a view can
 // never be attributed to a viewer. The browser deduplicates itself (one call per
 // tab session), and the object enforces the per-network rate limit inside the
-// same call with the keyed, daily-rotated network hash. The endpoint always
-// answers 204 so the response reveals nothing, whether or not the rate limit was
-// hit.
+// same call with the keyed, daily-rotated network hash. A well-formed same-origin
+// POST always answers 204 so the response reveals nothing, whether or not the rate
+// limit was hit; a cross-origin or malformed request is refused with the standard
+// error before the counter is touched.
 
 import type { HandlerEnv } from '../index';
+import { enforceSameOrigin } from '../services/csrf';
 import { countView } from '../services/viewCounter';
 import { clientAddress, hashedNetworkBucket, serverHmacKey } from '../services/ip';
 import { apiError } from '../../shared/http';
@@ -26,6 +28,11 @@ export async function handleViewRequest(request: Request, url: URL, env: Handler
   if (request.method !== 'POST') {
     return apiError('POST_ONLY', 405, { extra: { ok: false } });
   }
+
+  // A third-party page must not be able to inflate a poll's view count from its
+  // visitors' browsers, so the Origin check runs before the counter is touched.
+  const csrf = enforceSameOrigin(request);
+  if (csrf) return csrf;
 
   const match = url.pathname.match(VIEW_PATH_PATTERN);
   if (!match) {

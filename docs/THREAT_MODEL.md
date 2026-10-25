@@ -45,7 +45,9 @@ the schema or the network handling changes.
   referenced by the application build.
 - **Database attacker**: cannot reverse a vote to a person, cannot reverse a
   keyed network hash without `SERVER_HMAC_KEY`, and cannot use a stolen password
-  hash offline faster than the 600k-iteration PBKDF2 cost allows. That derivation
+  hash offline faster than the PBKDF2 cost allows (`PBKDF2_ITERATIONS` in
+  `shared/password.ts`: 100,000 iterations, the most Cloudflare's production
+  WebCrypto accepts for PBKDF2). That derivation
   runs in the `PasswordHasher` Durable Object rather than on the request path, so
   the request Worker never performs it; hashing is sharded by username across 16
   instances, so one object is neither a single queue nor a single lockout target.
@@ -55,6 +57,12 @@ the schema or the network handling changes.
 - **Abusive session**: cookie mutations require a same-origin request, and
   rotating the recovery code or deleting the account both require the current
   password.
+- **Driven by another page**: the anonymous mutations (`POST /api/vote`, the poll
+  and comment report endpoints, and `POST /api/polls/:id/view`) require a
+  same-origin request too, so a third-party page cannot make its visitors cast one
+  ballot, file a report, or record a view from their own network buckets.
+  Turnstile's hostname check covered that for voting while it was on; the Origin
+  check makes it independent of Turnstile being enabled.
 - **Content tampering**: hourly signed snapshots form an append-only hash chain
   published for external verification. There is one canonical format
   (`schemaVersion: 3`): each record's hash covers the poll id, the hour, the number
@@ -156,22 +164,25 @@ verifier can tell which payload a given chain was hashed with.
 ## AI provider data flow
 
 AI assistance is optional and off by default (`ai_provider` defaults to `off`).
-When it is on:
+When it is on, the Worker uses it for its own review and topic classification of a
+submission, and the AI endpoints stay available to API callers; the public submit
+form renders no AI control, so a visitor's draft leaves the browser only when they
+submit the poll:
 
-- The draft the user typed (title and optional description) is sent from the
-  browser to `POST /api/ai/enhance-title` or `POST /api/ai/suggest-options`, and
-  the Worker forwards it to the configured provider: Cloudflare Workers AI
-  through the `AI` binding, or the admin-configured OpenAI-compatible endpoint.
-  The validated suggestions are returned straight to the caller.
+- A submission's text (title and optional description) is sent by the Worker to
+  the configured provider: Cloudflare Workers AI through the `AI` binding, or the
+  admin-configured OpenAI-compatible endpoint. The same provider answers
+  `POST /api/ai/enhance-title` and `POST /api/ai/suggest-options`, which return
+  validated suggestions straight to the caller.
 - **Nothing is stored.** The prompt and the model response are never logged and
   never written to D1. There is no prompt table, no response table, and no cache.
 - The endpoints require a signed-in account, pass the same account-age gate as
   proposals, enforce the same Origin check, verify Turnstile when it is enabled,
   and are rate limited per account with scope `ai`.
 - Workers AI and any configured OpenAI-compatible endpoint are third-party
-  services. Turning AI on therefore means the draft text leaves the operator's
+  services. Turning AI on therefore means the submitted text leaves the operator's
   own systems and is processed by the selected provider under that provider's
-  terms; the frontend states this in one line under the AI buttons. The
+  terms; the About page discloses this in one line. The
   OpenAI-compatible API key is stored as a secret setting and is only sent to
   the configured endpoint.
 
@@ -249,6 +260,18 @@ When it is on:
   verified the Turnstile response hostname, returned `423` for read-only votes
   instead of sharing the missing-key `503`, and batched the publisher to 40 polls
   per run with a `publish_state` batch cursor.
+- Required the site origin on the anonymous mutations: voting, the poll and comment
+  report endpoints, and view counting now answer `403` for a request that carries no
+  `Origin` header or one from another origin. Before this, a third-party page could
+  POST from each visitor's browser with a fresh token hash, one ballot per visitor
+  from a distinct network bucket, which walked around the per-network vote limit
+  while Turnstile was off.
+- Closed the remaining exact timestamps and address buckets: a submitted poll's
+  `created_at`, `updated_at`, and `reviewed_at` are written at the hour, a successful
+  login no longer stamps an exact `updated_at`, an IPv6 address is bucketed by its
+  `/64` prefix instead of the whole text, and every admin response now carries the
+  same security headers as the public Worker. The iteration count quoted in the docs
+  is now the `PBKDF2_ITERATIONS` constant rather than a stale 600k.
 
 ## Known trade-offs
 

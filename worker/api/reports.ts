@@ -14,6 +14,7 @@
 
 import type { HandlerEnv } from '../index';
 import { logAudit } from '../../admin/lib/audit';
+import { enforceSameOrigin } from '../services/csrf';
 import { checkRateLimit } from '../services/rateLimit';
 import { clientAddress, hashedNetworkBucket, serverHmacKey } from '../services/ip';
 import { isTurnstileEnabled, turnstileSecretKey, verifyTurnstile } from '../services/turnstile';
@@ -40,6 +41,13 @@ export async function handleReportRequest(request: Request, url: URL, env: Handl
   if (request.method !== 'POST') {
     return apiError('POST_ONLY', 405, { extra: { ok: false } });
   }
+
+  // Reporting needs no account either, so the Origin check comes first: a
+  // third-party page must not be able to file reports from its visitors'
+  // browsers, which would spend each visitor's report budget and could push a
+  // poll over the auto-hide threshold.
+  const csrf = enforceSameOrigin(request);
+  if (csrf) return csrf;
 
   const pollMatch = url.pathname.match(POLL_REPORT_PATH_PATTERN);
   const commentMatch = pollMatch ? null : url.pathname.match(COMMENT_REPORT_PATH_PATTERN);

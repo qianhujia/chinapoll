@@ -46,13 +46,11 @@ export function pollTypeCard(value: TemplateType, labelKey: string, hintKey: str
   `;
 }
 
-// A single option row: the label input plus a remove button. A row filled from
-// an AI suggestion carries a small "AI" tag until the user edits or submits.
-export function optionRowMarkup(position: number, label = '', suggested = false): string {
+// A single option row: the label input plus a remove button.
+export function optionRowMarkup(position: number, label = ''): string {
   return `
-    <div class="flex items-center gap-2" data-option-row data-position="${position}"${suggested ? ' data-suggested="1"' : ''}>
+    <div class="flex items-center gap-2" data-option-row data-position="${position}">
       <input class="w-full rounded-[14px] border border-border bg-[#f9fbff] px-3.5 py-3" type="text" maxlength="${MAX_OPTION_LABEL_LENGTH}" value="${escapeHtml(label)}" placeholder="${t('optionPlaceholder')}" data-option-label>
-      ${suggested ? `<span class="shrink-0 rounded-full bg-[#eef3fb] px-2 py-0.5 text-xs text-muted" data-ai-tag>${t('aiTag')}</span>` : ''}
       <button class="shrink-0 cursor-pointer rounded-full border border-border bg-panel px-3 py-1.5 text-xs text-muted hover:border-[#d95b5b] hover:text-[#d95b5b]" type="button" data-remove-option>${t('removeOption')}</button>
     </div>
   `;
@@ -68,32 +66,9 @@ export function optionsFieldsetMarkup(): string {
     <div class="grid gap-2" data-option-rows></div>
     <div class="flex flex-wrap items-center gap-2.5">
       <button class="cursor-pointer rounded-full border border-border bg-panel px-3.5 py-2 text-sm text-ink disabled:cursor-not-allowed disabled:opacity-60" type="button" data-add-option>${t('addOption')}</button>
-      <button class="cursor-pointer rounded-full border border-border bg-panel px-3.5 py-2 text-sm text-ink disabled:cursor-not-allowed disabled:opacity-60" type="button" data-ai-options disabled hidden>${t('aiSuggestOptions')}</button>
-      <div class="hidden" data-turnstile-options></div>
-      <button class="cursor-pointer text-xs text-primary" type="button" data-ai-discard hidden>${t('aiDiscardSuggestions')}</button>
     </div>
   </fieldset>
   `;
-}
-
-// The AI block next to the title field: a button, a hint, and the suggestion
-// list. It is only rendered when the `ai_enable` setting is on.
-export function aiTitleMarkup(): string {
-  return `
-  <div class="grid gap-2" data-ai-title>
-    <div class="flex flex-wrap items-center gap-2.5">
-      <button class="cursor-pointer rounded-full border border-border bg-panel px-3.5 py-2 text-sm text-ink disabled:cursor-not-allowed disabled:opacity-60" type="button" data-ai-enhance disabled>${t('aiEnhanceTitle')}</button>
-      <span class="text-xs text-muted" data-ai-hint>${t('aiDisabledHint')}</span>
-    </div>
-    <div class="hidden" data-turnstile-enhance></div>
-    <ul class="m-0 grid list-none gap-2 p-0" data-ai-suggestions hidden></ul>
-    <p class="m-0 text-xs text-muted">${t('aiPrivacyNote')}</p>
-  </div>
-  `;
-}
-
-export function aiPrivacyNoteMarkup(): string {
-  return `<p class="m-0 text-xs text-muted">${t('aiPrivacyNote')}</p>`;
 }
 
 // The duration dropdown, with "No end date" preselected. A poll always has a
@@ -115,9 +90,8 @@ export function durationFieldMarkup(): string {
   `;
 }
 
-// The category dropdown with "No category" first, plus the subtle AI button and
-// tag. The options are filled from `GET /api/categories` after the form mounts,
-// so the markup itself is static.
+// The category dropdown with "No category" first. The options are filled from
+// `GET /api/categories` after the form mounts, so the markup itself is static.
 export function categoryFieldMarkup(): string {
   return `
     <label class="grid gap-2 font-bold" for="proposal-category">${t('categoryLabel')}
@@ -125,9 +99,6 @@ export function categoryFieldMarkup(): string {
         <select class="w-full min-w-[200px] flex-[1_1_auto] rounded-[14px] border border-border bg-[#f9fbff] px-3.5 py-3 font-normal" id="proposal-category" name="category" data-category>
           <option value="">${t('categoryNone')}</option>
         </select>
-        <button class="cursor-pointer rounded-full border border-border bg-panel px-3.5 py-2 text-sm text-ink disabled:cursor-not-allowed disabled:opacity-60" type="button" data-ai-category hidden>${t('categorySuggest')}</button>
-        <div class="hidden" data-turnstile-category></div>
-        <span class="shrink-0 rounded-full bg-[#eef3fb] px-2 py-0.5 text-xs text-muted" data-category-ai-tag hidden>${t('aiTag')}</span>
       </div>
       <p class="m-0 text-sm text-muted hidden" data-category-description></p>
     </label>
@@ -155,10 +126,6 @@ export function descriptionFieldMarkup(): string {
   return `
     <label class="grid gap-2 font-bold" for="proposal-description">${t('proposalDescriptionLabel')}
       <textarea class="w-full resize-none overflow-hidden rounded-[14px] border border-border bg-white px-3.5 py-3 font-normal" id="proposal-description" name="description" rows="${DESCRIPTION_MIN_ROWS}" maxlength="2000"></textarea>
-      <div class="flex flex-wrap items-center gap-2.5" data-ai-description>
-        <button class="cursor-pointer rounded-full border border-border bg-panel px-3.5 py-2 text-sm text-ink disabled:cursor-not-allowed disabled:opacity-60" type="button" data-ai-enhance-description hidden>${t('aiEnhanceDescription')}</button>
-        <div class="hidden" data-turnstile-enhance-description></div>
-      </div>
     </label>
   `;
 }

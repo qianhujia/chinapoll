@@ -13,6 +13,7 @@
 // IDs; there is no separate verdict field.
 
 import type { HandlerEnv } from '../index';
+import { enforceSameOrigin } from '../services/csrf';
 import { checkRateLimit } from '../services/rateLimit';
 import { clientAddress, hashedNetworkBucket, serverHmacKey } from '../services/ip';
 import { isTurnstileEnabled, turnstileSecretKey, verifyTurnstile } from '../services/turnstile';
@@ -81,6 +82,14 @@ export async function handleVoteRequest(request: Request, env: HandlerEnv): Prom
   if (request.method !== 'POST') {
     return apiError('POST_ONLY', 405, { extra: { ok: false } });
   }
+
+  // Refused before the body is read. Voting takes no account, so without this a
+  // third-party page could POST here from every visitor's browser with a fresh
+  // token hash each time, turning each visitor into one ballot from a distinct
+  // network bucket and walking around the per-network limit. Turnstile closes the
+  // same hole through its hostname check, but it is optional.
+  const csrf = enforceSameOrigin(request);
+  if (csrf) return csrf;
 
   let body: any;
   try {

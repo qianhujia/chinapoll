@@ -313,7 +313,7 @@
   "aiTag": "AI",
   "aiDisabledHint": "Enter at least 10 characters in the title first.",
   "aiFailed": "Could not generate suggestions:",
-  "aiPrivacyNote": "Your draft is sent to Cloudflare Workers AI to generate suggestions. Nothing is stored.",
+  "aiPrivacyNote": "The optional AI features may send a submitted poll's text to Cloudflare Workers AI; nothing is stored.",
   "errors.BAD_REQUEST": "bad request",
   "errors.INVALID_JSON": "invalid JSON",
   "errors.METHOD_NOT_ALLOWED": "method not allowed",

@@ -138,6 +138,13 @@ export async function handleProposalRequest(request: Request, env: HandlerEnv): 
   const openNow = autoApprove && mode === PollMode.Deadline;
   const endAt = openNow ? durationSeconds(duration) : null;
 
+  // One coarse timestamp for the whole row. It is bound explicitly because
+  // `created_at` and `updated_at` would otherwise default to the exact second the
+  // submission arrived, and `reviewed_at` would carry that same second for an
+  // auto-approved poll. The hour is the precision the threat model promises for
+  // poll timestamps.
+  const coarseNow = Math.floor(Date.now() / 1000 / 3600) * 3600;
+
   // The poll row and its option rows are written as one batch. `last_insert_rowid()`
   // would be clobbered by the first option insert, so the new poll id is read
   // back through a scalar subquery that each statement evaluates itself. The poll
@@ -145,8 +152,8 @@ export async function handleProposalRequest(request: Request, env: HandlerEnv): 
   const newPollId = '(SELECT id FROM polls ORDER BY id DESC LIMIT 1)';
   const statements: D1PreparedStatement[] = [
     env.DB.prepare(
-      `INSERT INTO polls (title, description, mode, poll_type, duration_seconds, end_at, status, reviewed_at, topic_id)
-       VALUES (?, ?, ?, ?, ?, CASE WHEN ? THEN unixepoch() + ? ELSE NULL END, ?, ?, ?)`
+      `INSERT INTO polls (title, description, mode, poll_type, duration_seconds, end_at, status, reviewed_at, topic_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, CASE WHEN ? THEN unixepoch() + ? ELSE NULL END, ?, ?, ?, ?, ?)`
     ).bind(
       title,
       description,
@@ -156,8 +163,10 @@ export async function handleProposalRequest(request: Request, env: HandlerEnv): 
       openNow ? 1 : 0,
       endAt ?? 0,
       autoApprove ? PollStatus.Open : PollStatus.Pending,
-      autoApprove ? Math.floor(Date.now() / 1000) : null,
-      topicId
+      autoApprove ? coarseNow : null,
+      topicId,
+      coarseNow,
+      coarseNow
     ),
     ...options.map((option) => env.DB.prepare(
       `INSERT INTO poll_options (poll_id, position, label)

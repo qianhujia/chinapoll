@@ -107,6 +107,19 @@ describe('enforceSameOrigin', () => {
     const headerAuth = mutate('http://127.0.0.1:8787/api/proposal', { origin: 'http://evil.example' });
     expect(enforceSameOrigin(headerAuth, { viaCookie: false })).toBeNull();
   });
+
+  // The anonymous mutations (vote, report, view) call the helper without options,
+  // so the default has to enforce the check.
+  it('enforces the check when no options are passed', () => {
+    const sameOrigin = mutate('http://127.0.0.1:8787/api/vote', { origin: 'http://127.0.0.1:8787' });
+    expect(enforceSameOrigin(sameOrigin)).toBeNull();
+
+    const crossOrigin = mutate('http://127.0.0.1:8787/api/vote', { origin: 'https://evil.example' });
+    expect(enforceSameOrigin(crossOrigin)?.status).toBe(403);
+
+    const noOrigin = mutate('http://127.0.0.1:8787/api/vote');
+    expect(enforceSameOrigin(noOrigin)?.status).toBe(403);
+  });
 });
 
 describe('parseRateLimit', () => {
@@ -127,8 +140,24 @@ describe('ipBucket', () => {
     expect(ipBucket('203.0.113.10')).not.toBe(ipBucket('203.0.114.10'));
   });
 
-  it('is stable for IPv6 input', () => {
-    expect(ipBucket('2001:db8::1')).toBe(ipBucket('2001:db8::1'));
+  it('folds IPv6 to its /64 prefix', () => {
+    // Two hosts in one /64 share a bucket, whether the address is compressed or
+    // written in full.
+    expect(ipBucket('2001:db8:1:2::1')).toBe(ipBucket('2001:db8:1:2:ffff:ffff:ffff:ffff'));
+    expect(ipBucket('2001:db8:1:2::1')).toBe(ipBucket('2001:0db8:0001:0002::1'));
+    // The IPv4-embedded form is parsed, so both hosts land in the same ::/64.
+    expect(ipBucket('::ffff:203.0.113.10')).toBe(ipBucket('::ffff:203.0.113.200'));
+    // A different /64 is a different bucket.
+    expect(ipBucket('2001:db8:1:2::1')).not.toBe(ipBucket('2001:db8:1:3::1'));
+    expect(ipBucket('2001:db8:1:2::1')).not.toBe(ipBucket('2001:db8:2:1::1'));
+  });
+
+  it('keeps the FNV fallback for input that is not an address', () => {
+    expect(ipBucket('not an address')).toBe(ipBucket('not an address'));
+    expect(ipBucket('not an address')).not.toBe(ipBucket('another value'));
+    // A malformed IPv6 address is not parsed, so it takes the fallback as well.
+    expect(ipBucket('2001:db8:1:2:3:4:5')).toBe(ipBucket('2001:db8:1:2:3:4:5'));
+    expect(ipBucket('2001:db8:1:2:3:4:5')).not.toBe(ipBucket('2001:db8:1:2::1'));
   });
 });
 

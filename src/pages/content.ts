@@ -1,6 +1,4 @@
 import {
-  aiPrivacyNoteMarkup,
-  aiTitleMarkup,
   categoryFieldMarkup,
   descriptionFieldMarkup,
   durationFieldMarkup,
@@ -11,7 +9,6 @@ import {
 import { ABOUT_SECTIONS, type AboutSection } from '../../shared/about';
 import { bindProposalForm } from './proposalForm';
 import { getCurrentUser } from '../lib/session';
-import { getPublicSettings } from '../config';
 import { renderFooter, renderHeader, renderToast, t } from '../ui';
 
 
@@ -69,10 +66,6 @@ export function mountProposePage(app: HTMLElement, bindNavigation: () => void): 
     return;
   }
 
-  // The AI buttons are only rendered when the setting is on; when it is off the
-  // endpoints answer 404 and no button is shown.
-  const aiEnabled = getPublicSettings().ai_enable === true;
-
   app.innerHTML = `
     <div class="mx-auto max-w-[var(--page-width)] px-5 pt-6 pb-16">
       ${renderHeader('/submit')}
@@ -95,8 +88,6 @@ export function mountProposePage(app: HTMLElement, bindNavigation: () => void): 
               <input class="w-full rounded-[14px] border border-border bg-[#f9fbff] px-3.5 py-3 font-normal" id="proposal-title" name="title" type="text" maxlength="200" required>
             </label>
 
-            ${aiEnabled ? aiTitleMarkup() : ''}
-
             ${optionsFieldsetMarkup()}
 
             ${durationFieldMarkup()}
@@ -107,7 +98,6 @@ export function mountProposePage(app: HTMLElement, bindNavigation: () => void): 
 
             <button class="mx-auto mt-2 cursor-pointer rounded-full border border-primary bg-primary px-4 py-2.5 text-white" type="submit">${t('submitProposal')}</button>
           </form>
-          ${aiEnabled ? aiPrivacyNoteMarkup() : ''}
         </section>
       </main>
       ${renderToast()}
@@ -115,6 +105,6 @@ export function mountProposePage(app: HTMLElement, bindNavigation: () => void): 
     </div>
   `;
 
-  bindProposalForm(app, bindNavigation, aiEnabled);
+  bindProposalForm(app, bindNavigation);
   bindNavigation();
 }

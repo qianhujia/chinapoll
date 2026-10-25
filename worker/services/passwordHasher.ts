@@ -1,7 +1,9 @@
 // Durable Object that owns PBKDF2 password hashing for both Workers.
 //
-// Password hashing is CPU-heavy (600,000 PBKDF2 iterations), so it is
-// deliberately kept off the request Worker's CPU path: the caller awaits this
+// Password hashing is CPU-heavy — PBKDF2-HMAC-SHA256 at the `PBKDF2_ITERATIONS`
+// count in `shared/password.ts` (100,000, because that is the most Cloudflare's
+// production WebCrypto accepts for PBKDF2) — so it is deliberately kept off the
+// request Worker's CPU path: the caller awaits this
 // object, which performs the derivation with its own CPU budget, and the request
 // Worker only pays for the round trip. Hashing is spread across a fixed number of
 // instances so a single object is neither one queue nor one lockout target for

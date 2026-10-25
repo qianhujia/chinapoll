@@ -106,6 +106,11 @@ previous/next links. They are derived from the ordering rather than stored as
 `prev_poll_id`/`next_poll_id` columns, so they cannot drift when a poll is added,
 deleted, or changes status.
 
+`POST /api/vote` requires a same-origin request: a browser sends an `Origin`
+header on every POST, so a request without one, or from another origin, is refused
+with `403` before the body is read. Without that check a third-party page could
+post here from each visitor's browser and spend the visitor's own network budget.
+
 ## Duration model
 
 The proposal form carries a duration, mapped in `worker/enums.ts` and shared
@@ -155,8 +160,9 @@ recovery channel, so credentials must be kept safe like a crypto recovery phrase
   `login_lock_minutes` minutes.
 - Sign-up and sign-in are rate limited per anonymized network bucket, and one
   bucket may register `max_accounts_per_ip` accounts. The bucket is a 32-bit
-  integer (`ip_prefix`): a dotted IPv4 address is reduced to its `/24` network
-  and other addresses are folded with a hash, so no full IP address is stored.
+  integer (`ip_prefix`): a dotted IPv4 address is reduced to its `/24` network and
+  an IPv6 address to its `/64` prefix; anything else is folded with a hash, so no
+  full IP address is stored.
 - Each account receives one single-use recovery code at sign-up, shown once;
   only its SHA-256 hash is stored. It resets a forgotten password from `/reset`,
   rotating as it is consumed, clearing the failed-attempt lock, and signing out
@@ -243,7 +249,8 @@ right of the poll title, and a comment from the three-dot menu in its own row.
 300 characters. The endpoint is rate limited with `report_rate_limit` (default
 `3/d`) using the keyed, daily-rotated network hash, and it stores no reporter
 identifier, address, network bucket, or exact timestamp (the creation time is
-coarsened to the hour).
+coarsened to the hour). Both report endpoints require a same-origin request, so a
+third-party page cannot file reports from its visitors' browsers.
 
 `POST /api/comments/:publicId/report` accepts the same body for one comment, named by
 the random public id the comment list returns. It shares the rate-limit budget with
@@ -267,8 +274,9 @@ the poll's `ViewCounter` Durable Object, which enforces the `60/h` per-network
 limit in its own memory and buffers the count, flushing to D1 on a five-minute
 alarm, so an active poll costs at most twelve writes an hour instead of one per
 view; an object evicted between flushes loses up to five minutes of views (counts
-are approximate by design). The endpoint always answers `204` so the response
-reveals nothing. `GET /api/polls/:id` and the poll list report
+are approximate by design). A same-origin request is required, and a well-formed
+one always answers `204` so the response reveals nothing. `GET /api/polls/:id` and
+the poll list report
 `views: { total, last7Days } | null`. A poll's own page always answers with its
 total (zero for a poll with no views yet), while the list answers `null` below
 `min_views_to_display` (default 20). Cumulative views are included in the signed
@@ -281,11 +289,13 @@ by the foreign-key cascade.
 
 ## AI assistance
 
-Optional AI assistance is configured with `ai_provider`:
+Optional AI assistance is configured with `ai_provider`. It powers the Worker's
+own review and topic classification of a submission; the public submit form
+renders no AI control, so nothing on the site calls the AI endpoints below.
 
 | Provider | Behaviour |
 | --- | --- |
-| `off` | AI endpoints answer `404` and the front end hides the buttons. This is the default. |
+| `off` | AI endpoints answer `404`. This is the default. |
 | `cloudflare` | Calls Cloudflare Workers AI through the `AI` binding (`[ai] binding = "AI"` in `wrangler.toml`, repeated under `[env.production]`). |
 | `openai_compatible` | Calls `<ai_api_url>/chat/completions` with the shared `ai_model`. If the URL already ends in `/chat/completions`, it is used as-is. `ai_api_key`, when set, is sent as `Authorization: Bearer <key>`. |
 

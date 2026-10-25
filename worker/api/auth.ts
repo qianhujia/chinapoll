@@ -264,13 +264,14 @@ async function login(request: Request, env: HandlerEnv): Promise<Response> {
     : null;
 
   // last_login_at is rounded to the day so it cannot be joined against precise
-  // activity timestamps.
+  // activity timestamps. `updated_at` is written at the same day resolution: the
+  // exact second here would hand back the login time the rounding just removed.
   const dayStart = now - (now % 86400);
   await env.DB.prepare(
-    `UPDATE users SET failed_attempts = 0, locked_until = NULL, last_login_at = ?, updated_at = unixepoch(),
+    `UPDATE users SET failed_attempts = 0, locked_until = NULL, last_login_at = ?, updated_at = ?,
        password_hash = COALESCE(?, password_hash)
      WHERE id = ?`
-  ).bind(dayStart, nextHash, user.id).run();
+  ).bind(dayStart, dayStart, nextHash, user.id).run();
 
   const token = await createSession(env, user.id);
   const actor: UserActor = { id: user.id, username: user.username, createdAt: Number(user.created_at) };

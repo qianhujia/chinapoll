@@ -67,9 +67,12 @@ const DASHBOARD_PATHS = new Set([
   '/settings/advanced'
 ]);
 
+// The document's own headers. The baseline that every admin response shares (no
+// store, no framing, no sniffing, no referrer, HSTS) comes from
+// `withSecurityHeaders` below; this builder adds the content type and the policy,
+// which needs the per-document nonce.
 const htmlSecurityHeaders = (nonce: string): Record<string, string> => ({
   'content-type': 'text/html; charset=utf-8',
-  'cache-control': 'no-store',
   'content-security-policy': [
     "default-src 'none'",
     `style-src 'nonce-${nonce}'`,
@@ -81,13 +84,32 @@ const htmlSecurityHeaders = (nonce: string): Record<string, string> => ({
     "base-uri 'none'",
     "form-action 'self'",
     "frame-ancestors 'none'"
-  ].join('; '),
-  'x-content-type-options': 'nosniff',
-  'x-frame-options': 'DENY',
-  'referrer-policy': 'no-referrer'
+  ].join('; ')
 });
 
-export default {
+// Security headers applied to every admin response (mirrors `withSecurityHeaders`
+// in worker/index.ts). The dashboard is a private console, so nothing it returns
+// may be stored or framed, and HSTS is set because a browser only learns it from a
+// response that actually reaches the browser. An image or other non-document
+// response the future adds to this Worker is covered too, rather than needing to
+// remember the list.
+function withSecurityHeaders(response: Response): Response {
+  const headers = new Headers(response.headers);
+  headers.set('cache-control', 'no-store');
+  headers.set('referrer-policy', 'no-referrer');
+  headers.set('x-content-type-options', 'nosniff');
+  headers.set('x-frame-options', 'DENY');
+  headers.set('strict-transport-security', 'max-age=31536000; includeSubDomains');
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers
+  });
+}
+
+// The routes themselves. The default export wraps what this returns, so the
+// routing code below never repeats the header list.
+const router = {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
 
@@ -156,5 +178,21 @@ export default {
     }
 
     return new Response('Not found', { status: 404 });
+  }
+};
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    try {
+      return withSecurityHeaders(await router.fetch(request, env));
+    } catch (error) {
+      // Structured error, never logs headers, bodies, cookies, or addresses.
+      console.error(JSON.stringify({
+        route: new URL(request.url).pathname,
+        status: 500,
+        error: error instanceof Error ? error.message : String(error)
+      }));
+      return withSecurityHeaders(Response.json({ message: 'internal error' }, { status: 500 }));
+    }
   }
 } satisfies ExportedHandler<Env>;

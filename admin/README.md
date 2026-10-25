@@ -79,6 +79,12 @@ deploy time.
   origin (or `ADMIN_ORIGIN`); other requests receive `403`. An admin cannot
   disable or delete their own account, and the last active admin cannot be
   removed.
+- Every response carries the same baseline as the public Worker, applied by one
+  wrapper in `index.ts`: `cache-control: no-store`, `referrer-policy: no-referrer`,
+  `x-content-type-options: nosniff`, `x-frame-options: DENY`, and
+  `strict-transport-security: max-age=31536000; includeSubDomains`. The dashboard
+  document adds its own CSP; the JSON API and the error responses carry the
+  baseline too.
 
 ## Endpoints
 

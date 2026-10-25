@@ -188,8 +188,9 @@ is the one signal that catches the mistake in either case.
   (`[ai] binding = "AI"`, repeated under `[env.production]`), and
   `openai_compatible` calls `<ai_api_url>/chat/completions` with the shared
   `ai_model`. The API key is optional and is sent as a bearer token when set.
-  While the provider is `off`, `/api/ai/*` returns `404` and the frontend hides
-  the buttons. `ai_provider`, `ai_api_url`, `ai_api_key`, `ai_model`,
+  While the provider is `off`, `/api/ai/*` returns `404`. The provider powers the
+  Worker's own review and topic classification; the public submit form renders no
+  AI control. `ai_provider`, `ai_api_url`, `ai_api_key`, `ai_model`,
   `ai_rate_limit`, and `ai_review_prompt` stay private and are never served by
   the public settings endpoint. The review prompt applies only when
   `auto_approve_polls` is on and the provider is not `off`; when it is empty

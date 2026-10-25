@@ -34,7 +34,7 @@ on its polls, so those polls become untopicalized.
 | duration_seconds | length of the poll in seconds, or NULL for no end date | Public, User, Admin | as above |
 | topic_id | the poll's topic, or NULL when untopicalized | Public, Admin | as above |
 | owner_hash | one-way HMAC of the server secret with the account id and poll id | none | until the poll is deleted |
-| created_at, updated_at | timestamps | Public (derived), Admin | as above |
+| created_at, updated_at | timestamps; hour-coarsened when the poll is created | Public (derived), Admin | as above |
 
 Notes: `ip_prefix` was removed; no network value is stored for a poll.
 The `owner_hash` message is `owner:<accountId>:<pollId>` and is fixed: it is how an
@@ -196,7 +196,7 @@ the poll by the foreign key cascade.
 | --- | --- | --- | --- |
 | id | account id | User (self), Admin | until account deletion |
 | username | chosen handle (never shown publicly) | User (self), Admin | until deletion |
-| password_hash | PBKDF2 600k hash | Admin (write only) | until deletion |
+| password_hash | PBKDF2 hash (`PBKDF2_ITERATIONS`, 100,000) | Admin (write only) | until deletion |
 | status, failed_attempts, locked_until | lockout state | Admin | until deletion |
 | last_login_at | day-coarsened | Admin | until deletion |
 | recovery_code_hash | SHA-256 of the one recovery code | none | rotated on use, until deletion |

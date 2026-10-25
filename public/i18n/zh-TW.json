@@ -313,7 +313,7 @@
   "aiTag": "AI",
   "aiDisabledHint": "請先在標題中輸入至少 10 個字元。",
   "aiFailed": "無法生成建議：",
-  "aiPrivacyNote": "你的草稿會傳送給 Cloudflare Workers AI 以生成建議，不會被儲存。",
+  "aiPrivacyNote": "可選的 AI 功能可能會把提交的投票文字傳送給 Cloudflare Workers AI，不會被儲存。",
   "errors.BAD_REQUEST": "請求無效",
   "errors.INVALID_JSON": "請求格式錯誤",
   "errors.METHOD_NOT_ALLOWED": "不允許的請求方法",

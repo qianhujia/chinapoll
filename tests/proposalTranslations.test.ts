@@ -9,7 +9,7 @@
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { loadTranslations } from '../src/i18n';
 import {
-  aiTitleMarkup,
+  categoryFieldMarkup,
   descriptionFieldMarkup,
   durationFieldMarkup,
   optionsFieldsetMarkup
@@ -28,11 +28,6 @@ const DICTIONARY: Record<string, string> = {
   duration1y: '1 year',
   optionsLabel: 'Options',
   addOption: 'Add option',
-  aiSuggestOptions: 'Suggest options',
-  aiDiscardSuggestions: 'Discard suggestions',
-  aiEnhanceTitle: 'Enhance with AI',
-  aiDisabledHint: 'Enter at least 10 characters in the title first.',
-  aiPrivacyNote: 'Your draft is sent to Cloudflare Workers AI.',
   proposalDescriptionLabel: 'Description (optional)'
 };
 
@@ -61,14 +56,19 @@ describe('submit form labels', () => {
     expect(markup).not.toContain('proposalDescriptionLabel');
   });
 
-  it('translates the options fieldset and the AI block', () => {
+  it('translates the options fieldset and offers no AI control', () => {
     const options = optionsFieldsetMarkup();
-    const ai = aiTitleMarkup();
 
     expect(options).toContain('Options');
     expect(options).toContain('Add option');
     expect(options).not.toContain('optionsLabel');
-    expect(ai).toContain('Enhance with AI');
-    expect(ai).not.toContain('aiEnhanceTitle');
+    // The submit form no longer carries the AI buttons, their Turnstile widgets,
+    // or the suggestion list.
+    expect(options).not.toContain('data-ai-options');
+    expect(options).not.toContain('aiSuggestOptions');
+    expect(options).not.toContain('data-ai-discard');
+    expect(descriptionFieldMarkup()).not.toContain('data-ai-enhance-description');
+    expect(categoryFieldMarkup()).not.toContain('data-ai-category');
+    expect(categoryFieldMarkup()).not.toContain('data-category-ai-tag');
   });
 });

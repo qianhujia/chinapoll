@@ -19,7 +19,7 @@ describe('api error codes under settings', () => {
     const pollId = await seedPoll({ title: 'Coded rate limit poll' });
     const report = () => SELF.fetch(`${ORIGIN}/api/polls/${pollId}/report`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', origin: ORIGIN },
       body: JSON.stringify({ reason: 'spam' })
     });
 
@@ -37,7 +37,7 @@ describe('api error codes under settings', () => {
 
     const response = await SELF.fetch(`${ORIGIN}/api/vote`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', origin: ORIGIN },
       body: JSON.stringify({ pollId, tokenHash: 'd'.repeat(64), optionIds: [] })
     });
     expect(response.status).toBe(423);

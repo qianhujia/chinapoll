@@ -267,3 +267,25 @@ describe('verdict poll proposals', () => {
     ]);
   });
 });
+
+describe('coarse poll timestamps', () => {
+  it('stores the submission time rounded to the hour', async () => {
+    const response = await propose({ title: 'A poll with a coarse timestamp' });
+    expect(response.status).toBe(201);
+    const pollId = (await response.json() as any).pollId as number;
+
+    const row = await env.DB.prepare('SELECT created_at, updated_at FROM polls WHERE id = ?')
+      .bind(pollId).first<{ created_at: number; updated_at: number }>();
+    const createdAt = Number(row?.created_at);
+    const updatedAt = Number(row?.updated_at);
+
+    // Both columns would default to the exact second the submission arrived; the
+    // explicit bind rounds them to the hour the threat model promises for poll
+    // timestamps.
+    expect(createdAt % 3600).toBe(0);
+    expect(updatedAt % 3600).toBe(0);
+    expect(updatedAt).toBe(createdAt);
+    // The stored hour is the current one, so nothing is stale or backdated.
+    expect(Math.abs(Math.floor(Date.now() / 1000) - createdAt)).toBeLessThan(7200);
+  });
+});

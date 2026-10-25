@@ -141,11 +141,13 @@ export async function insertBallot(pollId: number, tokenHash: string, optionIds:
   return voteId;
 }
 
-// Posts a ballot through the public API.
+// Posts a ballot through the public API. The mutation helpers all send the Origin
+// header a browser sends on a POST, because the Worker refuses a mutation that does
+// not come from its own origin.
 export function choiceVoteRequest(pollId: number, tokenHash: string, optionIds: number[]): Promise<Response> {
   return SELF.fetch(`${ORIGIN}/api/vote`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', origin: ORIGIN },
     body: JSON.stringify({ pollId, tokenHash, optionIds })
   });
 }
@@ -155,7 +157,7 @@ export function choiceVoteRequest(pollId: number, tokenHash: string, optionIds: 
 export function legacyOptionVoteRequest(pollId: number, tokenHash: string, option: string): Promise<Response> {
   return SELF.fetch(`${ORIGIN}/api/vote`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', origin: ORIGIN },
     body: JSON.stringify({ pollId, tokenHash, option })
   });
 }
@@ -164,7 +166,7 @@ export function legacyOptionVoteRequest(pollId: number, tokenHash: string, optio
 export function voteStatusRequest(pollId: number, tokenHash: string): Promise<Response> {
   return SELF.fetch(`${ORIGIN}/api/vote/status`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', origin: ORIGIN },
     body: JSON.stringify({ pollId, tokenHash })
   });
 }
@@ -173,7 +175,7 @@ export function voteStatusRequest(pollId: number, tokenHash: string): Promise<Re
 export function reportRequest(pollId: number, reason: string, note?: string): Promise<Response> {
   return SELF.fetch(`${ORIGIN}/api/polls/${pollId}/report`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', origin: ORIGIN },
     body: JSON.stringify(note === undefined ? { reason } : { reason, note })
   });
 }
@@ -192,12 +194,15 @@ export async function seedComment(pollId: number, publicId: string, comment = 'A
 export function commentReportRequest(publicId: string, reason: string, note?: string): Promise<Response> {
   return SELF.fetch(`${ORIGIN}/api/comments/${publicId}/report`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', origin: ORIGIN },
     body: JSON.stringify(note === undefined ? { reason } : { reason, note })
   });
 }
 
 // Records a poll view through the public API.
 export function viewRequest(pollId: number): Promise<Response> {
-  return SELF.fetch(`${ORIGIN}/api/polls/${pollId}/view`, { method: 'POST' });
+  return SELF.fetch(`${ORIGIN}/api/polls/${pollId}/view`, {
+    method: 'POST',
+    headers: { origin: ORIGIN }
+  });
 }

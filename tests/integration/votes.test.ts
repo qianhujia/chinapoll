@@ -194,7 +194,7 @@ describe('vote endpoint', () => {
   it('answers 423 in read-only mode, distinct from the missing-key 503', async () => {
     const request = new Request(`${ORIGIN}/api/vote`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', origin: ORIGIN },
       body: JSON.stringify({ pollId: 1, tokenHash: 'a'.repeat(64), optionIds: [1] })
     });
     const response = await handleVoteRequest(

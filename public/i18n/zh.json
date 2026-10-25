@@ -313,7 +313,7 @@
   "aiTag": "AI",
   "aiDisabledHint": "请先在标题中输入至少 10 个字符。",
   "aiFailed": "无法生成建议：",
-  "aiPrivacyNote": "你的草稿会发送给 Cloudflare Workers AI 以生成建议，不会被存储。",
+  "aiPrivacyNote": "可选的 AI 功能可能会把提交的投票文本发送给 Cloudflare Workers AI，不会被存储。",
   "errors.BAD_REQUEST": "请求无效",
   "errors.INVALID_JSON": "请求格式错误",
   "errors.METHOD_NOT_ALLOWED": "不允许的请求方法",
