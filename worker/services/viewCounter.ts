@@ -1,19 +1,21 @@
 // Per-poll view counter Durable Object.
 //
 // One instance per poll (`VIEW_COUNTER.idFromName(String(pollId))`) buffers view
-// increments in memory and flushes them to `poll_views` on a five-minute alarm, so
-// a page view costs a single Durable Object request and no database write. The
-// per-network rate limit also lives in the object's own memory, keyed by the
-// daily-rotated network hash the caller passes in (never persisted), so the
-// request makes no second object call and writes no rate-limit rows. The object
-// holds a pending count and the in-memory rate windows, and nothing about
-// visitors.
+// increments and flushes them to `poll_views` on a five-minute alarm, so a page
+// view costs a single Durable Object request and no database write. The buffered
+// count is mirrored in the object's own storage, because in-memory state is not
+// preserved across eviction (or a local reload); a flush therefore never depends
+// on the instance that counted a view still being alive when the alarm fires. The
+// per-network rate limit lives only in memory, keyed by the daily-rotated network
+// hash the caller passes in (never persisted), so the request makes no second
+// object call and writes no rate-limit rows. Nothing stored here identifies a
+// visitor.
 //
-// Everything here is approximate by design: an object that is evicted between
-// flushes loses up to five minutes of views and resets its in-memory rate windows,
-// which drops D1 writes from one per view to at most twelve per active poll per
-// hour. The hourly cron, the snapshots, and the 90-day roll-up keep reading
-// `poll_views` unchanged.
+// Everything here is approximate by design: the flush drops a buffered count that
+// fails the poll foreign key, and an evicted object resets its in-memory rate
+// windows, which keeps D1 writes to at most one per five minutes per active poll.
+// The hourly cron, the snapshots, and the 90-day roll-up keep reading `poll_views`
+// unchanged.
 
 
 import { apiError } from '../../shared/http';
@@ -31,6 +33,10 @@ const RATE_LIMIT = 60;
 // The in-memory rate windows are pruned before they can grow past this many keys.
 const MAX_TRACKED_NETWORKS = 4096;
 const COUNTER_URL = 'https://view-counter.internal/';
+// Storage key of the views buffered since the last flush. Persisting the count is
+// what lets an evicted object (or a reloaded local dev server) still write the
+// views it counted once its alarm fires.
+const PENDING_KEY = 'pending';
 const FLUSH_SQL = `INSERT INTO poll_views (poll_id, ts_day, views) VALUES (?, ?, ?)
    ON CONFLICT(poll_id, ts_day) DO UPDATE SET views = views + excluded.views`;
 
@@ -45,8 +51,6 @@ interface RateWindow {
 }
 
 export class ViewCounter {
-  // Views counted since the last flush.
-  private pending = 0;
   // In-memory view of whether a flush is already scheduled.
   private alarmArmed = false;
   // Fixed-window view rate limit per network hash, kept only in memory.
@@ -72,13 +76,17 @@ export class ViewCounter {
     // never calls another object and never writes a rate-limit row.
     if (!this.allow(ipHash)) return Response.json({ ok: true, counted: false });
 
-    this.pending += 1;
+    // The buffered count is written to storage on every view, so it survives the
+    // object being evicted before the alarm fires. Durable Object requests run one
+    // at a time, so a plain read-modify-write needs no transaction.
+    const buffered = (await this.state.storage.get<number>(PENDING_KEY)) ?? 0;
+    await this.state.storage.put(PENDING_KEY, buffered + 1);
     await this.armFlush();
     return Response.json({ ok: true, counted: true });
   }
 
   // True when this network bucket is still under the hourly view limit. The
-  // window lives only in memory: an eviction resets it, like the buffered count.
+  // window lives only in memory, so an eviction resets it (best effort by design).
   private allow(networkHash: string): boolean {
     const now = Date.now();
     if (this.windows.size >= MAX_TRACKED_NETWORKS) this.prune(now);
@@ -101,11 +109,15 @@ export class ViewCounter {
     if (this.windows.size >= MAX_TRACKED_NETWORKS) this.windows.clear();
   }
 
-  // Flushes the buffered count to `poll_views` and resets the buffer.
+  // Flushes the buffered count to `poll_views` and clears the buffer.
   async alarm(): Promise<void> {
-    const pending = this.pending;
-    this.pending = 0;
     this.alarmArmed = false;
+    // The authoritative count is read from storage: the alarm may wake a fresh
+    // instance after the counting one was evicted, and the views it buffered must
+    // still be written. Clearing the buffer first drops a count whose flush fails
+    // the poll foreign key rather than retrying it forever.
+    const pending = (await this.state.storage.get<number>(PENDING_KEY)) ?? 0;
+    await this.state.storage.delete(PENDING_KEY);
     if (pending <= 0) return;
 
     const pollId = Number(this.state.id.name);

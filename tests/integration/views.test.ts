@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it } from 'vitest';
-import { env, runDurableObjectAlarm, SELF } from 'cloudflare:test';
+import { env, runDurableObjectAlarm, runInDurableObject, SELF } from 'cloudflare:test';
 import { ORIGIN, applySchema, seedPoll, viewRequest } from './helpers';
 
 function todayBucket(): number {
@@ -31,6 +31,20 @@ describe('poll view counting', () => {
     expect(row?.views).toBe(2);
     expect(row?.ts_day).toBe(todayBucket());
     expect((row?.ts_day ?? 0) % 86400).toBe(0);
+  });
+
+  // The buffered count must outlive the instance that counted it: in-memory state
+  // is lost on eviction, so a count kept only in memory would never be flushed.
+  it('persists the buffered count so an eviction cannot lose it', async () => {
+    const pollId = await seedPoll({ title: 'Durable buffered views poll' });
+    await viewRequest(pollId);
+    await viewRequest(pollId);
+
+    // The count lives under the counter object's own storage key, so an alarm that
+    // wakes a fresh instance still writes both views.
+    const buffered = await runInDurableObject(viewCounter(pollId), (_instance, state) =>
+      state.storage.get<number>('pending'));
+    expect(buffered).toBe(2);
   });
 
   it('answers 204 for a missing poll without writing a row', async () => {
