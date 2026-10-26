@@ -1,12 +1,12 @@
 // Frontend vote-control tests.
 //
 // Every poll is a choice poll now, so the vote controls are the radio (single
-// choice) or checkbox (multiple choice) list plus the results bars.
-// `renderChoiceInputs` and `renderResults` are pure markup, so they are checked
-// directly.
+// choice) or checkbox (multiple choice) list plus the results bars, and both carry
+// each option's count and whole-percent share on the right. `renderChoiceInputs`,
+// `renderResults`, and `optionShareLabel` are pure, so they are checked directly.
 
 import { describe, expect, it } from 'vitest';
-import { renderChoiceInputs, renderPollNav, renderResults } from '../src/pages/poll';
+import { optionShareLabel, renderChoiceInputs, renderPollNav, renderResults } from '../src/pages/poll';
 import type { PollOption } from '../src/lib/poll';
 
 // Two stored options, shaped like the poll detail response. Translations are not
@@ -81,6 +81,44 @@ describe('renderChoiceInputs', () => {
     // A poll with no rows still renders an empty form rather than an empty string.
     expect(renderChoiceInputs('single_choice', [], false)).toContain('data-choice-form');
   });
+
+  it('shows the standing of each option on the right once the results are public', () => {
+    const markup = renderChoiceInputs('single_choice', OPTIONS, false, [], {
+      ballots: 4,
+      hidden: false,
+      threshold: 0,
+      options: [
+        { id: 11, label: 'Bus', position: 1, count: 3 },
+        { id: 12, label: 'Metro', position: 2, count: 1 }
+      ]
+    });
+
+    // The count and the whole-percent share follow the label, pushed to the right of
+    // the row by `ml-auto`, so the numbers sit beside the choices they belong to.
+    expect(markup).toContain('<span class="ml-auto shrink-0 pl-3 text-sm tabular-nums text-muted" data-choice-share>3 · 75%</span>');
+    expect(markup).toContain('data-choice-share>1 · 25%</span>');
+  });
+
+  it('holds the standing back while the server withholds the counts', () => {
+    const markup = renderChoiceInputs('single_choice', OPTIONS, false);
+
+    // The slot is there for the post-ballot refresh, but it is empty and hidden: a
+    // poll below the threshold never shows a count beside its choices.
+    expect(markup.match(/data-choice-share hidden>/g)).toHaveLength(2);
+    expect(markup).not.toMatch(/\d+ · \d+%/);
+  });
+});
+
+describe('optionShareLabel', () => {
+  it('rounds a share to a whole percent', () => {
+    // 9469 of 10000 ballots is 94.69%, which reads as `95%` beside the option.
+    expect(optionShareLabel(9469, 10000)).toBe('9469 · 95%');
+    // A third and two thirds round to the nearest whole percent.
+    expect(optionShareLabel(1, 3)).toBe('1 · 33%');
+    expect(optionShareLabel(2, 3)).toBe('2 · 67%');
+    // A poll nobody has voted in yet has no share to report.
+    expect(optionShareLabel(0, 0)).toBe('0 · 0%');
+  });
 });
 
 describe('renderResults', () => {
@@ -99,9 +137,15 @@ describe('renderResults', () => {
     const markup = renderResults(results);
 
     expect(markup.match(/data-result-option=/g)).toHaveLength(2);
-    // The share is of the ballots cast, not of the option counts.
-    expect(markup).toContain('3 · 75.0%');
-    expect(markup).toContain('1 · 25.0%');
+    // The share is of the ballots cast, not of the option counts, and the label reads
+    // as a whole percent: `75%`, not `75.0%`.
+    expect(markup).toContain('3 · 75%');
+    expect(markup).toContain('1 · 25%');
+    // No label keeps a decimal.
+    expect(markup).not.toContain('75.0%</span>');
+    // The bar itself keeps the unrounded share, so its width stays smooth from one
+    // ballot to the next while only the label is rounded.
+    expect(markup).toContain('style="width:75.0%"');
     expect(markup).toContain('>Bus<');
     // The bars follow the positions, and nothing groups the selections.
     expect(markup.indexOf('data-result-option="11"')).toBeLessThan(markup.indexOf('data-result-option="12"'));

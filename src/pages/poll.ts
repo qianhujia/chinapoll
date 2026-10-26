@@ -66,27 +66,45 @@ const REPORT_REASON_LABELS: Record<ReportReason, string> = {
   other: 'reportReasonOther'
 };
 
+// The standing of one option: its count and its share of the ballots cast, never its
+// share of the other options' counts. The share is rounded to a whole percent so the
+// number stays readable at a glance, `3 · 75%` rather than `3 · 74.69%`.
+export function optionShareLabel(count: number, ballots: number): string {
+  const share = ballots > 0 ? count / ballots * 100 : 0;
+  return `${count} · ${Math.round(share)}%`;
+}
+
 // Radio (verdict and single choice) or checkbox (multiple choice) list. A verdict
 // poll takes the same single ballot as a single choice poll, so it renders radios
 // too. The submit button stays disabled until the ballot is complete, and a
-// returning voter sees their stored options pre-checked and the form disabled.
+// returning voter sees their stored options pre-checked and the form disabled. Each
+// option carries its standing on the right, so the numbers sit beside the choices
+// they belong to; `results` is null while the server withholds the counts, and the
+// slot then stays hidden until a ballot makes them public.
 export function renderChoiceInputs(
   pollType: PollType,
   options: PollOption[],
   hasVoted: boolean,
-  selectedIds: number[] = []
+  selectedIds: number[] = [],
+  results: PollResults | null = null
 ): string {
   const inputType = pollType === 'multi_choice' ? 'checkbox' : 'radio';
+  const counts = new Map((results?.options ?? []).map((option) => [option.id, Number(option.count ?? 0)]));
+  const ballots = results?.ballots ?? 0;
   return `
     <form class="choice-stack mx-auto mt-6 grid w-full max-w-[420px] gap-2.5" data-choice-form data-poll-type="${pollType}" title="${hasVoted ? t('alreadyVoted') : ''}">
       <fieldset class="m-0 grid gap-2 border-0 p-0">
         <legend class="sr-only">${t('vote')}</legend>
-        ${options.map((option) => `
+        ${options.map((option) => {
+    const count = counts.get(option.id);
+    return `
           <label class="flex cursor-pointer items-center gap-2.5 rounded-[14px] border border-border bg-[#f9fbff] px-3.5 py-2.5">
             <input class="accent-primary" type="${inputType}" name="option" value="${option.id}" data-choice-option${selectedIds.includes(option.id) ? ' checked' : ''} ${hasVoted ? 'disabled' : ''}>
             <span>${escapeHtml(option.label)}</span>
+            <span class="ml-auto shrink-0 pl-3 text-sm tabular-nums text-muted" data-choice-share${count === undefined ? ' hidden' : ''}>${count === undefined ? '' : optionShareLabel(count, ballots)}</span>
           </label>
-        `).join('')}
+        `;
+  }).join('')}
       </fieldset>
       <button class="mx-auto cursor-pointer rounded-full border border-primary bg-primary px-4 py-2.5 text-white disabled:cursor-not-allowed disabled:opacity-60" type="submit" data-choice-submit ${hasVoted ? 'disabled' : ''}>${t('submitVote')}</button>
     </form>
@@ -124,15 +142,17 @@ export function renderResults(results: PollResults): string {
     <div class="mx-auto mt-4 grid w-full max-w-[420px] gap-2.5" data-results>
       ${options.map((option) => {
     const count = Number(option.count ?? 0);
-    const percent = results.ballots > 0 ? count / results.ballots * 100 : 0;
+    // The bar keeps the unrounded share, so its width stays smooth from one ballot
+    // to the next while the label beside it reads as a whole percent.
+    const width = results.ballots > 0 ? count / results.ballots * 100 : 0;
     return `
         <div class="grid gap-1" data-result-option="${option.id}">
           <div class="flex items-baseline justify-between gap-3 text-sm">
             <span class="min-w-0 truncate">${escapeHtml(option.label)}</span>
-            <span class="shrink-0 tabular-nums text-muted" data-result-count>${count} · ${percent.toFixed(1)}%</span>
+            <span class="shrink-0 tabular-nums text-muted" data-result-count>${optionShareLabel(count, results.ballots)}</span>
           </div>
           <div class="h-2 w-full overflow-hidden rounded-full bg-[#edf0f4]">
-            <div class="h-full rounded-full bg-primary" data-result-bar style="width:${percent.toFixed(1)}%"></div>
+            <div class="h-full rounded-full bg-primary" data-result-bar style="width:${width.toFixed(1)}%"></div>
           </div>
         </div>
       `;
@@ -426,13 +446,15 @@ export async function mountVotePage(identifier: number, app: HTMLElement, bindNa
   const hiddenNotice = resultsHidden
     ? `<p class="mt-3 mb-0 text-center text-sm text-muted" data-results-hidden>${t('resultsHidden').replace('{n}', String(stats!.threshold))}</p>`
     : '';
-  const choiceInputs = pollOptions.length > 0 && poll.status === 'open'
-    ? renderChoiceInputs(pollType, pollOptions, votingDisabled, votedOptionIds)
-    : '';
   // One results renderer for every type; below the threshold the server sends
-  // `options: null` and only the message is shown.
-  const resultsMarkup = results && !results.hidden
-    ? renderResults({ ...results, options: resultOptions })
+  // `options: null` and only the message is shown. The same payload is handed to the
+  // ballot, so every option shows its standing next to the choice it belongs to.
+  const publicResults = results && !results.hidden ? results : null;
+  const choiceInputs = pollOptions.length > 0 && poll.status === 'open'
+    ? renderChoiceInputs(pollType, pollOptions, votingDisabled, votedOptionIds, publicResults)
+    : '';
+  const resultsMarkup = publicResults
+    ? renderResults({ ...publicResults, options: resultOptions })
     : '';
   const ballotTotal = results ? results.ballots : 0;
   // The ballot total is only published once the results are visible; below the
@@ -624,10 +646,26 @@ export async function mountVotePage(identifier: number, app: HTMLElement, bindNa
     return result;
   };
 
+  // Fills the standing beside every option in the ballot, so the numbers next to the
+  // choices match the results the ballot just produced. The slot is rendered hidden
+  // while the counts are withheld, and the first public results reveal it.
+  const syncChoiceShares = (result: PollResults) => {
+    const counts = new Map((result.options ?? []).map((option) => [option.id, Number(option.count ?? 0)]));
+    document.querySelectorAll<HTMLInputElement>('[data-choice-option]').forEach((optionInput) => {
+      const count = counts.get(Number(optionInput.value));
+      const slot = optionInput.closest('label')?.querySelector<HTMLElement>('[data-choice-share]');
+      if (!slot || count === undefined) return;
+      slot.textContent = optionShareLabel(count, result.ballots);
+      slot.hidden = false;
+    });
+  };
+
   // The server returns the same results shape for every poll, so one refresh
-  // path updates the bars and the ballot total after a ballot.
+  // path updates the bars, the standing beside each choice, and the ballot total
+  // after a ballot.
   const refreshResults = (result: VoteResponse) => {
     if (result.hidden || !result.options) return;
+    syncChoiceShares(result);
     const markup = renderResults(result);
     const existing = document.querySelector<HTMLElement>('[data-results]');
     if (existing) existing.outerHTML = markup;
