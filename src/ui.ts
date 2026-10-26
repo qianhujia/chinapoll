@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, CircleAlert, CircleCheck, EllipsisVertical, Eye, Plus, Search, Vote, X, type IconNode } from 'lucide';
+import { ChevronLeft, ChevronRight, CircleAlert, CircleCheck, EllipsisVertical, Eye, Menu, Plus, Search, Vote, X, type IconNode } from 'lucide';
 import { DEFAULT_LOCALE, getLocaleText, resolveLocale } from './i18n';
 import { getComments, hasCommentReportedLocally, type CommentsResponse, type PollSummary } from './lib/poll';
 import { getCurrentUser } from './lib/session';
@@ -43,6 +43,11 @@ export function plusIconMarkup(cssClass: string): string {
 // Ballot icon used by the vote count in the poll lists.
 export function voteIconMarkup(cssClass: string): string {
   return iconMarkup(Vote, cssClass);
+}
+
+// Hamburger icon for the small-screen header menu.
+export function menuIconMarkup(cssClass: string): string {
+  return iconMarkup(Menu, cssClass);
 }
 
 // Chevron icons used by the previous/next poll navigation on the detail page.
@@ -133,19 +138,60 @@ export function renderHeader(activeRoute: string): string {
     ? `<img class="h-9 w-auto" src="${escapeHtml(logo)}" alt="${siteName}">`
     : `<span class="text-3xl font-extrabold leading-none text-primary">${siteName}</span>`;
 
+  // The navigation and the account actions are inline on a wide screen. Below
+  // 700px they are hidden and the same items live in the stacked menu the button
+  // reveals (see renderHeaderMenuButton), so the header row keeps only the brand,
+  // the search toggle, and the menu button.
   return `
-    <header class="flex items-center justify-between gap-4 py-4 pb-5 max-[700px]:flex-wrap max-[700px]:gap-3">
-      <div class="flex flex-wrap items-center gap-x-7 gap-y-2 max-[700px]:gap-x-5">
+    <header class="flex flex-wrap items-center justify-between gap-x-4 gap-y-3 py-4 pb-5">
+      <div class="flex flex-wrap items-center gap-x-7 gap-y-2 max-[700px]:gap-x-3">
         <a class="flex items-center" href="/" data-route="/" aria-label="${siteName}">${brand}</a>
-        <nav class="flex flex-wrap items-center gap-[18px]">
+        <nav class="flex flex-wrap items-center gap-[18px] max-[700px]:hidden" aria-label="${escapeHtml(t('home'))}">
           ${getNavigationMarkup(activeRoute)}
-          ${renderHeaderSearch()}
         </nav>
+        ${renderHeaderSearch()}
       </div>
-      <div class="flex flex-wrap items-center gap-2 max-[700px]:w-full">
+      <div class="flex flex-wrap items-center gap-2 max-[700px]:hidden">
         ${renderHeaderAuthActions(activeRoute)}
       </div>
+      ${renderHeaderMenuButton()}
+      ${renderHeaderMenuPanel(activeRoute)}
     </header>
+  `;
+}
+
+// The small-screen header menu button, at the top right. It is hidden on a wide
+// screen, where the navigation is inline, and its icon switches to a close mark
+// while the panel is open.
+function renderHeaderMenuButton(): string {
+  const label = escapeHtml(t('menuLabel'));
+  return `
+      <button
+        type="button"
+        class="hidden h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-full border border-border bg-panel text-muted hover:border-primary hover:text-primary max-[700px]:flex"
+        data-menu-toggle
+        aria-expanded="false"
+        aria-controls="header-menu"
+        aria-label="${label}"
+        title="${label}"
+      >
+        <span data-menu-icon="closed">${menuIconMarkup('h-5 w-5 shrink-0')}</span>
+        <span class="hidden" data-menu-icon="open">${closeIconMarkup('h-5 w-5 shrink-0')}</span>
+      </button>
+  `;
+}
+
+// The stacked menu the button reveals: the same navigation and account actions,
+// one per line. It starts closed and stays hidden on a wide screen, because the
+// responsive display utility that opens it only applies below 700px.
+function renderHeaderMenuPanel(activeRoute: string): string {
+  return `
+      <nav class="hidden basis-full flex-col gap-3 border-t border-border pt-3" id="header-menu" data-menu-panel aria-label="${escapeHtml(t('menuLabel'))}">
+        <div class="flex flex-col gap-2">${getNavigationMarkup(activeRoute)}
+        </div>
+        <div class="flex flex-wrap items-center gap-2">${renderHeaderAuthActions(activeRoute)}
+        </div>
+      </nav>
   `;
 }
 
@@ -180,9 +226,13 @@ function renderHeaderSearch(): string {
   const toggleStateClass = isOpen
     ? 'w-0 overflow-hidden opacity-0 pointer-events-none'
     : 'w-9 opacity-100';
+  // On a narrow screen an open search takes the whole row (so the field and the
+  // status line have room); while it is closed the control is only the icon, so it
+  // stays inline beside the brand instead of claiming a line of its own.
+  const rootStateClass = isOpen ? 'max-[700px]:w-full' : '';
 
   return `
-    <div class="flex flex-wrap items-center gap-2 max-[700px]:w-full" data-search-root data-search-open="${isOpen}">
+    <div class="flex flex-wrap items-center gap-2 ${rootStateClass}" data-search-root data-search-open="${isOpen}">
       <button
         type="button"
         class="flex h-9 shrink-0 cursor-pointer items-center justify-center text-muted transition-[width,opacity] duration-200 ease-out hover:text-primary ${toggleStateClass}"
@@ -394,4 +444,48 @@ export function getNavigationMarkup(activeRoute: string): string {
   return links.map(({ route, label }) => `
     <a class="py-1 text-muted no-underline hover:text-primary ${activeRoute === route ? 'font-bold text-primary' : ''}" href="${route}" data-route="${route}">${label}</a>
   `).join('');
+}
+
+// Opens and closes the small-screen header menu. Like the header search, the
+// binding is delegated on the document, so it also covers the server-rendered
+// header and survives every re-render (which rebuilds the header markup).
+export function bindHeaderMenu(): void {
+  document.addEventListener('click', (event) => {
+    const target = event.target as HTMLElement | null;
+    if (!target) return;
+
+    if (target.closest('[data-menu-toggle]')) {
+      event.preventDefault();
+      setHeaderMenu(headerMenuPanel()?.dataset.menuOpen !== 'true');
+      return;
+    }
+
+    // A click anywhere outside the panel closes it. A navigation replaces the
+    // header wholesale, which closes it as well.
+    if (!target.closest('[data-menu-panel]') && headerMenuPanel()?.dataset.menuOpen === 'true') {
+      setHeaderMenu(false);
+    }
+  });
+
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') setHeaderMenu(false);
+  });
+}
+
+function headerMenuPanel(): HTMLElement | null {
+  return document.querySelector<HTMLElement>('[data-menu-panel]');
+}
+
+// The panel is opened by adding the responsive display utility its markup leaves
+// out, so it can never become visible on a wide screen, where the navigation is
+// inline. The button reports the state and swaps its icon.
+function setHeaderMenu(open: boolean): void {
+  const panel = headerMenuPanel();
+  if (!panel) return;
+
+  panel.dataset.menuOpen = String(open);
+  panel.classList.toggle('max-[700px]:flex', open);
+  document.querySelector<HTMLElement>('[data-menu-toggle]')?.setAttribute('aria-expanded', String(open));
+  document.querySelector<HTMLElement>('[data-menu-icon="closed"]')?.classList.toggle('hidden', open);
+  document.querySelector<HTMLElement>('[data-menu-icon="open"]')?.classList.toggle('hidden', !open);
 }

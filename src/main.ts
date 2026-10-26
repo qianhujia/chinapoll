@@ -8,7 +8,7 @@ import { mountVotePage } from './pages/poll';
 import { getPublicSettings, loadPublicSettings } from './config';
 import { loadSession } from './lib/session';
 import { bindHeaderSearch, setSearchNavigator } from './search';
-import { applyFavicon, getErrorMessage, getQueryPage, getSiteName } from './ui';
+import { applyFavicon, bindHeaderMenu, getErrorMessage, getQueryPage, getSiteName } from './ui';
 import { updateSeo, getSeoForRoute } from './seo';
 
 const app = document.querySelector<HTMLElement>('#app');
@@ -135,6 +135,7 @@ async function start(): Promise<void> {
     await loadSession();
     setSearchNavigator(navigateTo);
     bindHeaderSearch();
+    bindHeaderMenu();
     await render();
   } catch (error) {
     app.setAttribute('role', 'alert');

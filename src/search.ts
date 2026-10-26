@@ -31,6 +31,9 @@ function openSearch(): void {
   if (!root || !form || !input) return;
 
   root.dataset.searchOpen = 'true';
+  // An open search takes the whole row on a narrow screen, so the field and the
+  // status line have room.
+  root.classList.add('max-[700px]:w-full');
   form.classList.remove('w-0', 'opacity-0', 'pointer-events-none');
   form.classList.add('w-56', 'opacity-100', 'max-[700px]:w-full');
   toggle?.classList.remove('w-9', 'opacity-100');
@@ -48,6 +51,7 @@ function closeSearch(): void {
   if (!root || !form) return;
 
   root.dataset.searchOpen = 'false';
+  root.classList.remove('max-[700px]:w-full');
   form.classList.add('w-0', 'opacity-0', 'pointer-events-none');
   form.classList.remove('w-56', 'opacity-100', 'max-[700px]:w-full');
   toggle?.classList.add('w-9', 'opacity-100');

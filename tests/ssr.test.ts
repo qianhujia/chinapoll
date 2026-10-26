@@ -207,6 +207,19 @@ describe('server-side header', () => {
     expect(html).not.toContain('<img class="h-9 w-auto"');
   });
 
+  it('offers the small-screen menu beside the inline navigation', () => {
+    const html = renderAboutBody(settings);
+
+    // The inline navigation is hidden below 700px and the menu button takes over,
+    // with the same links repeated in its panel.
+    expect(html).toContain('max-[700px]:hidden');
+    expect(html).toContain('data-menu-toggle');
+    expect(html).toContain('aria-controls="header-menu"');
+    expect(html).toContain('max-[700px]:flex');
+    expect(html).toContain('id="header-menu"');
+    expect(html).toContain(serverTranslate('menuLabel'));
+  });
+
   it('renders the configured logo instead of the wordmark', () => {
     // The public settings resolve an upload to the branding endpoint and keep a
     // pasted URL as it is, so the header only ever sees a URL.

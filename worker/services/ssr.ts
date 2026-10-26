@@ -32,6 +32,11 @@ const SOURCE_REPOSITORY_URL = 'https://github.com/qianhujia/chinapoll';
 // the server-rendered hero matches the icon the SPA draws.
 const PLUS_ICON = '<svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14" /><path d="M12 5v14" /></svg>';
 
+// The Lucide menu and close marks of the small-screen header menu, inlined so the
+// server-rendered header matches the one the SPA draws.
+const MENU_ICON = '<svg class="h-5 w-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16" /><path d="M4 12h16" /><path d="M4 19h16" /></svg>';
+const CLOSE_ICON = '<svg class="h-5 w-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18" /><path d="m6 6 12 12" /></svg>';
+
 // The Lucide chevrons on the previous/next poll navigation, inlined so the
 // server-rendered nav matches the icons the SPA draws.
 const CHEVRON_LEFT_ICON = '<svg class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>';
@@ -167,12 +172,24 @@ function renderHeader(settings: SsrSettings, t: Translate, activeRoute: string):
     ? `<img class="h-9 w-auto" src="${escapeHtml(settings.logo)}" alt="${escapeHtml(settings.site_name)}">`
     : `<span class="text-3xl font-extrabold leading-none text-primary">${escapeHtml(settings.site_name)}</span>`;
 
-  return `    <header class="flex items-center justify-between gap-4 py-4 pb-5 max-[700px]:flex-wrap max-[700px]:gap-3">
-      <div class="flex flex-wrap items-center gap-x-7 gap-y-2 max-[700px]:gap-x-5">
+  // The navigation is inline on a wide screen. Below 700px it is hidden and the
+  // menu button reveals the same links, so the header row keeps only the brand and
+  // the button, which sits at the top right.
+  const menuLabel = escapeHtml(t('menuLabel'));
+  return `    <header class="flex flex-wrap items-center justify-between gap-x-4 gap-y-3 py-4 pb-5">
+      <div class="flex flex-wrap items-center gap-x-7 gap-y-2 max-[700px]:gap-x-3">
         <a class="flex items-center" href="/" data-route="/" aria-label="${escapeHtml(t('homeLinkLabel'))}">${brand}</a>
-        <nav class="flex flex-wrap items-center gap-x-6 gap-y-2 max-[700px]:gap-x-5" aria-label="${escapeHtml(t('home'))}">${nav}
+        <nav class="flex flex-wrap items-center gap-x-6 gap-y-2 max-[700px]:hidden" aria-label="${escapeHtml(t('home'))}">${nav}
         </nav>
       </div>
+      <button type="button" class="hidden h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-full border border-border bg-panel text-muted hover:border-primary hover:text-primary max-[700px]:flex" data-menu-toggle aria-expanded="false" aria-controls="header-menu" aria-label="${menuLabel}" title="${menuLabel}">
+        <span data-menu-icon="closed">${MENU_ICON}</span>
+        <span class="hidden" data-menu-icon="open">${CLOSE_ICON}</span>
+      </button>
+      <nav class="hidden basis-full flex-col gap-3 border-t border-border pt-3" id="header-menu" data-menu-panel aria-label="${menuLabel}">
+        <div class="flex flex-col gap-2">${nav}
+        </div>
+      </nav>
     </header>`;
 }
 

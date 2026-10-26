@@ -117,6 +117,7 @@
   "searchPlaceholder": "Poll title or ID",
   "searchSubmit": "Search",
   "searchClose": "Close search",
+  "menuLabel": "Menu",
   "searchPollNotFound": "No poll exists with that ID.",
   "searchResultsFor": "Results for",
   "searchClear": "Clear search",
