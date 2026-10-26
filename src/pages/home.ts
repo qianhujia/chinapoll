@@ -22,7 +22,9 @@ import {
 // badges, and the vote count as a ballot icon and a number (or the threshold
 // notice while the total is withheld). The title is the only link: the list page
 // never votes in place, so no vote button or vote controls are built here, and a
-// poll's view count is not shown in the list.
+// poll's view count is not shown in the list. On a narrow screen the row stacks
+// instead of using the second column: the identity line comes first and the vote
+// count sits below it.
 export function renderPollRow({ poll, stats }: Awaited<ReturnType<typeof getPolls>>['polls'][number]): string {
   const pollType = poll.pollType ?? stats.pollType ?? 'single_choice';
   const locale = (getPublicSettings().default_locale ?? 'en') as 'en' | 'zh-CN' | 'zh-TW';
@@ -48,7 +50,7 @@ export function renderPollRow({ poll, stats }: Awaited<ReturnType<typeof getPoll
         </div>
       </div>
 
-      <div class="col-start-2 row-start-1 flex items-center justify-center gap-5 max-[700px]:col-start-1">
+      <div class="col-start-2 row-start-1 flex items-center justify-center gap-5 max-[700px]:col-start-1 max-[700px]:row-auto max-[700px]:justify-start">
         ${voteCount}
       </div>
     </article>
