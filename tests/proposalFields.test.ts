@@ -134,7 +134,7 @@ describe('categoryFieldMarkup', () => {
     expect(markup).toContain('categoryNone');
   });
 
-  it('shows a topic description in a lighter muted tone after a slash', () => {
+  it('right aligns a topic description in a lighter muted tone', () => {
     const markup = categoryOptionMarkup('politics', 'Politics', 'Public polls about politics.');
 
     expect(markup).toContain('data-category-option="politics"');
@@ -142,11 +142,13 @@ describe('categoryFieldMarkup', () => {
     expect(markup).toContain('aria-selected="false"');
     // The name sits in its own element so the trigger can reuse just that part.
     expect(markup).toContain('<span data-category-option-label>Politics</span>');
-    // The separator and the description are both light and muted.
-    expect(markup).toContain('<span class="ml-1 font-light text-muted">/ Public polls about politics.</span>');
+    // The description shares the name's row and is pushed to its right edge by the
+    // row's own spacing, light and muted, with no separator in front of it.
+    expect(markup).toContain('items-center justify-between');
+    expect(markup).toContain('<span class="pl-3 text-right font-light text-muted">Public polls about politics.</span>');
   });
 
-  it('leaves the slash out when a topic has no description', () => {
+  it('shows only the name when a topic has no description', () => {
     const markup = categoryOptionMarkup('other', 'Other', null);
 
     expect(markup).toContain('<span data-category-option-label>Other</span></button>');

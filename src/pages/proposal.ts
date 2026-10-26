@@ -90,24 +90,25 @@ export function durationFieldMarkup(): string {
   `;
 }
 
-// One entry in the category list: the topic name and, after a slash, its
-// description in a lighter muted tone. `description` is null for "No category" and
-// for a topic that carries none, so the slash only appears when there is something
-// to say. The name sits in its own element so the trigger can reuse just that part.
+// One entry in the category list: the topic name on the left and its description in
+// a lighter muted tone, right aligned on the same row and without a separator in
+// front of it. `description` is null for "No category" and for a topic that carries
+// none, so the right side stays empty unless there is something to say. The name sits
+// in its own element so the trigger can reuse just that part.
 export function categoryOptionMarkup(value: string, label: string, description: string | null): string {
   const detail = description
-    ? `<span class="ml-1 font-light text-muted">/ ${escapeHtml(description)}</span>`
+    ? `<span class="pl-3 text-right font-light text-muted">${escapeHtml(description)}</span>`
     : '';
   return `
-          <button type="button" class="block w-full cursor-pointer rounded-[10px] px-3 py-2 text-left text-sm text-ink hover:bg-[#eef3fb]" role="option" aria-selected="false" data-category-option="${escapeHtml(value)}"><span data-category-option-label>${escapeHtml(label)}</span>${detail}</button>`;
+          <button type="button" class="flex w-full cursor-pointer items-center justify-between gap-2 rounded-[10px] px-3 py-2 text-left text-sm text-ink hover:bg-[#eef3fb]" role="option" aria-selected="false" data-category-option="${escapeHtml(value)}"><span data-category-option-label>${escapeHtml(label)}</span>${detail}</button>`;
 }
 
 // The category dropdown with "No category" first. A native `<select>` cannot style
 // part of an option's text, so the field is a button that opens its own list: every
-// entry shows the topic name and, after a slash, its description in a lighter muted
-// tone. The chosen slug is kept in the hidden input the form reads, and the topics
-// are appended from `GET /api/topics` after the form mounts, so the markup itself is
-// static.
+// entry shows the topic name with its description in a lighter muted tone, right
+// aligned beside it. The chosen slug is kept in the hidden input the form reads, and
+// the topics are appended from `GET /api/topics` after the form mounts, so the markup
+// itself is static.
 export function categoryFieldMarkup(): string {
   const label = escapeHtml(t('categoryLabel'));
   return `
