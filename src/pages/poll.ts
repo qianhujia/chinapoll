@@ -33,6 +33,7 @@ import { localizedTopicName } from '../../shared/categories';
 import { obtainTurnstileToken, renderTurnstile, resetTurnstile, revealTurnstile, turnstileSiteKey } from '../lib/turnstile';
 import { apiErrorCode } from '../lib/apiError';
 import {
+  animateLayoutChange,
   chevronLeftIconMarkup,
   chevronRightIconMarkup,
   commentMenuEntriesMarkup,
@@ -155,7 +156,8 @@ export function renderPollDescription(description: string): string {
 // Reveals the description toggle only when the text overflows the two-line clamp,
 // then expands and collapses the text on click. The full height is measured with
 // the clamp removed, so a description that already fits stays fully visible and
-// keeps no toggle.
+// keeps no toggle. The text is animated between the two heights, so the description
+// opens and closes instead of snapping between two lines and the rest.
 export function bindDescription(app: HTMLElement): void {
   const wrap = app.querySelector<HTMLElement>('[data-poll-description]');
   const text = wrap?.querySelector<HTMLElement>('[data-description-text]');
@@ -180,7 +182,7 @@ export function bindDescription(app: HTMLElement): void {
     toggle.textContent = expanded
       ? (toggle.dataset.collapseLabel ?? '')
       : (toggle.dataset.expandLabel ?? '');
-    text.classList.toggle('line-clamp-2', !expanded);
+    animateLayoutChange(text, expanded, (value) => text.classList.toggle('line-clamp-2', !value));
   });
 }
 

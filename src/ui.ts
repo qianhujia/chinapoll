@@ -84,6 +84,61 @@ export function showToast(message: string, kind: 'success' | 'error' = 'success'
   }, 3500);
 }
 
+// Grows or shrinks `element` with a short height animation instead of letting it
+// jump between the two layouts, so an expanding block appears to open and a
+// collapsing one to close. `setExpanded` puts the block into the requested layout;
+// the helper calls it to measure the two heights, so it must be safe to call more
+// than once and must always end in the requested state.
+export function animateLayoutChange(
+  element: HTMLElement,
+  expanded: boolean,
+  setExpanded: (value: boolean) => void
+): void {
+  // Motion is optional: without the animation API, or for a visitor who asked for
+  // reduced motion, the change is simply applied.
+  const reduceMotion = typeof window !== 'undefined'
+    && typeof window.matchMedia === 'function'
+    && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (typeof element.animate !== 'function' || reduceMotion) {
+    setExpanded(expanded);
+    return;
+  }
+
+  const from = element.getBoundingClientRect().height;
+  let to: number;
+  if (expanded) {
+    setExpanded(true);
+    to = element.getBoundingClientRect().height;
+  } else {
+    // The content stays as it is while the box closes, so the height to animate to
+    // is measured with the collapsed layout in place and that layout is then undone
+    // to put the chips or the text back for the duration of the animation.
+    setExpanded(false);
+    to = element.getBoundingClientRect().height;
+    setExpanded(true);
+  }
+  if (from === to) {
+    setExpanded(expanded);
+    return;
+  }
+
+  // The element is clipped while it animates so what is on its way out does not
+  // poke out of the closing box; the clip is dropped once it settles, which also
+  // keeps it from cropping a focus indicator afterwards.
+  const overflow = element.style.overflow;
+  element.style.overflow = 'hidden';
+  const animation = element.animate(
+    [{ height: `${from}px` }, { height: `${to}px` }],
+    { duration: 200, easing: 'ease-out' }
+  );
+  const settle = () => {
+    element.style.overflow = overflow;
+    setExpanded(expanded);
+  };
+  animation.addEventListener('finish', settle);
+  animation.addEventListener('cancel', settle);
+}
+
 export function getPollsPerPage(): number {
   return getPublicSettings().polls_per_page;
 }

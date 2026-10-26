@@ -3,6 +3,7 @@ import { bootstrapPolls, bootstrapTopics } from '../bootstrap';
 import { getPublicSettings } from '../config';
 import { localizedTopicName } from '../../shared/categories';
 import {
+  animateLayoutChange,
   escapeHtml,
   getErrorMessage,
   getPollsPerPage,
@@ -130,11 +131,18 @@ export function renderTopicChips(
         </nav>`;
 }
 
-// Wires the expand toggle: it reveals the hidden chips and swaps its own label
-// and aria-expanded state.
+// Wires the expand toggle: it reveals the hidden chips and swaps its own label and
+// aria-expanded state. The row is animated between the two layouts, so the extra
+// chips slide into view as it opens and are clipped away as it closes.
 function bindTopicChips(app: HTMLElement): void {
   const toggle = app.querySelector<HTMLButtonElement>('[data-action="toggle-topics"]');
   if (!toggle) return;
+
+  const row = app.querySelector<HTMLElement>('[data-topic-chips]');
+  const extraChips = app.querySelectorAll<HTMLElement>('[data-topic-extra]');
+  const setExpanded = (expanded: boolean) => {
+    extraChips.forEach((chip) => chip.classList.toggle('hidden', !expanded));
+  };
 
   toggle.addEventListener('click', () => {
     const expanded = toggle.getAttribute('aria-expanded') !== 'true';
@@ -142,9 +150,8 @@ function bindTopicChips(app: HTMLElement): void {
     toggle.textContent = expanded
       ? (toggle.dataset.collapseLabel ?? '')
       : (toggle.dataset.expandLabel ?? '');
-    app.querySelectorAll<HTMLElement>('[data-topic-extra]').forEach((chip) => {
-      chip.classList.toggle('hidden', !expanded);
-    });
+    if (row) animateLayoutChange(row, expanded, setExpanded);
+    else setExpanded(expanded);
   });
 }
 
