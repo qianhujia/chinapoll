@@ -30,7 +30,7 @@ import { bootstrapPoll } from '../bootstrap';
 import { getPublicSettings } from '../config';
 import { updateSeo } from '../seo';
 import { localizedTopicName } from '../../shared/categories';
-import { renderTurnstile, resetTurnstile, revealTurnstile, turnstileSiteKey, turnstileToken } from '../lib/turnstile';
+import { obtainTurnstileToken, renderTurnstile, resetTurnstile, revealTurnstile, turnstileSiteKey } from '../lib/turnstile';
 import { apiErrorCode } from '../lib/apiError';
 import {
   chevronLeftIconMarkup,
@@ -553,13 +553,32 @@ export async function mountVotePage(identifier: number, app: HTMLElement, bindNa
   // Every ballot is a set of option ids; a single choice ballot carries one.
   // The duplicate and closed-poll handling is shared by every poll type.
   const sendBallot = async (payload: { optionIds: number[] }) => {
+    // The button stays disabled and the status line explains the wait while the
+    // token is obtained, so a slow challenge never looks like a dead button.
+    const submitButton = document.querySelector<HTMLButtonElement>('[data-choice-submit]');
+    const voteStatus = document.querySelector<HTMLElement>('.vote-status');
+    if (submitButton) submitButton.disabled = true;
+    let challengeToken: string;
+    try {
+      if (voteStatus) voteStatus.textContent = t('verifying');
+      challengeToken = await obtainTurnstileToken('vote');
+    } catch (error) {
+      const failure = `${t('submitFailed')}: ${getErrorMessage(error)}`;
+      if (voteStatus) voteStatus.textContent = failure;
+      showToast(failure, 'error');
+      if (submitButton) submitButton.disabled = false;
+      resetTurnstile('vote');
+      return null;
+    }
+    if (voteStatus) voteStatus.textContent = '';
+
     let result;
     try {
       result = await submitVote({
         pollId: poll.id,
         tokenHash: hash,
         optionIds: payload.optionIds,
-        turnstileToken: turnstileToken('vote')
+        turnstileToken: challengeToken
       });
     } catch (error) {
       const errorMessage = getErrorMessage(error);
@@ -652,6 +671,17 @@ export async function mountVotePage(identifier: number, app: HTMLElement, bindNa
     };
     sync();
     boxes.forEach((box) => box.addEventListener('change', sync));
+
+    // The first interaction warms the token up, so it is usually already at hand
+    // when the form is submitted. The result is deliberately ignored: the submit
+    // path asks again and reports any real failure.
+    let warmedUp = false;
+    const warmUpToken = () => {
+      if (warmedUp) return;
+      warmedUp = true;
+      void obtainTurnstileToken('vote').catch(() => undefined);
+    };
+    boxes.forEach((box) => box.addEventListener('change', warmUpToken));
 
     choiceForm.addEventListener('submit', async (event) => {
       event.preventDefault();
@@ -786,13 +816,23 @@ export async function mountVotePage(identifier: number, app: HTMLElement, bindNa
       const reason = selectedReason();
       if (!reason) return;
       submit.disabled = true;
+      if (status) status.textContent = t('verifying');
+      let challengeToken: string;
+      try {
+        challengeToken = await obtainTurnstileToken('report');
+      } catch (error) {
+        if (status) status.textContent = `${t('submitFailed')}: ${getErrorMessage(error)}`;
+        submit.disabled = false;
+        resetTurnstile('report');
+        return;
+      }
       if (status) status.textContent = '';
       try {
         await submitReport({
           ...('pollId' in target ? { pollId: target.pollId } : { commentId: target.commentPublicId }),
           reason,
           note: reason === 'other' ? (note?.value.trim() ?? '') : undefined,
-          turnstileToken: turnstileToken('report')
+          turnstileToken: challengeToken
         });
         close();
         // The reported entry becomes the confirmation note, wherever the target was.

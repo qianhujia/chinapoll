@@ -270,6 +270,7 @@
   "options": "options",
   "ballots": "ballots",
   "submitVote": "Submit vote",
+  "verifying": "Verifying…",
   "noEndDate": "No end date",
   "pollTypeLabel": "Poll type",
   "pollTypeVerdictHint": "Approve, neutral, or oppose.",

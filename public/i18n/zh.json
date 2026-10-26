@@ -270,6 +270,7 @@
   "options": "个选项",
   "ballots": "张选票",
   "submitVote": "提交投票",
+  "verifying": "正在验证…",
   "noEndDate": "无截止日期",
   "pollTypeLabel": "投票类型",
   "pollTypeVerdictHint": "赞成、中立或反对。",
