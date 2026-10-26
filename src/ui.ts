@@ -155,7 +155,7 @@ function renderHeaderAuthActions(activeRoute: string): string {
   if (getCurrentUser() !== null) {
     const isActive = activeRoute === '/account';
     return `
-      <a class="py-1 whitespace-nowrap text-muted no-underline hover:text-primary ${isActive ? 'font-bold text-primary' : ''}" href="/account" data-route="/account">${escapeHtml(t('account'))}</a>
+      <a class="py-1 whitespace-nowrap text-muted no-underline hover:text-primary ${isActive ? 'font-bold text-primary' : ''}" href="/account" data-route="/account">${escapeHtml(t('accountNav'))}</a>
     `;
   }
 
