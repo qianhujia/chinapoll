@@ -67,8 +67,8 @@ const REPORT_REASON_LABELS: Record<ReportReason, string> = {
 };
 
 // The standing of one option: its count and its share of the ballots cast, never its
-// share of the other options' counts. The share is rounded to a whole percent so the
-// number stays readable at a glance, `3 · 75%` rather than `3 · 74.69%`.
+// share of the other options' counts. The share reads as a whole percent so the number
+// stays clear at a glance, `3 · 75%` rather than `3 · 74.69%`.
 export function optionShareLabel(count: number, ballots: number): string {
   const share = ballots > 0 ? count / ballots * 100 : 0;
   return `${count} · ${Math.round(share)}%`;
@@ -78,9 +78,11 @@ export function optionShareLabel(count: number, ballots: number): string {
 // poll takes the same single ballot as a single choice poll, so it renders radios
 // too. The submit button stays disabled until the ballot is complete, and a
 // returning voter sees their stored options pre-checked and the form disabled. Each
-// option carries its standing on the right, so the numbers sit beside the choices
-// they belong to; `results` is null while the server withholds the counts, and the
-// slot then stays hidden until a ballot makes them public.
+// option carries its standing twice over: the count and whole-percent share on the
+// right, and a background filled in proportion to that share, so the colour of the
+// row and the numbers both belong to the choice they sit in. `results` is null while
+// the server withholds the counts, and both then stay hidden until a ballot makes
+// them public.
 export function renderChoiceInputs(
   pollType: PollType,
   options: PollOption[],
@@ -97,11 +99,13 @@ export function renderChoiceInputs(
         <legend class="sr-only">${t('vote')}</legend>
         ${options.map((option) => {
     const count = counts.get(option.id);
+    const share = count === undefined || ballots === 0 ? 0 : count / ballots * 100;
     return `
-          <label class="flex cursor-pointer items-center gap-2.5 rounded-[14px] border border-border bg-[#f9fbff] px-3.5 py-2.5">
-            <input class="accent-primary" type="${inputType}" name="option" value="${option.id}" data-choice-option${selectedIds.includes(option.id) ? ' checked' : ''} ${hasVoted ? 'disabled' : ''}>
-            <span>${escapeHtml(option.label)}</span>
-            <span class="ml-auto shrink-0 pl-3 text-sm tabular-nums text-muted" data-choice-share${count === undefined ? ' hidden' : ''}>${count === undefined ? '' : optionShareLabel(count, ballots)}</span>
+          <label class="relative flex cursor-pointer items-center gap-2.5 overflow-hidden rounded-[14px] border border-border bg-[#f9fbff] px-3.5 py-2.5">
+            <span class="absolute inset-y-0 left-0 bg-primary-soft" data-choice-fill style="width:${share.toFixed(1)}%"${count === undefined ? ' hidden' : ''}></span>
+            <input class="relative accent-primary" type="${inputType}" name="option" value="${option.id}" data-choice-option${selectedIds.includes(option.id) ? ' checked' : ''} ${hasVoted ? 'disabled' : ''}>
+            <span class="relative">${escapeHtml(option.label)}</span>
+            <span class="relative ml-auto shrink-0 pl-3 text-sm tabular-nums text-muted" data-choice-share${count === undefined ? ' hidden' : ''}>${count === undefined ? '' : optionShareLabel(count, ballots)}</span>
           </label>
         `;
   }).join('')}
@@ -446,14 +450,16 @@ export async function mountVotePage(identifier: number, app: HTMLElement, bindNa
   const hiddenNotice = resultsHidden
     ? `<p class="mt-3 mb-0 text-center text-sm text-muted" data-results-hidden>${t('resultsHidden').replace('{n}', String(stats!.threshold))}</p>`
     : '';
-  // One results renderer for every type; below the threshold the server sends
-  // `options: null` and only the message is shown. The same payload is handed to the
-  // ballot, so every option shows its standing next to the choice it belongs to.
+  // Below the threshold the server sends `options: null` and only its message is
+  // shown. Otherwise the results are handed to the ballot, so every option shows its
+  // own standing, both as a number and as the width of its background: the results
+  // list below is left out, and only a poll with no ballot to carry that standing (a
+  // closed one, which can no longer be voted in) still renders it.
   const publicResults = results && !results.hidden ? results : null;
   const choiceInputs = pollOptions.length > 0 && poll.status === 'open'
     ? renderChoiceInputs(pollType, pollOptions, votingDisabled, votedOptionIds, publicResults)
     : '';
-  const resultsMarkup = publicResults
+  const resultsMarkup = publicResults && !choiceInputs
     ? renderResults({ ...publicResults, options: resultOptions })
     : '';
   const ballotTotal = results ? results.ballots : 0;
@@ -646,40 +652,38 @@ export async function mountVotePage(identifier: number, app: HTMLElement, bindNa
     return result;
   };
 
-  // Fills the standing beside every option in the ballot, so the numbers next to the
-  // choices match the results the ballot just produced. The slot is rendered hidden
-  // while the counts are withheld, and the first public results reveal it.
-  const syncChoiceShares = (result: PollResults) => {
+  // Updates the standing of every option in the ballot: the count and share beside it
+  // and the width of the background that fills it, so both the numbers and the colour
+  // of the row match the results the ballot just produced. Both are rendered hidden
+  // while the counts are withheld, and the first public results reveal them.
+  const syncChoiceStandings = (result: PollResults) => {
     const counts = new Map((result.options ?? []).map((option) => [option.id, Number(option.count ?? 0)]));
     document.querySelectorAll<HTMLInputElement>('[data-choice-option]').forEach((optionInput) => {
       const count = counts.get(Number(optionInput.value));
-      const slot = optionInput.closest('label')?.querySelector<HTMLElement>('[data-choice-share]');
-      if (!slot || count === undefined) return;
-      slot.textContent = optionShareLabel(count, result.ballots);
-      slot.hidden = false;
+      const row = optionInput.closest('label');
+      const share = row?.querySelector<HTMLElement>('[data-choice-share]');
+      const fill = row?.querySelector<HTMLElement>('[data-choice-fill]');
+      if (count === undefined || !share || !fill) return;
+      share.textContent = optionShareLabel(count, result.ballots);
+      share.hidden = false;
+      fill.style.width = `${(result.ballots > 0 ? count / result.ballots * 100 : 0).toFixed(1)}%`;
+      fill.hidden = false;
     });
   };
 
-  // The server returns the same results shape for every poll, so one refresh
-  // path updates the bars, the standing beside each choice, and the ballot total
-  // after a ballot.
+  // The server returns the same results shape for every poll, so one refresh path
+  // updates the standing beside each choice and the ballot total after a ballot. The
+  // options carry that standing themselves, so nothing is added below the vote button.
   const refreshResults = (result: VoteResponse) => {
     if (result.hidden || !result.options) return;
-    syncChoiceShares(result);
-    const markup = renderResults(result);
-    const existing = document.querySelector<HTMLElement>('[data-results]');
-    if (existing) existing.outerHTML = markup;
-    else {
-      document.querySelector('[data-choice-form]')?.insertAdjacentHTML('afterend', markup);
-    }
+    syncChoiceStandings(result);
     const total = document.querySelector<HTMLElement>('[data-ballot-total]');
     if (total) {
       total.textContent = `${result.ballots} ${t('ballots')}`;
     } else {
-      // The total was not rendered while the results were hidden, so it is
-      // created now that the ballot pushed the poll over the threshold.
-      const anchor = document.querySelector('[data-results]');
-      anchor?.insertAdjacentHTML('afterend', `<p class="m-0 mt-3 flex items-center justify-center gap-3 text-center text-xs text-muted"><span data-ballot-total>${result.ballots} ${t('ballots')}</span></p>`);
+      // The total was not rendered while the results were hidden, so it is created
+      // now that the ballot pushed the poll over the threshold.
+      document.querySelector('[data-choice-form]')?.insertAdjacentHTML('afterend', `<p class="m-0 mt-3 flex items-center justify-center gap-3 text-center text-xs text-muted"><span data-ballot-total>${result.ballots} ${t('ballots')}</span></p>`);
     }
   };
 

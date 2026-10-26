@@ -1,9 +1,11 @@
 // Frontend vote-control tests.
 //
 // Every poll is a choice poll now, so the vote controls are the radio (single
-// choice) or checkbox (multiple choice) list plus the results bars, and both carry
-// each option's count and whole-percent share on the right. `renderChoiceInputs`,
-// `renderResults`, and `optionShareLabel` are pure, so they are checked directly.
+// choice) or checkbox (multiple choice) list. Every row carries its option's count,
+// its whole-percent share on the right, and a background filled in proportion to that
+// share; the results bars are only rendered where no ballot carries that standing.
+// `renderChoiceInputs`, `renderResults`, and `optionShareLabel` are pure, so they are
+// checked directly.
 
 import { describe, expect, it } from 'vitest';
 import { optionShareLabel, renderChoiceInputs, renderPollNav, renderResults } from '../src/pages/poll';
@@ -82,7 +84,7 @@ describe('renderChoiceInputs', () => {
     expect(renderChoiceInputs('single_choice', [], false)).toContain('data-choice-form');
   });
 
-  it('shows the standing of each option on the right once the results are public', () => {
+  it('shows the standing of each option once the results are public', () => {
     const markup = renderChoiceInputs('single_choice', OPTIONS, false, [], {
       ballots: 4,
       hidden: false,
@@ -95,16 +97,22 @@ describe('renderChoiceInputs', () => {
 
     // The count and the whole-percent share follow the label, pushed to the right of
     // the row by `ml-auto`, so the numbers sit beside the choices they belong to.
-    expect(markup).toContain('<span class="ml-auto shrink-0 pl-3 text-sm tabular-nums text-muted" data-choice-share>3 · 75%</span>');
+    expect(markup).toContain('<span class="relative ml-auto shrink-0 pl-3 text-sm tabular-nums text-muted" data-choice-share>3 · 75%</span>');
     expect(markup).toContain('data-choice-share>1 · 25%</span>');
+    // The row is filled in proportion to that share as well, so its background shows
+    // the standing too. The row clips the fill, so it follows the rounded corners.
+    expect(markup).toContain('overflow-hidden rounded-[14px]');
+    expect(markup).toContain('class="absolute inset-y-0 left-0 bg-primary-soft" data-choice-fill style="width:75.0%"');
+    expect(markup).toContain('data-choice-fill style="width:25.0%"');
   });
 
   it('holds the standing back while the server withholds the counts', () => {
     const markup = renderChoiceInputs('single_choice', OPTIONS, false);
 
-    // The slot is there for the post-ballot refresh, but it is empty and hidden: a
-    // poll below the threshold never shows a count beside its choices.
+    // Both slots are there for the post-ballot refresh, but they are empty, nothing
+    // wide, and hidden: a poll below the threshold never shows a standing.
     expect(markup.match(/data-choice-share hidden>/g)).toHaveLength(2);
+    expect(markup.match(/data-choice-fill style="width:0.0%" hidden>/g)).toHaveLength(2);
     expect(markup).not.toMatch(/\d+ · \d+%/);
   });
 });
