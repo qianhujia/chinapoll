@@ -19,7 +19,9 @@ import {
   DESCRIPTION_MIN_ROWS,
   MAX_OPTIONS,
   MIN_OPTIONS,
+  categoryOptionMarkup,
   confirmationMarkup,
+  nextDescriptionHeight,
   optionRowMarkup,
   templateOptionLabels
 } from './proposal';
@@ -102,7 +104,11 @@ export function bindProposalForm(app: HTMLElement, bindNavigation: () => void): 
   const optionRows = form.querySelector<HTMLDivElement>('[data-option-rows]');
   const addOptionButton = form.querySelector<HTMLButtonElement>('[data-add-option]');
   const submitButton = form.querySelector<HTMLButtonElement>('button[type="submit"]')!;
-  const categorySelect = form.querySelector('[data-category]') as HTMLSelectElement | null;
+  const categoryToggle = form.querySelector<HTMLButtonElement>('[data-category-toggle]');
+  const categoryList = form.querySelector<HTMLElement>('[data-category-list]');
+  const categoryTriggerLabel = form.querySelector<HTMLElement>('[data-category-label]');
+  const categoryValue = form.querySelector<HTMLInputElement>('[data-category]');
+  const categoryBackdrop = form.querySelector<HTMLElement>('[data-category-backdrop]');
   const categoryDescription = form.querySelector<HTMLElement>('[data-category-description]');
 
   // The card the user picked. Every card maps to a stored poll type, so the form
@@ -143,7 +149,12 @@ export function bindProposalForm(app: HTMLElement, bindNavigation: () => void): 
     return Math.max(oneRow, 1);
   };
 
-  const syncDescriptionHeight = () => {
+  // Resizes the field to hold its text. While the visitor is typing it only ever
+  // grows: a shorter field lifts everything below it, which makes the browser scroll
+  // the caret back into view and drag the page along under the reader. `remeasure`
+  // measures the field from scratch instead, so the two rows it starts from come back
+  // when a submission clears it.
+  const syncDescriptionHeight = (remeasure = false) => {
     if (!descriptionInput) return;
     const style = getComputedStyle(descriptionInput);
     const padding = Number.parseFloat(style.paddingTop || '0') + Number.parseFloat(style.paddingBottom || '0');
@@ -153,14 +164,23 @@ export function bindProposalForm(app: HTMLElement, bindNavigation: () => void): 
       // of the 30-row cap.
       descriptionMaxHeight = measureLineHeight() * DESCRIPTION_MAX_ROWS + padding + border;
     }
-    descriptionInput.style.height = 'auto';
-    const content = Number(descriptionInput.scrollHeight);
-    descriptionInput.style.height = `${Math.min(content, descriptionMaxHeight)}px`;
-    descriptionInput.style.overflowY = content > descriptionMaxHeight ? 'auto' : 'hidden';
+    // `scrollHeight` is never smaller than the box, so a field that is already tall
+    // enough reports its own height: the content only wins once it has grown past it.
+    const current = descriptionInput.getBoundingClientRect().height;
+    if (remeasure) descriptionInput.style.height = 'auto';
+    // The border is added back because `scrollHeight` covers the padding only, and
+    // the field is border-box sized: the text then fits exactly, so the last line is
+    // never clipped and the caret never sits outside the box.
+    const content = Number(descriptionInput.scrollHeight) + border;
+    const height = nextDescriptionHeight(content, current, descriptionMaxHeight, remeasure);
+    descriptionInput.style.height = `${height}px`;
+    // Once the text reaches the cap the field scrolls itself rather than growing, so
+    // a caret below the fold stays inside the field instead of moving the page.
+    descriptionInput.style.overflowY = height >= descriptionMaxHeight ? 'auto' : 'hidden';
   };
 
-  descriptionInput?.addEventListener('input', syncDescriptionHeight);
-  syncDescriptionHeight();
+  descriptionInput?.addEventListener('input', () => syncDescriptionHeight());
+  syncDescriptionHeight(true);
 
   // Fills the editor with the rows the picked type starts from. Every row is
   // editable: the verdict type pre-fills the three verdict words and the user may
@@ -221,36 +241,63 @@ export function bindProposalForm(app: HTMLElement, bindNavigation: () => void): 
       syncOptionEditor();
     });
   });
-  // The topic dropdown is filled from the enabled topics.
+  // Chooses a topic: the hidden input carries the slug the form sends, the trigger
+  // shows the name, the entry is marked selected, and the note under the field
+  // repeats the chosen topic's description.
+  const setCategory = (slug: string, label: string) => {
+    if (categoryValue) categoryValue.value = slug;
+    if (categoryTriggerLabel) categoryTriggerLabel.textContent = label;
+    categoryList?.querySelectorAll<HTMLElement>('[data-category-option]').forEach((option) => {
+      option.setAttribute('aria-selected', String(option.dataset.categoryOption === slug));
+    });
+    if (categoryDescription) {
+      const description = categoriesWithDescription.find((entry) => entry.slug === slug)?.description ?? '';
+      categoryDescription.textContent = description;
+      categoryDescription.classList.toggle('hidden', description === '');
+    }
+  };
+
+  const setCategoryOpen = (open: boolean) => {
+    if (categoryList) categoryList.hidden = !open;
+    if (categoryBackdrop) categoryBackdrop.hidden = !open;
+    categoryToggle?.setAttribute('aria-expanded', String(open));
+  };
+
+  // "No category" is what the field starts on; the list below is filled after the
+  // topics arrive.
+  setCategory('', t('categoryNone'));
+
+  categoryToggle?.addEventListener('click', () => setCategoryOpen(categoryList?.hidden !== false));
+  categoryBackdrop?.addEventListener('click', () => setCategoryOpen(false));
+  categoryList?.addEventListener('click', (event) => {
+    const option = (event.target as HTMLElement).closest<HTMLElement>('[data-category-option]');
+    if (!option) return;
+    setCategory(
+      option.dataset.categoryOption ?? '',
+      option.querySelector<HTMLElement>('[data-category-option-label]')?.textContent ?? ''
+    );
+    setCategoryOpen(false);
+    categoryToggle?.focus();
+  });
+  categoryList?.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape') return;
+    setCategoryOpen(false);
+    categoryToggle?.focus();
+  });
+
+  // The topic list is filled from the enabled topics, each entry carrying its
+  // description.
   getTopics().then((result) => {
-    if (!categorySelect) return;
     const locale = (getPublicSettings().default_locale ?? 'en') as 'en' | 'zh-CN' | 'zh-TW';
     categoriesWithDescription = result.topics.map((topic) => ({
       slug: topic.slug,
       description: topic.description
     }));
-    result.topics.forEach((topic) => {
-      const option = document.createElement('option');
-      option.value = topic.slug;
-      option.textContent = topic.names[locale] ?? topic.name;
-      categorySelect.appendChild(option);
-    });
+    categoryList?.insertAdjacentHTML('beforeend', result.topics
+      .map((topic) => categoryOptionMarkup(topic.slug, topic.names[locale] ?? topic.name, topic.description))
+      .join(''));
   }).catch(() => {
-    // The dropdown stays at "No category" when the list cannot be loaded.
-  });
-
-  categorySelect?.addEventListener('change', () => {
-    if (categoryDescription) {
-      const selectedSlug = categorySelect.value;
-      const category = categoriesWithDescription.find((c) => c.slug === selectedSlug);
-      if (category?.description) {
-        categoryDescription.textContent = category.description;
-        categoryDescription.classList.remove('hidden');
-      } else {
-        categoryDescription.textContent = '';
-        categoryDescription.classList.add('hidden');
-      }
-    }
+    // The dropdown keeps only "No category" when the list cannot be loaded.
   });
 
   form.addEventListener('submit', async (event) => {
@@ -298,7 +345,7 @@ export function bindProposalForm(app: HTMLElement, bindNavigation: () => void): 
         pollType,
         duration,
         options,
-        topic: categorySelect?.value || undefined
+        topic: categoryValue?.value || undefined
       });
       showToast(result.status === 'open'
         ? `${t('proposalPublished')}: ${result.pollId}`
@@ -311,15 +358,10 @@ export function bindProposalForm(app: HTMLElement, bindNavigation: () => void): 
       if (titleInput) titleInput.value = '';
       if (descriptionInput) descriptionInput.value = '';
       // A cleared field shrinks back to its starting rows.
-      syncDescriptionHeight();
+      syncDescriptionHeight(true);
       if (durationSelect) durationSelect.value = 'none';
-      if (categorySelect) {
-        categorySelect.value = '';
-      }
-      if (categoryDescription) {
-        categoryDescription.textContent = '';
-        categoryDescription.classList.add('hidden');
-      }
+      setCategory('', t('categoryNone'));
+      setCategoryOpen(false);
       rows().forEach((row) => row.remove());
       syncOptionEditor();
     } catch (error) {

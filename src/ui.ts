@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, CircleAlert, CircleCheck, EllipsisVertical, Eye, Menu, Plus, Search, Vote, X, type IconNode } from 'lucide';
+import { ChevronDown, ChevronLeft, ChevronRight, CircleAlert, CircleCheck, EllipsisVertical, Eye, Menu, Plus, Search, Vote, X, type IconNode } from 'lucide';
 import { DEFAULT_LOCALE, getLocaleText, resolveLocale } from './i18n';
 import { getComments, hasCommentReportedLocally, type CommentsResponse, type PollSummary } from './lib/poll';
 import { getCurrentUser } from './lib/session';
@@ -48,6 +48,11 @@ export function voteIconMarkup(cssClass: string): string {
 // Hamburger icon for the small-screen header menu.
 export function menuIconMarkup(cssClass: string): string {
   return iconMarkup(Menu, cssClass);
+}
+
+// Chevron mark for a dropdown trigger, pointing at the list it opens.
+export function chevronDownIconMarkup(cssClass: string): string {
+  return iconMarkup(ChevronDown, cssClass);
 }
 
 // Chevron icons used by the previous/next poll navigation on the detail page.

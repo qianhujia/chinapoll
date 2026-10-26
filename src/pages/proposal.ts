@@ -15,7 +15,7 @@ import {
   type PollDuration,
   type PollType
 } from '../lib/poll';
-import { escapeHtml, t } from '../ui';
+import { chevronDownIconMarkup, escapeHtml, t } from '../ui';
 
 // The type cards the form offers, one per stored poll type. The Verdict card is the
 // verdict type: the form pre-fills its three options with Approve, Neutral, and
@@ -90,18 +90,41 @@ export function durationFieldMarkup(): string {
   `;
 }
 
-// The category dropdown with "No category" first. The options are filled from
-// `GET /api/categories` after the form mounts, so the markup itself is static.
-export function categoryFieldMarkup(): string {
+// One entry in the category list: the topic name and, after a slash, its
+// description in a lighter muted tone. `description` is null for "No category" and
+// for a topic that carries none, so the slash only appears when there is something
+// to say. The name sits in its own element so the trigger can reuse just that part.
+export function categoryOptionMarkup(value: string, label: string, description: string | null): string {
+  const detail = description
+    ? `<span class="ml-1 font-light text-muted">/ ${escapeHtml(description)}</span>`
+    : '';
   return `
-    <label class="grid gap-2 font-bold" for="proposal-category">${t('categoryLabel')}
-      <div class="flex flex-wrap items-center gap-2">
-        <select class="w-full min-w-[200px] flex-[1_1_auto] rounded-[14px] border border-border bg-[#f9fbff] px-3.5 py-3 font-normal" id="proposal-category" name="category" data-category>
-          <option value="">${t('categoryNone')}</option>
-        </select>
+          <button type="button" class="block w-full cursor-pointer rounded-[10px] px-3 py-2 text-left text-sm text-ink hover:bg-[#eef3fb]" role="option" aria-selected="false" data-category-option="${escapeHtml(value)}"><span data-category-option-label>${escapeHtml(label)}</span>${detail}</button>`;
+}
+
+// The category dropdown with "No category" first. A native `<select>` cannot style
+// part of an option's text, so the field is a button that opens its own list: every
+// entry shows the topic name and, after a slash, its description in a lighter muted
+// tone. The chosen slug is kept in the hidden input the form reads, and the topics
+// are appended from `GET /api/topics` after the form mounts, so the markup itself is
+// static.
+export function categoryFieldMarkup(): string {
+  const label = escapeHtml(t('categoryLabel'));
+  return `
+    <div class="grid gap-2" data-category-field>
+      <span class="font-bold" id="proposal-category-label">${label}</span>
+      <div class="relative">
+        <button type="button" class="flex w-full items-center justify-between gap-2 rounded-[14px] border border-border bg-[#f9fbff] px-3.5 py-3 text-left font-normal text-ink" id="proposal-category" data-category-toggle aria-haspopup="listbox" aria-expanded="false" aria-controls="proposal-category-list" aria-labelledby="proposal-category-label">
+          <span data-category-label>${escapeHtml(t('categoryNone'))}</span>
+          ${chevronDownIconMarkup('h-4 w-4 shrink-0 text-muted')}
+        </button>
+        <div class="absolute right-0 left-0 z-20 mt-1 max-h-72 overflow-auto rounded-[14px] border border-border bg-panel p-1 shadow-card" id="proposal-category-list" role="listbox" aria-labelledby="proposal-category-label" data-category-list hidden>${categoryOptionMarkup('', t('categoryNone'), null)}
+        </div>
+        <div class="fixed inset-0 z-10" data-category-backdrop hidden></div>
       </div>
+      <input type="hidden" name="category" value="" data-category>
       <p class="m-0 text-sm text-muted hidden" data-category-description></p>
-    </label>
+    </div>
   `;
 }
 
@@ -128,6 +151,24 @@ export function descriptionFieldMarkup(): string {
       <textarea class="w-full resize-none overflow-hidden rounded-[14px] border border-border bg-white px-3.5 py-3 font-normal" id="proposal-description" name="description" rows="${DESCRIPTION_MIN_ROWS}" maxlength="2000"></textarea>
     </label>
   `;
+}
+
+// The height the description field is resized to. `content` is the height its text
+// needs and `current` is the height it renders at now, both as border-box heights
+// that include the padding and the borders. While the visitor is editing, the field
+// only ever grows: a shorter field lifts everything below it, which makes the browser
+// scroll the caret back into view and drag the page along under the reader.
+// `remeasure` measures the field from scratch instead and is used when a submission
+// clears it, so the two rows it starts from come back. `maxHeight` is the 30-row cap:
+// past it the field scrolls instead of growing further.
+export function nextDescriptionHeight(
+  content: number,
+  current: number,
+  maxHeight: number,
+  remeasure: boolean
+): number {
+  if (remeasure) return Math.min(content, maxHeight);
+  return Math.min(Math.max(content, current), maxHeight);
 }
 
 export interface ConfirmationMarkupInput {

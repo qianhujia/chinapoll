@@ -2,14 +2,19 @@
 //
 // `durationFieldMarkup` and `descriptionFieldMarkup` are pure markup, so they are
 // checked directly: both are plain form fields with their own bold label, and the
-// description grows with its text instead of hiding behind a toggle.
+// description grows with its text instead of hiding behind a toggle. The rule that
+// resizes the description is pure as well (`nextDescriptionHeight`), so the height it
+// gives back for a shrinking, growing or capped text is checked directly too.
 
 import { describe, expect, it } from 'vitest';
 import {
   DESCRIPTION_MAX_ROWS,
   DESCRIPTION_MIN_ROWS,
+  categoryFieldMarkup,
+  categoryOptionMarkup,
   descriptionFieldMarkup,
   durationFieldMarkup,
+  nextDescriptionHeight,
   optionsFieldsetMarkup,
   pollTypeCard,
   proposalRulesMarkup
@@ -83,6 +88,78 @@ describe('descriptionFieldMarkup', () => {
     expect(markup).toContain('name="description"');
     expect(markup).toContain('maxlength="2000"');
     expect(markup).toContain('for="proposal-description"');
+  });
+});
+
+describe('nextDescriptionHeight', () => {
+  // 240px is the two rows the field starts at, 1000px the 30-row cap.
+  it('never makes the field shorter while it is being edited', () => {
+    // Deleting a line leaves the field as tall as it was: a shorter field lifts the
+    // rest of the page and the browser scrolls the caret back into view, which drags
+    // the page along under the reader.
+    expect(nextDescriptionHeight(120, 240, 1000, false)).toBe(240);
+    expect(nextDescriptionHeight(240, 240, 1000, false)).toBe(240);
+    // Text that needs more room still grows it.
+    expect(nextDescriptionHeight(360, 240, 1000, false)).toBe(360);
+  });
+
+  it('holds the field at the row cap once the text is longer', () => {
+    // The field scrolls itself past the cap instead of pushing the submit button down.
+    expect(nextDescriptionHeight(2000, 240, 1000, false)).toBe(1000);
+    expect(nextDescriptionHeight(2000, 1000, 1000, false)).toBe(1000);
+  });
+
+  it('measures from scratch when the form is cleared', () => {
+    expect(nextDescriptionHeight(240, 1000, 1000, true)).toBe(240);
+    expect(nextDescriptionHeight(360, 1000, 1000, true)).toBe(360);
+    expect(nextDescriptionHeight(2000, 1000, 1000, true)).toBe(1000);
+  });
+});
+
+describe('categoryFieldMarkup', () => {
+  it('opens its own list instead of a native select, with "No category" first', () => {
+    const markup = categoryFieldMarkup();
+
+    expect(markup).toContain('data-category-toggle');
+    expect(markup).toContain('aria-haspopup="listbox"');
+    expect(markup).toContain('aria-controls="proposal-category-list"');
+    expect(markup).toContain('role="listbox"');
+    expect(markup).toContain('data-category-list');
+    // A native select cannot style part of an option's text, so the field is not one.
+    expect(markup).not.toContain('<select');
+    // The chosen slug travels in the hidden input the form reads, and the list starts
+    // closed with only the "No category" entry.
+    expect(markup).toContain('type="hidden" name="category"');
+    expect(markup).toContain('data-category-list hidden');
+    expect(markup).toContain('categoryNone');
+  });
+
+  it('shows a topic description in a lighter muted tone after a slash', () => {
+    const markup = categoryOptionMarkup('politics', 'Politics', 'Public polls about politics.');
+
+    expect(markup).toContain('data-category-option="politics"');
+    expect(markup).toContain('role="option"');
+    expect(markup).toContain('aria-selected="false"');
+    // The name sits in its own element so the trigger can reuse just that part.
+    expect(markup).toContain('<span data-category-option-label>Politics</span>');
+    // The separator and the description are both light and muted.
+    expect(markup).toContain('<span class="ml-1 font-light text-muted">/ Public polls about politics.</span>');
+  });
+
+  it('leaves the slash out when a topic has no description', () => {
+    const markup = categoryOptionMarkup('other', 'Other', null);
+
+    expect(markup).toContain('<span data-category-option-label>Other</span></button>');
+    expect(markup).not.toContain('font-light');
+  });
+
+  it('escapes a hostile topic name and description', () => {
+    const markup = categoryOptionMarkup('x', '<b>Name</b>', '<i>Detail</i>');
+
+    expect(markup).not.toContain('<b>');
+    expect(markup).not.toContain('<i>');
+    expect(markup).toContain('&lt;b&gt;');
+    expect(markup).toContain('&lt;i&gt;');
   });
 });
 
