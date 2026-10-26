@@ -14,10 +14,10 @@ import { renderFooter, renderHeader, renderToast, t } from '../ui';
 
 // One About section: a heading and its bullet points, both translated. It is a
 // plain block (no panel of its own) so every section lives inside the single
-// About page box, separated by a top border.
+// About page box, separated only by the space above it.
 function aboutSectionMarkup(section: AboutSection): string {
   return `
-          <div class="mt-6 border-t border-border pt-6">
+          <div class="mt-6">
             <h2 class="mt-0 mb-3 text-xl font-bold">${t(section.title)}</h2>
             <ul class="m-0 list-disc space-y-2 pl-6 text-muted">
               ${section.points.map((key) => `<li>${t(key)}</li>`).join('')}

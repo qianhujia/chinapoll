@@ -413,9 +413,10 @@ export function renderAboutBody(settings: SsrSettings, t: Translate = serverTran
             <li>${escapeHtml(t(key))}</li>`).join('');
   // The detail sections come from the shared ABOUT_SECTIONS list, so the
   // server-rendered copy stays identical to the one the client bundle renders.
-  // They are plain blocks inside the single About page box, not separate panels.
+  // They are plain blocks inside the single About page box, not separate panels,
+  // and carry no rule of their own.
   const sections = ABOUT_SECTIONS.map((section) => `
-          <div class="mt-6 border-t border-border pt-6">
+          <div class="mt-6">
             <h2 class="mt-0 mb-3 text-xl font-bold">${escapeHtml(t(section.title))}</h2>
             <ul class="m-0 list-disc space-y-2 pl-6 text-muted">${section.points.map((key) => `
               <li>${escapeHtml(t(key))}</li>`).join('')}
