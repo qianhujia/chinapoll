@@ -2,6 +2,7 @@ import { ChevronDown, ChevronLeft, ChevronRight, CircleAlert, CircleCheck, Ellip
 import { DEFAULT_LOCALE, getLocaleText, resolveLocale } from './i18n';
 import { getComments, hasCommentReportedLocally, type CommentsResponse, type PollSummary } from './lib/poll';
 import { getCurrentUser } from './lib/session';
+import { deadlineBadgeLabel } from '../shared/deadline';
 import { apiErrorMessage } from './lib/apiError';
 import { getPublicSettings } from './config';
 
@@ -475,8 +476,13 @@ export function getQueryValue(key: string): string {
   return (new URLSearchParams(window.location.search).get(key) ?? '').trim().slice(0, 100);
 }
 
-export function renderModeBadge(mode: PollSummary['mode']): string {
-  return `<span class="shrink-0 rounded-full bg-[#f1f3f5] px-[9px] py-[3px] text-xs leading-[1.5] font-light whitespace-nowrap text-muted">${mode === 'deadline' ? t('deadline') : t('evergreen')}</span>`;
+// The badge beside a poll title. A deadline poll names the time it has left instead
+// of its mode, computed once when the page is rendered so it never ticks; a poll
+// with no end date, or one whose end has already passed, still reads as a plain
+// label. An evergreen poll keeps "Permanent".
+export function renderModeBadge(mode: PollSummary['mode'], endAt?: string | null): string {
+  const label = mode === 'deadline' ? deadlineBadgeLabel(endAt, Date.now(), t) : t('evergreen');
+  return `<span class="shrink-0 rounded-full bg-[#f1f3f5] px-[9px] py-[3px] text-xs leading-[1.5] font-light whitespace-nowrap text-muted">${label}</span>`;
 }
 
 // Small badge that names the ballot shape of a poll, using the same badge style

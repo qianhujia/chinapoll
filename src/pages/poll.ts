@@ -297,14 +297,16 @@ export function reportModalMarkup(): string {
   `;
 }
 
-// The comments card header. The action button sits right after the heading: a
-// signed-in visitor gets a Comment button that reveals the form card above the
-// list and moves the caret to the textarea, and a signed-out visitor gets a
-// sign-in button that leads to the login page instead of a comment form.
+// The comments card header. The action sits at the right edge of the row, pushed
+// there by `ml-auto`: a signed-in visitor gets a Comment button that reveals the
+// form card above the list and moves the caret to the textarea, and a signed-out
+// visitor gets a sign-in button that leads to the login page instead of a comment
+// form. `ml-auto` rather than `justify-between` keeps the action on the right even
+// when the row wraps on a narrow screen.
 export function renderCommentsHeader(signedIn: boolean): string {
   const action = signedIn
-    ? `<button class="shrink-0 cursor-pointer rounded-full border border-primary bg-primary px-4 py-2.5 text-white" type="button" aria-expanded="false" aria-controls="comment-form" data-toggle-comment>${t('commentToggle')}</button>`
-    : `<a class="shrink-0 cursor-pointer rounded-full border border-primary bg-primary px-4 py-2.5 text-white no-underline" href="/login" data-route="/login">${t('commentLoginAction')}</a>`;
+    ? `<button class="ml-auto shrink-0 cursor-pointer rounded-full border border-primary bg-primary px-4 py-2.5 text-white" type="button" aria-expanded="false" aria-controls="comment-form" data-toggle-comment>${t('commentToggle')}</button>`
+    : `<a class="ml-auto shrink-0 cursor-pointer rounded-full border border-primary bg-primary px-4 py-2.5 text-white no-underline" href="/login" data-route="/login">${t('commentLoginAction')}</a>`;
   return `
     <div class="mb-3.5 flex flex-wrap items-center gap-3">
       <h2 class="m-0 text-xl font-bold">${t('commentsTitle')}</h2>
@@ -475,13 +477,6 @@ export async function mountVotePage(identifier: number, app: HTMLElement, bindNa
   // The claim entries need a session, so a signed-out visitor sees a sign-in link
   // instead of the claim button.
   const signedIn = getCurrentUser() !== null;
-  // Deadline polls show when they end (or that they never end).
-  const endLine = poll.status !== 'open'
-    ? ''
-    : poll.mode === 'deadline' && poll.end_at
-      ? `<p class="mt-3 mb-0 text-center text-xs text-muted" data-countdown data-end="${escapeHtml(poll.end_at)}"></p>`
-      : `<p class="mt-3 mb-0 text-center text-xs text-muted">${t('noEndDate')}</p>`;
-
   app.innerHTML = `
     <div class="mx-auto max-w-[var(--page-width)] px-5 pt-6 pb-16">
       ${renderHeader('/')}
@@ -491,7 +486,7 @@ export async function mountVotePage(identifier: number, app: HTMLElement, bindNa
           <div class="flex items-start justify-between gap-4">
             <div class="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
               <h1 class="m-0 text-2xl font-bold">#${poll.number} ${escapeHtml(poll.title)}</h1>
-              ${renderModeBadge(poll.mode)}
+              ${renderModeBadge(poll.mode, poll.end_at)}
               ${renderPollTypeBadge(pollType)}
               ${poll.topic
     ? `<span class="shrink-0 rounded-full bg-[#eef3fb] px-2.5 py-1 text-xs text-muted" data-poll-topic>${escapeHtml(localizedTopicName(poll.topic.slug, poll.topic.name, (getPublicSettings().default_locale ?? 'en') as 'en' | 'zh-CN' | 'zh-TW'))}</span>`
@@ -516,8 +511,6 @@ export async function mountVotePage(identifier: number, app: HTMLElement, bindNa
           ` : ''}
 
           ${turnstileSiteKey() ? '<div class="mx-auto mt-4 flex justify-center" data-turnstile-vote></div>' : ''}
-
-          ${endLine}
 
           <p class="vote-status m-0 text-center text-muted" role="status">${voteStatusError
     ? `${t('voteStatusFailed')} ${voteStatusError}`
@@ -752,27 +745,6 @@ export async function mountVotePage(identifier: number, app: HTMLElement, bindNa
       }
       showToast(message, result.ok ? 'success' : 'error');
     });
-  }
-
-  // Countdown for deadline polls, refreshed once a minute.
-  const countdown = document.querySelector<HTMLElement>('[data-countdown]');
-  if (countdown) {
-    const end = Date.parse(countdown.dataset.end ?? '');
-    const renderCountdown = () => {
-      if (!Number.isFinite(end)) return;
-      const remaining = end - Date.now();
-      if (remaining <= 0) {
-        countdown.textContent = t('pollEnded');
-        clearInterval(timer);
-        return;
-      }
-      const days = Math.floor(remaining / 86_400_000);
-      const hours = Math.floor((remaining % 86_400_000) / 3_600_000);
-      const minutes = Math.floor((remaining % 3_600_000) / 60_000);
-      countdown.textContent = `${t('timeRemaining')}: ${days}d ${hours}h ${minutes}m`;
-    };
-    const timer = setInterval(renderCountdown, 60_000);
-    renderCountdown();
   }
 
   // Render the Turnstile widget on the vote area when a site key is configured.

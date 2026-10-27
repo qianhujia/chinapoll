@@ -12,9 +12,10 @@
 // reuses the SPA's utility classes so the server-rendered paint and the client
 // paint look alike.
 
-import { PollMode, PollStatus, PollType } from '../enums';
+import { PollMode, PollStatus, PollType, toIsoDate } from '../enums';
 import { ABOUT_SECTIONS } from '../../shared/about';
 import { localizedTopicName, type TopicLocale } from '../../shared/categories';
+import { deadlineBadgeLabel } from '../../shared/deadline';
 import en from '../../public/i18n/en.json';
 import zh from '../../public/i18n/zh.json';
 import zhTW from '../../public/i18n/zh-TW.json';
@@ -104,6 +105,8 @@ export interface SsrPollCard {
   title: string;
   mode: PollMode;
   pollType: number;
+  /** The end of a deadline poll, as the ISO string the API publishes. */
+  endAt?: string | null;
   topic: { slug: string; name: string } | null;
 }
 
@@ -137,8 +140,11 @@ function displayName(topic: { slug: string; name: string }, settings: SsrSetting
   return localizedTopicName(topic.slug, topic.name, locale);
 }
 
-function modeLabel(mode: PollMode, t: Translate): string {
-  return mode === PollMode.Deadline ? t('deadline') : t('evergreen');
+// The label of the mode badge. A deadline poll names the time it has left instead of
+// its mode, worked out when the page is rendered so it never ticks; without a usable
+// end date the plain mode name stays. This mirrors the client's `renderModeBadge`.
+function modeLabel(mode: PollMode, endAt: string | null | undefined, t: Translate): string {
+  return mode === PollMode.Deadline ? deadlineBadgeLabel(endAt, Date.now(), t) : t('evergreen');
 }
 
 function pollTypeLabel(pollType: number, t: Translate): string {
@@ -245,7 +251,7 @@ function renderPollRow(poll: SsrPollCard, settings: SsrSettings, t: Translate): 
           <div class="col-start-1 flex flex-wrap items-center gap-2">
             <span class="shrink-0 font-bold tabular-nums text-muted">#${poll.number}</span>
             <h2 class="m-0 flex-[1_1_auto] text-[1.15rem] leading-[1.5]"><a class="text-inherit no-underline hover:text-primary" href="${href}" data-route="${href}">${escapeHtml(poll.title)}</a></h2>
-            ${badge(modeLabel(poll.mode, t))}
+            ${badge(modeLabel(poll.mode, poll.endAt, t))}
             ${badge(typeLabel)}
             ${topic}
           </div>
@@ -391,7 +397,7 @@ ${renderHeader(settings, t, '/')}
       <main class="grid gap-5">
         <article class="rounded-[22px] border border-border bg-panel p-6 shadow-card">
           <div class="flex flex-wrap items-center justify-center gap-2 text-center">
-            ${badge(modeLabel(poll.mode, t))}
+            ${badge(modeLabel(poll.mode, poll.endAt, t))}
             ${badge(pollTypeLabel(poll.pollType, t))}
             ${topic}
           </div>
@@ -447,6 +453,8 @@ interface HomePollRow {
   title: string;
   mode: number;
   poll_type: number;
+  /** Unix seconds the deadline poll ends at; null for an evergreen poll. */
+  end_at: number | null;
   topic_slug: string | null;
   topic_name: string | null;
 }
@@ -508,7 +516,7 @@ export async function loadHomeSsrData(
        WHERE status = ? AND mode IN (?, ?)${searchClause}${topicClause}
        ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?
      )
-     SELECT p.id, p.number, p.title, p.mode, p.poll_type,
+     SELECT p.id, p.number, p.title, p.mode, p.poll_type, p.end_at,
        t.slug AS topic_slug, t.name AS topic_name
      FROM page JOIN polls p ON p.id = page.id
      LEFT JOIN topics t ON t.id = p.topic_id
@@ -541,6 +549,7 @@ export async function loadHomeSsrData(
     title: row.title,
     mode: Number(row.mode) as PollMode,
     pollType: Number(row.poll_type ?? PollType.SingleChoice),
+    endAt: toIsoDate(row.end_at),
     topic: row.topic_slug && row.topic_name
       ? { slug: row.topic_slug, name: row.topic_name }
       : null
@@ -593,7 +602,7 @@ export async function loadPollSsrData(db: D1Database, identifier: number): Promi
     PollMode.Deadline, PollMode.Evergreen,
     PollStatus.Open, PollStatus.Closed, PollStatus.Archived
   ];
-  const columns = `p.id, p.number, p.title, p.description, p.mode, p.poll_type, p.status, p.created_at,
+  const columns = `p.id, p.number, p.title, p.description, p.mode, p.poll_type, p.status, p.created_at, p.end_at,
             t.slug AS topic_slug, t.name AS topic_name`;
   const source = 'FROM polls p LEFT JOIN topics t ON t.id = p.topic_id';
 
@@ -622,6 +631,7 @@ export async function loadPollSsrData(db: D1Database, identifier: number): Promi
     mode: Number(row.mode) as PollMode,
     pollType: Number(row.poll_type ?? PollType.SingleChoice),
     status: Number(row.status) as PollStatus,
+    endAt: toIsoDate(row.end_at),
     topic: row.topic_slug && row.topic_name
       ? { slug: row.topic_slug, name: row.topic_name }
       : null,

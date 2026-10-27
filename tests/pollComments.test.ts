@@ -1,9 +1,10 @@
 // Frontend poll-comment tests.
 //
 // `renderCommentsHeader` and `renderCommentForm` are pure markup, so they are
-// checked directly: the action button sits right after the comments heading and
-// targets the form card above the list, which the page opens and scrolls to. A
-// signed-out visitor gets a sign-in button in its place and no form at all.
+// checked directly: the heading keeps the left of the row and the action is pushed
+// to its right edge, where it targets the form card above the list, which the page
+// opens and scrolls to. A signed-out visitor gets a sign-in button in its place and
+// no form at all.
 
 import { describe, expect, it } from 'vitest';
 import { renderCommentForm, renderCommentsHeader } from '../src/pages/poll';
@@ -14,10 +15,13 @@ describe('renderCommentsHeader', () => {
   it('puts the comment button right after the heading', () => {
     const markup = renderCommentsHeader(true);
 
-    // The title and the button share one left-aligned row, and the row keeps the
-    // gap below the heading so the rest of the card is unchanged.
+    // The title keeps the left of the row and the button is pushed to its right
+    // edge; the row keeps the gap below the heading so the rest of the card is
+    // unchanged. `ml-auto` does the pushing rather than `justify-between`, which
+    // would put a wrapped button on the left of the second line.
     expect(markup).toContain('commentsTitle');
     expect(markup).toContain('flex flex-wrap items-center gap-3');
+    expect(markup).toContain('ml-auto');
     expect(markup).not.toContain('justify-between');
     expect(markup).toContain('data-toggle-comment');
     expect(markup).toContain('commentToggle');
@@ -31,14 +35,16 @@ describe('renderCommentsHeader', () => {
     expect(markup).not.toContain('mx-auto');
   });
 
-  it('shows a sign-in button after the heading for a signed-out visitor', () => {
+  it('shows a sign-in button right-aligned for a signed-out visitor', () => {
     const markup = renderCommentsHeader(false);
 
     expect(markup).toContain('commentsTitle');
-    // There is no form to toggle, so the button links to the login page instead.
+    // There is no form to toggle, so the button links to the login page instead, and
+    // it takes the same right edge as the Comment button.
     expect(markup).not.toContain('data-toggle-comment');
     expect(markup).not.toContain('commentToggle');
     expect(markup).toContain('commentLoginAction');
+    expect(markup).toContain('ml-auto');
     expect(markup).toContain('href="/login"');
     expect(markup).toContain('data-route="/login"');
     expect(markup.indexOf('commentsTitle')).toBeLessThan(markup.indexOf('commentLoginAction'));

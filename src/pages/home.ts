@@ -45,7 +45,7 @@ export function renderPollRow({ poll, stats }: Awaited<ReturnType<typeof getPoll
         <div class="flex flex-wrap items-center gap-2">
           <span class="shrink-0 font-bold tabular-nums text-muted">#${poll.number}</span>
           <h2 class="m-0 flex-[1_1_auto] text-[1.15rem] leading-[1.5]"><a class="text-inherit no-underline hover:text-primary focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-[3px] focus-visible:outline-primary" href="/poll/${poll.number}" data-route="/poll/${poll.number}">${escapeHtml(poll.title)}</a></h2>
-          ${renderModeBadge(poll.mode)}
+          ${renderModeBadge(poll.mode, poll.end_at)}
           ${renderPollTypeBadge(pollType)}
           ${topicBadge}
         </div>

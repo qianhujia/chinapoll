@@ -189,6 +189,22 @@ describe('server-side poll page', () => {
     expect(html).not.toContain('href="/poll/14"');
   });
 
+  it('names the time left in the badge of a deadline poll', () => {
+    // A day and an hour of slack, so the badge cannot tip into the previous day
+    // between building the fixture and rendering it.
+    const endAt = new Date(Date.now() + 13 * 86_400_000 + 3_600_000).toISOString();
+    const html = renderPollBody({ ...detail, mode: PollMode.Deadline, endAt }, settings);
+
+    expect(html).toContain('13 days left');
+    expect(html).not.toContain('Time-limited');
+  });
+
+  it('keeps the mode label on a deadline poll with no end date', () => {
+    const html = renderPollBody({ ...detail, mode: PollMode.Deadline }, settings);
+
+    expect(html).toContain('Time-limited');
+  });
+
   it('escapes a neighbor title', () => {
     const html = renderPollBody({
       ...detail,
