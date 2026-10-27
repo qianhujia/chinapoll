@@ -25,6 +25,7 @@ import { handleUsersRequest } from './api/users';
 import { handleSessionRequest, handleSetupRequest } from './api/session';
 import { handleSettingsRequest } from './api/settings';
 import { renderDashboard } from './ui';
+import { brandingKeyFromPath, handleBrandingRequest } from '../worker/api/branding';
 import { isTurnstileEnabled } from '../worker/services/turnstile';
 
 export interface Env extends AdminEnv {}
@@ -117,8 +118,18 @@ const router = {
       return Response.json({ ok: true, worker: 'chinapoll-admin' });
     }
 
-    if (url.pathname === '/favicon.ico') {
-      return new Response(null, { status: 204 });
+    // The configured favicon, served from this Worker's own origin so the dashboard
+    // never depends on the public site being reachable. The document points its tab
+    // icon at `/image/favicon.png` (see ./ui), and this answers that path together
+    // with the conventional `/favicon.ico`; the logo is not served here, because the
+    // dashboard shows none. A path with nothing uploaded answers an empty response
+    // rather than a 404: the link is always in the document, and an operator who
+    // never set a favicon should not find a failed request in the console. The header
+    // wrapper below keeps its own `no-store`, so a replaced favicon is never served
+    // from a cache.
+    if (brandingKeyFromPath(url.pathname) === 'favicon') {
+      const favicon = await handleBrandingRequest(request, url, env);
+      return favicon.status === 404 ? new Response(null, { status: 204 }) : favicon;
     }
 
     if (DASHBOARD_PATHS.has(url.pathname)) {

@@ -6,6 +6,12 @@
 // client script is assembled from the per-page fragments in ./dashboard/script.
 // The client script uses string concatenation rather than template literals to
 // avoid clashing with these server-side template strings.
+//
+// The document points its tab icon at this Worker's own `/image/favicon.png`, so the
+// dashboard uses the favicon the operator configured without reaching for the public
+// site (see the branding route in ./index.ts). The link is always present: the
+// endpoint answers an empty response while nothing is uploaded, which keeps the
+// document free of a setting read and the console free of a failed request.
 
 import { dashboardStyles } from './dashboard/styles';
 import { dashboardNavIconsScript } from './dashboard/icons';
@@ -19,6 +25,7 @@ export function renderDashboard(nonce: string, turnstileEnabled = false): string
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
 <title>ChinaPoll Admin</title>
+<link rel="icon" href="/image/favicon.png">
 <style nonce="${nonce}">
 ${dashboardStyles}
 </style>

@@ -186,3 +186,17 @@ describe('admin dashboard script', () => {
     expect(dashboardScript).toContain("data-image-url-for=\"' + esc(item.key) + '\" value=\"");
   });
 });
+
+// The tab icon is the favicon the operator configured, served by this Worker's own
+// `/image/favicon.png` route (see admin/index.ts) rather than by the public site.
+describe('admin dashboard document', () => {
+  it('points the tab icon at the favicon endpoint', () => {
+    const html = renderDashboard('test-nonce');
+
+    expect(html).toContain('<link rel="icon" href="/image/favicon.png">');
+    // Same origin, so the private console never reaches for the public site, and no
+    // version query is needed: the route answers with `no-store`.
+    expect(html).not.toContain('rel="icon" href="http');
+    expect(html).not.toContain('rel="icon" href="//');
+  });
+});

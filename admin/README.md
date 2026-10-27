@@ -97,6 +97,7 @@ login endpoint) or an `Authorization: Bearer <session-token>` header.
 | `GET` | `/polls`, `/comments`, `/users`, `/admins`, `/audit` | Dashboard HTML |
 | `GET` | `/settings`, `/settings/<category>` | Settings dashboard HTML (`general`, `appearance`, `polls`, `auth`, `reports`, `ai`, `publishing`, `advanced`) |
 | `GET` | `/reports`, `/reports/<queue>` | Reports dashboard HTML (`polls`, `comments`) |
+| `GET` | `/image/favicon.png`, `/favicon.ico` | The uploaded favicon, or an empty `204` while none is configured (the tab icon of the dashboard HTML) |
 | `GET` | `/api/health` | Heartbeat |
 | `GET` | `/api/admin/session` | Session state, setup flag, Turnstile config |
 | `POST` | `/api/admin/session` | Login with `{ username, password, turnstileToken? }` |
