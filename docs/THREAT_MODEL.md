@@ -45,8 +45,10 @@ came from the same anonymous author even though it cannot say which account.
 - Poll views: one counter per poll per UTC day. There are no per-view rows, so a
   view cannot be attributed to a viewer. Views are buffered in the poll's
   `ViewCounter` Durable Object (a pending count and nothing about the visitor) and
-  flushed every five minutes, so the counts are approximate: an object evicted
-  between flushes loses up to five minutes of views.
+  flushed every five minutes; the pending count is mirrored in the object's own
+  storage, so an eviction cannot lose it. The counts stay approximate: a flush
+  drops a count whose poll no longer exists, and an eviction resets the in-memory
+  per-network rate windows.
 
 ## Adversaries and mitigations
 

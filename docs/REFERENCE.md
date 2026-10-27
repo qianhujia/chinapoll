@@ -290,10 +290,10 @@ Setting a threshold to `0` disables that rule.
 the poll's `ViewCounter` Durable Object, which enforces the `60/h` per-network
 limit in its own memory and buffers the count, flushing to D1 on a five-minute
 alarm, so an active poll costs at most twelve writes an hour instead of one per
-view; an object evicted between flushes loses up to five minutes of views (counts
-are approximate by design). A same-origin request is required, and a well-formed
-one always answers `204` so the response reveals nothing. `GET /api/polls/:id` and
-the poll list report
+view; the pending count is mirrored in the object's own storage as each view is
+counted, so an eviction cannot lose the views buffered before the alarm. A
+same-origin request is required, and a well-formed one always answers `204` so the
+response reveals nothing. `GET /api/polls/:id` and the poll list report
 `views: { total, last7Days } | null`. A poll's own page always answers with its
 total (zero for a poll with no views yet), while the list answers `null` below
 `min_views_to_display` (default 20). Cumulative views are included in the signed

@@ -177,15 +177,15 @@ abuse from one network, and an admin can delete the comment directly.
 Note: `poll_views` holds only per-poll daily counters. There are no per-view rows
 anywhere, so a view cannot be attributed to a viewer, and no network value is
 stored. Each view is buffered by the poll's `ViewCounter` Durable Object and
-flushed to this table every five minutes; the object keeps only a pending count
-and the per-network rate windows in its own memory (keyed by the daily-rotated
-network hash, never persisted, never written here) and nothing about the visitor.
-The counts are therefore approximate by design: an object evicted between flushes
-loses up to five minutes of views and resets its in-memory rate windows, which
-drops D1 writes from one per view to at most twelve per active poll per hour. Rows
-older than 90 days are rolled up into a single `ts_day = 0` row per poll so
-long-term totals survive while daily resolution is dropped. Rows are removed with
-the poll by the foreign key cascade.
+flushed to this table every five minutes; the object mirrors the pending count in
+its own storage as each view is counted, and keeps the per-network rate windows in
+memory only (keyed by the daily-rotated network hash, never persisted, never
+written here) and nothing about the visitor. The counts are therefore approximate
+by design: the flush drops a count that fails the poll foreign key, and an eviction
+resets the in-memory rate windows, which keeps D1 writes at most twelve per active
+poll per hour. Rows older than 90 days are rolled up into a single `ts_day = 0` row
+per poll so long-term totals survive while daily resolution is dropped. Rows are
+removed with the poll by the foreign key cascade.
 
 ## users
 

@@ -82,7 +82,7 @@ describe('durable object cost', () => {
     expect(counts.alarmSets).toBe(1);
   });
 
-  it('view counter checks its own in-memory rate limit and writes nothing on the request path', async () => {
+  it('view counter checks its own in-memory rate limit and mirrors each counted view to storage', async () => {
     const { state, counts } = countingState('7');
     const counter = new ViewCounter(state, env as unknown as ViewCounterEnv);
 
@@ -94,8 +94,13 @@ describe('durable object cost', () => {
     const over = await (await counter.fetch(counterRequest(7, 'network-hash'))).json() as { counted: boolean };
     expect(over.counted).toBe(false);
 
-    // Neither the counting nor the rate limit writes a storage row.
-    expect(counts.puts).toBe(0);
+    // Each counted view mirrors the buffered count to the object's own storage so
+    // an eviction cannot lose it: sixty counted views mean sixty writes. The
+    // rate-limited 61st view writes nothing, and the rate limit itself never writes
+    // a row. The flush alarm is armed once for the whole run.
+    expect(counts.puts).toBe(60);
+    expect(await state.storage.get('pending')).toBe(60);
+    expect(counts.alarmSets).toBe(1);
   });
 
   it('view counter flushes the buffered count once on the alarm', async () => {
@@ -106,9 +111,15 @@ describe('durable object cost', () => {
     for (let index = 0; index < 3; index += 1) {
       await counter.fetch(counterRequest(pollId, 'network-hash'));
     }
-    expect(counts.puts).toBe(0);
+    // The three views are mirrored to storage as they arrive, so the alarm can
+    // still flush them from a fresh instance; no D1 row exists yet.
+    expect(counts.puts).toBe(3);
+    expect(await state.storage.get('pending')).toBe(3);
 
     await counter.alarm();
+
+    // The flush reads and clears the mirrored count and writes the row once.
+    expect(await state.storage.get('pending')).toBeUndefined();
 
     const row = await env.DB.prepare('SELECT views FROM poll_views WHERE poll_id = ?')
       .bind(pollId).first<{ views: number }>();
