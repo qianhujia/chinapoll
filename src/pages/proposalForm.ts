@@ -347,9 +347,9 @@ export function bindProposalForm(app: HTMLElement, bindNavigation: () => void): 
         options,
         topic: categoryValue?.value || undefined
       });
-      showToast(result.status === 'open'
-        ? `${t('proposalPublished')}: ${result.pollId}`
-        : `${t('proposalSubmitted')}: ${result.pollId}`);
+      // The toast confirms the outcome without repeating the poll id; the page the
+      // visitor is sent to (and the admin dashboard) already identifies the poll.
+      showToast(result.status === 'open' ? t('proposalPublished') : t('proposalSubmitted'));
       // The form is reset for another submission.
       confirming = false;
       pollType = 'verdict';

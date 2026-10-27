@@ -737,7 +737,9 @@ export async function mountVotePage(identifier: number, app: HTMLElement, bindNa
       const result = await sendBallot({ optionIds });
       if (!result) return;
 
-      const message = result.ok ? `${t('voteRecord')}: ${optionIds.length}` : t('submitFailed');
+      // The toast confirms the ballot without restating its size: the results beside
+      // the options already show the count and share the ballot just added to.
+      const message = result.ok ? t('voteRecord') : t('submitFailed');
       if (result.ok) {
         hasVoted = true;
         markVotedLocally(poll.id, hash);
