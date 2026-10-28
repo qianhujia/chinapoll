@@ -48,6 +48,7 @@ import {
   renderModeBadge,
   renderPollTypeBadge,
   renderToast,
+  shareIconMarkup,
   showToast,
   t,
   updateComments,
@@ -222,6 +223,35 @@ export function bindDescription(app: HTMLElement): void {
   });
 }
 
+// Shares the poll's own address. The address is the canonical `/poll/<number>`, so
+// what is shared never carries the page's query string or hash. A browser with a share
+// sheet - a phone, mostly - hands the poll to it; everywhere else the link goes to the
+// clipboard and a toast confirms it. Dismissing the share sheet without choosing
+// anything is not a failure, so it reports nothing and does not copy behind the
+// visitor's back.
+export async function sharePoll(number: number, title: string): Promise<void> {
+  const url = `${window.location.origin}/poll/${number}`;
+  const shareSheet = (navigator as Navigator & {
+    share?: (data: { title?: string; url?: string }) => Promise<void>;
+  }).share;
+
+  if (typeof shareSheet === 'function') {
+    try {
+      await shareSheet.call(navigator, { title: `#${number} ${title}`, url });
+      return;
+    } catch (error) {
+      if ((error as DOMException | undefined)?.name === 'AbortError') return;
+    }
+  }
+
+  try {
+    await navigator.clipboard.writeText(url);
+    showToast(t('shareCopied'));
+  } catch (error) {
+    showToast(`${t('shareFailed')} ${getErrorMessage(error)}`, 'error');
+  }
+}
+
 // The standing beside an option shows its count and holds its whole-percent share
 // back until the visitor asks for it. A pointer reveals that share on hover through
 // the stylesheet; a touch device has no hover, so a tap toggles `data-share-open` on
@@ -239,36 +269,50 @@ export function bindShareReveal(app: HTMLElement): void {
   });
 }
 
-// The three-dot "more actions" menu at the top right of the poll title. It hosts the
-// report entry, which opens the report dialog. A browser that already reported the
-// poll sees the confirmation note in place of the report entry.
+// The poll's actions at the top right of the title: a share button, and the three-dot
+// "more actions" menu that hosts the report entry. The share button sits to the left
+// of the dots and copies the poll's own address, or hands it to the browser's share
+// sheet where there is one. A browser that already reported the poll sees the
+// confirmation note in place of the report entry.
 export function renderPollMenu(pollId: number, alreadyReported: boolean): string {
   const label = escapeHtml(t('moreActions'));
+  const shareLabel = escapeHtml(t('sharePoll'));
   return `
-    <div class="relative shrink-0" data-poll-menu-root>
+    <div class="flex shrink-0 items-center gap-1">
       <button
         type="button"
         class="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full text-muted transition-colors hover:text-primary"
-        data-poll-menu-toggle
-        aria-expanded="false"
-        aria-haspopup="menu"
-        aria-controls="poll-menu"
-        aria-label="${label}"
-        title="${label}"
+        data-poll-share
+        aria-label="${shareLabel}"
+        title="${shareLabel}"
       >
-        ${moreIconMarkup('h-5 w-5')}
+        ${shareIconMarkup('h-5 w-5')}
       </button>
-      <div
-        class="absolute right-0 z-20 mt-2 w-48 rounded-xl border border-border bg-panel p-1 shadow-card"
-        id="poll-menu"
-        role="menu"
-        aria-label="${label}"
-        data-poll-menu
-        hidden
-      >
-        ${pollMenuEntriesMarkup(alreadyReported)}
+      <div class="relative shrink-0" data-poll-menu-root>
+        <button
+          type="button"
+          class="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full text-muted transition-colors hover:text-primary"
+          data-poll-menu-toggle
+          aria-expanded="false"
+          aria-haspopup="menu"
+          aria-controls="poll-menu"
+          aria-label="${label}"
+          title="${label}"
+        >
+          ${moreIconMarkup('h-5 w-5')}
+        </button>
+        <div
+          class="absolute right-0 z-20 mt-2 w-48 rounded-xl border border-border bg-panel p-1 shadow-card"
+          id="poll-menu"
+          role="menu"
+          aria-label="${label}"
+          data-poll-menu
+          hidden
+        >
+          ${pollMenuEntriesMarkup(alreadyReported)}
+        </div>
+        <div class="fixed inset-0 z-10" data-poll-menu-backdrop hidden></div>
       </div>
-      <div class="fixed inset-0 z-10" data-poll-menu-backdrop hidden></div>
     </div>
   `;
 }
@@ -803,6 +847,11 @@ export async function mountVotePage(identifier: number, app: HTMLElement, bindNa
       if (event.key === 'Escape') closeMenu();
     });
   }
+
+  // The share button hands the poll's canonical address to the browser's share sheet
+  // or to the clipboard, whichever this browser offers.
+  document.querySelector<HTMLButtonElement>('[data-poll-share]')
+    ?.addEventListener('click', () => { void sharePoll(poll.number, poll.title); });
 
   // The report dialog is built when the report entry is chosen and removed again
   // on cancel or once the report is sent, so no report card is appended to the

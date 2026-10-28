@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronLeft, ChevronRight, CircleAlert, CircleCheck, EllipsisVertical, Eye, Menu, Plus, Search, Vote, X, type IconNode } from 'lucide';
+import { ChevronDown, ChevronLeft, ChevronRight, CircleAlert, CircleCheck, EllipsisVertical, Eye, Menu, Plus, Search, Share2, Vote, X, type IconNode } from 'lucide';
 import { DEFAULT_LOCALE, getLocaleText, resolveLocale } from './i18n';
 import { getComments, hasCommentReportedLocally, type CommentsResponse, type PollSummary } from './lib/poll';
 import { getCurrentUser } from './lib/session';
@@ -34,6 +34,11 @@ export function viewIconMarkup(cssClass: string): string {
 // Vertical three-dot icon used by a "more actions" menu button.
 export function moreIconMarkup(cssClass: string): string {
   return iconMarkup(EllipsisVertical, cssClass);
+}
+
+// Share mark - three nodes joined by two lines - used by the poll's share button.
+export function shareIconMarkup(cssClass: string): string {
+  return iconMarkup(Share2, cssClass);
 }
 
 // Plus icon used by the "New Poll" call to action on the home hero.
