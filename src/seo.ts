@@ -7,7 +7,10 @@
 
 import { getPublicSettings } from './config';
 import { topicLabel, type TopicLocale } from '../shared/categories';
-import { t } from './ui';
+import { getSiteLogo, t } from './ui';
+
+// The card image the app ships, used when the site configures no logo.
+const DEFAULT_OG_IMAGE = '/og-image.png';
 
 export interface SeoData {
   title: string;
@@ -25,12 +28,21 @@ const DEFAULT_SEO: SeoData = {
   description: 'ChinaPoll - a privacy-first public opinion polling platform.',
   canonical: 'https://chinapoll.org/',
   ogType: 'website',
-  ogImage: '/og-image.png',
+  ogImage: DEFAULT_OG_IMAGE,
   twitterCard: 'summary_large_image',
   robots: 'index, follow'
 };
 
 let currentSeo: SeoData = { ...DEFAULT_SEO };
+
+// A link preview needs an absolute image URL: the crawlers that build a card reject a
+// relative one, so the site-relative candidate - the shipped card or an uploaded logo -
+// is resolved against this page. The server-rendered tags already carry the absolute
+// form, and this keeps the two identical after a client-side update.
+function absoluteImageUrl(path: string | undefined): string {
+  const candidate = path?.trim() || DEFAULT_OG_IMAGE;
+  return candidate.startsWith('/') ? `${window.location.origin}${candidate}` : candidate;
+}
 
 // Maps the site's default locale to an Open Graph locale tag.
 function ogLocale(defaultLocale: string): string {
@@ -85,13 +97,13 @@ export function updateSeo(seo: Partial<SeoData>): void {
   setMetaTag('og:locale', ogLocale(defaultLocale), true);
   setMetaTag('og:title', currentSeo.title, true);
   setMetaTag('og:description', currentSeo.description, true);
-  setMetaTag('og:image', currentSeo.ogImage ?? '/og-image.png', true);
+  setMetaTag('og:image', absoluteImageUrl(currentSeo.ogImage), true);
   setMetaTag('og:image:alt', currentSeo.title, true);
   setMetaTag('og:url', currentSeo.canonical, true);
   setMetaTag('twitter:card', currentSeo.twitterCard ?? 'summary_large_image');
   setMetaTag('twitter:title', currentSeo.title);
   setMetaTag('twitter:description', currentSeo.description);
-  setMetaTag('twitter:image', currentSeo.ogImage ?? '/og-image.png');
+  setMetaTag('twitter:image', absoluteImageUrl(currentSeo.ogImage));
   setLinkTag('canonical', currentSeo.canonical);
   setMetaTag('robots', currentSeo.robots ?? 'index, follow');
   setJsonLd(currentSeo.jsonLd);
@@ -122,7 +134,9 @@ export function getSeoForRoute(route: string, settings: { site_name: string; sit
     description: settings.site_slogan,
     canonical: origin + route,
     ogType: 'website',
-    ogImage: '/og-image.png',
+    // The site's own logo brands a link preview when one is configured; the shipped
+    // card stands in otherwise.
+    ogImage: getSiteLogo() || DEFAULT_OG_IMAGE,
     twitterCard: 'summary_large_image',
     robots: 'index, follow'
   };

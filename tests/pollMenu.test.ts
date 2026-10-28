@@ -124,16 +124,16 @@ describe('sharePoll', () => {
   // Stands in for the page the share runs in: the origin the canonical address is
   // built from, the browser APIs it may reach for, and the toast it reports through.
   function stubPage(options: {
-    share?: (data: { title?: string; url?: string }) => Promise<void>;
+    share?: (data: { title?: string; text?: string; url?: string }) => Promise<void>;
     clipboard?: { writeText: (text: string) => Promise<void> };
   } = {}) {
     const copied: string[] = [];
-    const shared: Array<{ title?: string; url?: string }> = [];
+    const shared: Array<{ title?: string; text?: string; url?: string }> = [];
     const toast = { innerHTML: '', hidden: true };
     vi.stubGlobal('window', { location: { origin: 'https://chinapoll.org' } });
     vi.stubGlobal('navigator', {
       ...(options.share
-        ? { share: async (data: { title?: string; url?: string }) => { shared.push(data); await options.share!(data); } }
+        ? { share: async (data: { title?: string; text?: string; url?: string }) => { shared.push(data); await options.share!(data); } }
         : {}),
       clipboard: {
         writeText: async (text: string) => {
@@ -151,11 +151,13 @@ describe('sharePoll', () => {
 
     await sharePoll(42, 'Bike lanes on Main Street');
 
-    // The canonical address, with the poll's number and title, and nothing copied
-    // behind the sheet's back.
-    expect(page.shared).toEqual([
-      { title: '#42 Bike lanes on Main Street', url: 'https://chinapoll.org/poll/42' }
-    ]);
+    // The canonical address, named in both fields a share target may read, and nothing
+    // copied behind the sheet's back.
+    expect(page.shared).toEqual([{
+      title: '#42 Bike lanes on Main Street',
+      text: '#42 Bike lanes on Main Street',
+      url: 'https://chinapoll.org/poll/42'
+    }]);
     expect(page.copied).toHaveLength(0);
     expect(page.toast.hidden).toBe(true);
   });

@@ -108,6 +108,10 @@ Every setting key and value is listed in [docs/REFERENCE.md](docs/REFERENCE.md).
 | `tests/` | Node unit tests and Workers-runtime integration tests |
 | `docs/` | Reference, threat model, data map, and runbook |
 
+The link preview image (`public/og-image.png`, 1200x630) ships with the app, so a
+shared poll shows a card even when the site configures no logo; a site whose dashboard
+holds an uploaded logo shows that logo on link previews instead.
+
 ## Architecture
 
 - One public Worker serves the SPA from `dist/web` and `/api/*` from a single

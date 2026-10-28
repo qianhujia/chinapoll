@@ -226,19 +226,23 @@ export function bindDescription(app: HTMLElement): void {
 
 // Shares the poll's own address. The address is the canonical `/poll/<number>`, so
 // what is shared never carries the page's query string or hash. A browser with a share
-// sheet - a phone, mostly - hands the poll to it; everywhere else the link goes to the
-// clipboard and a toast confirms it. Dismissing the share sheet without choosing
-// anything is not a failure, so it reports nothing and does not copy behind the
-// visitor's back.
+// sheet - a phone, mostly - hands the poll to it under both `title` and `text`, because
+// a target that composes a post of its own (X, among others) reads the text and ignores
+// the title; everywhere else the link goes to the clipboard and a toast confirms it.
+// Dismissing the share sheet without choosing anything is not a failure, so it reports
+// nothing and does not copy behind the visitor's back.
 export async function sharePoll(number: number, title: string): Promise<void> {
   const url = `${window.location.origin}/poll/${number}`;
+  const shareText = `#${number} ${title}`;
   const shareSheet = (navigator as Navigator & {
-    share?: (data: { title?: string; url?: string }) => Promise<void>;
+    share?: (data: { title?: string; text?: string; url?: string }) => Promise<void>;
   }).share;
 
   if (typeof shareSheet === 'function') {
     try {
-      await shareSheet.call(navigator, { title: `#${number} ${title}`, url });
+      // A share target that composes text of its own - X, among others - reads `text`
+      // and ignores `title`, so the poll is named there as well as in the link.
+      await shareSheet.call(navigator, { title: shareText, text: shareText, url });
       return;
     } catch (error) {
       if ((error as DOMException | undefined)?.name === 'AbortError') return;
