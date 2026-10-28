@@ -10,6 +10,21 @@ textarea:focus {
   outline: none;
 }
 
+/*
+ * A poll option shows its count at a glance and holds its whole-percent share back
+ * until the visitor asks for it. A pointer reveals it while the row is hovered, and a
+ * tap adds `data-share-open` to the row (see `bindShareReveal`), so a touch device can
+ * reveal it too. The percent disappears again as soon as the pointer leaves the row.
+ */
+[data-share-percent] {
+  display: none;
+}
+
+[data-share-row]:hover [data-share-percent],
+[data-share-row][data-share-open] [data-share-percent] {
+  display: inline;
+}
+
 @theme {
   --color-page: #f4f7fb;
   --color-panel: #ffffff;

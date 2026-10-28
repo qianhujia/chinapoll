@@ -2,13 +2,13 @@
 //
 // Every poll is a choice poll now, so the vote controls are the radio (single
 // choice) or checkbox (multiple choice) list. Every row carries its option's count,
-// its whole-percent share on the right, and a background filled in proportion to that
-// share; the results bars are only rendered where no ballot carries that standing.
-// `renderChoiceInputs`, `renderResults`, and `optionShareLabel` are pure, so they are
-// checked directly.
+// keeps its whole-percent share back until the row is hovered or tapped, and fills a
+// background in proportion to that share; the results bars are only rendered where no
+// ballot carries that standing. `renderChoiceInputs`, `renderResults`,
+// `optionSharePercent`, and `bindShareReveal` are pure, so they are checked directly.
 
 import { describe, expect, it } from 'vitest';
-import { optionShareLabel, renderChoiceInputs, renderPollNav, renderResults } from '../src/pages/poll';
+import { bindShareReveal, optionSharePercent, renderChoiceInputs, renderPollNav, renderResults } from '../src/pages/poll';
 import type { PollOption } from '../src/lib/poll';
 
 // Two stored options, shaped like the poll detail response. Translations are not
@@ -95,10 +95,13 @@ describe('renderChoiceInputs', () => {
       ]
     });
 
-    // The count and the whole-percent share follow the label, pushed to the right of
-    // the row by `ml-auto`, so the numbers sit beside the choices they belong to.
-    expect(markup).toContain('<span class="relative ml-auto shrink-0 pl-3 text-sm tabular-nums text-muted" data-choice-share>3 · 75%</span>');
-    expect(markup).toContain('data-choice-share>1 · 25%</span>');
+    // The count follows the label, pushed to the right of the row by `ml-auto`, so the
+    // numbers sit beside the choices they belong to. The whole-percent share waits in
+    // its own slot, which the stylesheet reveals on hover or tap.
+    expect(markup).toContain('<span class="relative ml-auto shrink-0 pl-3 text-sm tabular-nums text-muted" data-choice-share>3<span data-share-percent> · 75%</span></span>');
+    expect(markup).toContain('data-choice-share>1<span data-share-percent> · 25%</span></span>');
+    // Every option row is a share row, so the tap handler can find it.
+    expect(markup.match(/data-share-row/g)).toHaveLength(2);
     // The row is filled in proportion to that share as well, so its background shows
     // the standing too. The row clips the fill, so it follows the rounded corners.
     expect(markup).toContain('overflow-hidden rounded-[14px]');
@@ -111,21 +114,82 @@ describe('renderChoiceInputs', () => {
 
     // Both slots are there for the post-ballot refresh, but they are empty, nothing
     // wide, and hidden: a poll below the threshold never shows a standing.
-    expect(markup.match(/data-choice-share hidden>/g)).toHaveLength(2);
+    expect(markup.match(/data-choice-share hidden><\/span>/g)).toHaveLength(2);
     expect(markup.match(/data-choice-fill style="width:0.0%" hidden>/g)).toHaveLength(2);
+    expect(markup).not.toContain('data-share-percent');
     expect(markup).not.toMatch(/\d+ · \d+%/);
   });
 });
 
-describe('optionShareLabel', () => {
+describe('optionSharePercent', () => {
   it('rounds a share to a whole percent', () => {
     // 9469 of 10000 ballots is 94.69%, which reads as `95%` beside the option.
-    expect(optionShareLabel(9469, 10000)).toBe('9469 · 95%');
+    expect(optionSharePercent(9469, 10000)).toBe(95);
     // A third and two thirds round to the nearest whole percent.
-    expect(optionShareLabel(1, 3)).toBe('1 · 33%');
-    expect(optionShareLabel(2, 3)).toBe('2 · 67%');
+    expect(optionSharePercent(1, 3)).toBe(33);
+    expect(optionSharePercent(2, 3)).toBe(67);
     // A poll nobody has voted in yet has no share to report.
-    expect(optionShareLabel(0, 0)).toBe('0 · 0%');
+    expect(optionSharePercent(0, 0)).toBe(0);
+  });
+});
+
+// The tap reveal is bound to the page host, so it is checked against a stand-in that
+// records the listener and answers with the rows the handler walks.
+function makeShareRow() {
+  const attributes = new Set<string>();
+  return {
+    hasAttribute: (name: string) => attributes.has(name),
+    setAttribute: (name: string) => { attributes.add(name); },
+    removeAttribute: (name: string) => { attributes.delete(name); },
+    get open() { return attributes.has('data-share-open'); }
+  };
+}
+
+function makeShareHost(rows: Array<ReturnType<typeof makeShareRow>>) {
+  const listeners: Record<string, (event: { target: unknown }) => void> = {};
+  const host = {
+    addEventListener: (type: string, listener: (event: { target: unknown }) => void) => { listeners[type] = listener; },
+    querySelectorAll: () => rows
+  } as unknown as HTMLElement;
+  return {
+    host,
+    // A tap whose target sits inside a row reports that row from `closest`.
+    tap: (target: unknown) => listeners.click?.({ target })
+  };
+}
+
+describe('bindShareReveal', () => {
+  it('reveals the tapped row and hides every other', () => {
+    const first = makeShareRow();
+    const second = makeShareRow();
+    const { host, tap } = makeShareHost([first, second]);
+    bindShareReveal(host);
+
+    tap({ closest: () => first });
+    expect(first.open).toBe(true);
+    expect(second.open).toBe(false);
+
+    tap({ closest: () => second });
+    expect(first.open).toBe(false);
+    expect(second.open).toBe(true);
+  });
+
+  it('toggles the open row and closes it on a tap outside', () => {
+    const row = makeShareRow();
+    const { host, tap } = makeShareHost([row]);
+    bindShareReveal(host);
+
+    tap({ closest: () => row });
+    expect(row.open).toBe(true);
+    // Tapping the open row again puts its percent away.
+    tap({ closest: () => row });
+    expect(row.open).toBe(false);
+
+    tap({ closest: () => row });
+    expect(row.open).toBe(true);
+    // A tap that lands outside every row closes the open one.
+    tap({ closest: () => null });
+    expect(row.open).toBe(false);
   });
 });
 
@@ -145,10 +209,13 @@ describe('renderResults', () => {
     const markup = renderResults(results);
 
     expect(markup.match(/data-result-option=/g)).toHaveLength(2);
-    // The share is of the ballots cast, not of the option counts, and the label reads
-    // as a whole percent: `75%`, not `75.0%`.
-    expect(markup).toContain('3 · 75%');
-    expect(markup).toContain('1 · 25%');
+    // The count is visible and the whole-percent share is held in its own slot, which
+    // the row reveals on hover or tap. The share is of the ballots cast, not of the
+    // option counts, and it reads as a whole percent: `75%`, not `75.0%`.
+    expect(markup).toContain('data-result-count>3<span data-share-percent> · 75%</span>');
+    expect(markup).toContain('data-result-count>1<span data-share-percent> · 25%</span>');
+    // Both rows carry the share row hook the tap handler looks for.
+    expect(markup.match(/data-share-row/g)).toHaveLength(2);
     // No label keeps a decimal.
     expect(markup).not.toContain('75.0%</span>');
     // The bar itself keeps the unrounded share, so its width stays smooth from one

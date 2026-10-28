@@ -25,7 +25,10 @@ import {
 // never votes in place, so no vote button or vote controls are built here, and a
 // poll's view count is not shown in the list. On a narrow screen the row stacks
 // instead of using the second column: the identity line comes first and the vote
-// count sits below it.
+// count sits below it. On that narrow layout the number and the title share the
+// first line: the title takes the remaining width and wraps inside it instead of
+// being pushed to a line of its own, and the badges sit behind a full-width break so
+// they move below the title rather than squeezing it.
 export function renderPollRow({ poll, stats }: Awaited<ReturnType<typeof getPolls>>['polls'][number]): string {
   const pollType = poll.pollType ?? stats.pollType ?? 'single_choice';
   const locale = (getPublicSettings().default_locale ?? 'en') as 'en' | 'zh-CN' | 'zh-TW';
@@ -41,13 +44,15 @@ export function renderPollRow({ poll, stats }: Awaited<ReturnType<typeof getPoll
 
   return `
     <article class="grid grid-cols-[minmax(0,1fr)_minmax(190px,240px)] items-center gap-x-8 border-b border-border py-[22px] max-[700px]:grid-cols-1 max-[700px]:gap-y-3" data-poll-row="${poll.id}">
-      <div class="col-start-1 flex items-start justify-between gap-[18px]">
-        <div class="flex flex-wrap items-center gap-2">
+      <div class="col-start-1 flex min-w-0 items-start justify-between gap-[18px]">
+        <div class="flex min-w-0 flex-wrap items-center gap-2 max-[700px]:items-start">
           <span class="shrink-0 font-bold tabular-nums text-muted">#${poll.number}</span>
-          <h2 class="m-0 flex-[1_1_auto] text-[1.15rem] leading-[1.5]"><a class="text-inherit no-underline hover:text-primary focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-[3px] focus-visible:outline-primary" href="/poll/${poll.number}" data-route="/poll/${poll.number}">${escapeHtml(poll.title)}</a></h2>
-          ${renderModeBadge(poll.mode, poll.end_at)}
-          ${renderPollTypeBadge(pollType)}
-          ${topicBadge}
+          <h2 class="m-0 min-w-0 flex-[1_1_auto] text-[1.15rem] leading-[1.5] max-[700px]:flex-[1_1_0%]"><a class="text-inherit no-underline hover:text-primary focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-[3px] focus-visible:outline-primary" href="/poll/${poll.number}" data-route="/poll/${poll.number}">${escapeHtml(poll.title)}</a></h2>
+          <div class="flex min-w-0 flex-wrap items-center gap-2 max-[700px]:basis-full">
+            ${renderModeBadge(poll.mode, poll.end_at)}
+            ${renderPollTypeBadge(pollType)}
+            ${topicBadge}
+          </div>
         </div>
       </div>
 

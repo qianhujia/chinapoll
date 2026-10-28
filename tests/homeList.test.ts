@@ -78,6 +78,19 @@ describe('renderPollRow', () => {
     expect(markup).not.toContain('title="views"');
   });
 
+  it('keeps the number and the title on one line on a narrow screen', () => {
+    const markup = renderPollRow(makeEntry());
+
+    // The title shrinks and wraps inside its line rather than being pushed below the
+    // number, and the badges break to a line of their own instead of squeezing it.
+    expect(markup).toContain('flex min-w-0 flex-wrap items-center gap-2 max-[700px]:items-start');
+    expect(markup).toContain('max-[700px]:flex-[1_1_0%]');
+    expect(markup).toContain('flex min-w-0 flex-wrap items-center gap-2 max-[700px]:basis-full');
+    // The number and the title still sit in one container, number first.
+    expect(markup.indexOf('>#42</span>')).toBeGreaterThanOrEqual(0);
+    expect(markup.indexOf('>#42</span>')).toBeLessThan(markup.indexOf('Sample poll'));
+  });
+
   it('lists a multiple choice poll exactly like a single choice poll', () => {
     const single = renderPollRow(makeEntry({ pollType: 'single_choice', ballots: 12 }));
     const multi = renderPollRow(makeEntry({

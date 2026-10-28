@@ -87,6 +87,12 @@ describe('server-side poll list', () => {
     expect(html).toContain('Should the city build more bike lanes?');
     // The row shows the public number and never links the primary key.
     expect(html).toContain('>#34</span>');
+    // The number and the title share the first line on a narrow screen: the title
+    // shrinks into that line instead of dropping below the number, and the badges
+    // break to a line of their own. This mirrors the client's `renderPollRow`.
+    expect(html).toContain('col-start-1 flex min-w-0 flex-wrap items-center gap-2 max-[700px]:items-start');
+    expect(html).toContain('max-[700px]:flex-[1_1_0%]');
+    expect(html).toContain('flex min-w-0 flex-wrap items-center gap-2 max-[700px]:basis-full');
     expect(html).not.toContain('href="/poll/12"');
     expect(html).toContain('href="/topic/politics"');
     expect(html).toContain('href="/about"');

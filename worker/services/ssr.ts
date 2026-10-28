@@ -239,7 +239,10 @@ function renderTopicChips(
 
 // One row of the poll list. The title is the only link, so a row offers no vote
 // button; the client then fills the reserved right column with the vote count
-// (which needs the ballots the server-rendered card does not carry).
+// (which needs the ballots the server-rendered card does not carry). On a narrow
+// screen the number and the title share the first line: the title takes the remaining
+// width and wraps inside it, and the badges sit behind a full-width break so they move
+// below the title instead of squeezing it. This mirrors the client's `renderPollRow`.
 function renderPollRow(poll: SsrPollCard, settings: SsrSettings, t: Translate): string {
   // The public number is what the site publishes and what a crawler should index;
   // the primary key only identifies the row internally.
@@ -248,12 +251,14 @@ function renderPollRow(poll: SsrPollCard, settings: SsrSettings, t: Translate): 
   const typeLabel = pollTypeLabel(poll.pollType, t);
   return `
         <article class="grid grid-cols-[minmax(0,1fr)_minmax(190px,240px)] items-center gap-x-8 border-b border-border py-[22px] max-[700px]:grid-cols-1 max-[700px]:gap-y-3" data-poll-row="${poll.id}">
-          <div class="col-start-1 flex flex-wrap items-center gap-2">
+          <div class="col-start-1 flex min-w-0 flex-wrap items-center gap-2 max-[700px]:items-start">
             <span class="shrink-0 font-bold tabular-nums text-muted">#${poll.number}</span>
-            <h2 class="m-0 flex-[1_1_auto] text-[1.15rem] leading-[1.5]"><a class="text-inherit no-underline hover:text-primary" href="${href}" data-route="${href}">${escapeHtml(poll.title)}</a></h2>
-            ${badge(modeLabel(poll.mode, poll.endAt, t))}
-            ${badge(typeLabel)}
-            ${topic}
+            <h2 class="m-0 min-w-0 flex-[1_1_auto] text-[1.15rem] leading-[1.5] max-[700px]:flex-[1_1_0%]"><a class="text-inherit no-underline hover:text-primary" href="${href}" data-route="${href}">${escapeHtml(poll.title)}</a></h2>
+            <div class="flex min-w-0 flex-wrap items-center gap-2 max-[700px]:basis-full">
+              ${badge(modeLabel(poll.mode, poll.endAt, t))}
+              ${badge(typeLabel)}
+              ${topic}
+            </div>
           </div>
         </article>`;
 }

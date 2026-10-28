@@ -66,23 +66,33 @@ const REPORT_REASON_LABELS: Record<ReportReason, string> = {
   other: 'reportReasonOther'
 };
 
-// The standing of one option: its count and its share of the ballots cast, never its
-// share of the other options' counts. The share reads as a whole percent so the number
-// stays clear at a glance, `3 · 75%` rather than `3 · 74.69%`.
-export function optionShareLabel(count: number, ballots: number): string {
+// The share of the ballots cast that one option holds, as a whole percent: `95%`
+// rather than `94.69%`, so the number stays clear at a glance. It is the share of
+// the ballots, never of the other options' counts.
+export function optionSharePercent(count: number, ballots: number): number {
   const share = ballots > 0 ? count / ballots * 100 : 0;
-  return `${count} · ${Math.round(share)}%`;
+  return Math.round(share);
+}
+
+// The standing of one option as it is rendered beside it: the count stays visible,
+// while the whole-percent share sits in its own `data-share-percent` slot and is
+// revealed only while the row is hovered or tapped (see the stylesheet and
+// `bindShareReveal`). `count` is undefined while the server withholds the counts,
+// and the standing then renders nothing at all.
+function optionShareMarkup(count: number | undefined, ballots: number): string {
+  if (count === undefined) return '';
+  return `${count}<span data-share-percent> · ${optionSharePercent(count, ballots)}%</span>`;
 }
 
 // Radio (verdict and single choice) or checkbox (multiple choice) list. A verdict
 // poll takes the same single ballot as a single choice poll, so it renders radios
 // too. The submit button stays disabled until the ballot is complete, and a
 // returning voter sees their stored options pre-checked and the form disabled. Each
-// option carries its standing twice over: the count and whole-percent share on the
-// right, and a background filled in proportion to that share, so the colour of the
-// row and the numbers both belong to the choice they sit in. `results` is null while
-// the server withholds the counts, and both then stay hidden until a ballot makes
-// them public.
+// option carries its standing twice over: the count on the right, whose whole-percent
+// share the row reveals while it is hovered or tapped, and a background filled in
+// proportion to that share, so the colour of the row and the numbers both belong to
+// the choice they sit in. `results` is null while the server withholds the counts,
+// and the standing then stays hidden until a ballot makes it public.
 export function renderChoiceInputs(
   pollType: PollType,
   options: PollOption[],
@@ -101,11 +111,11 @@ export function renderChoiceInputs(
     const count = counts.get(option.id);
     const share = count === undefined || ballots === 0 ? 0 : count / ballots * 100;
     return `
-          <label class="relative flex cursor-pointer items-center gap-2.5 overflow-hidden rounded-[14px] border border-border bg-[#f9fbff] px-3.5 py-2.5">
+          <label class="relative flex cursor-pointer items-center gap-2.5 overflow-hidden rounded-[14px] border border-border bg-[#f9fbff] px-3.5 py-2.5" data-share-row>
             <span class="absolute inset-y-0 left-0 bg-primary-soft" data-choice-fill style="width:${share.toFixed(1)}%"${count === undefined ? ' hidden' : ''}></span>
             <input class="relative accent-primary" type="${inputType}" name="option" value="${option.id}" data-choice-option${selectedIds.includes(option.id) ? ' checked' : ''} ${hasVoted ? 'disabled' : ''}>
             <span class="relative">${escapeHtml(option.label)}</span>
-            <span class="relative ml-auto shrink-0 pl-3 text-sm tabular-nums text-muted" data-choice-share${count === undefined ? ' hidden' : ''}>${count === undefined ? '' : optionShareLabel(count, ballots)}</span>
+            <span class="relative ml-auto shrink-0 pl-3 text-sm tabular-nums text-muted" data-choice-share${count === undefined ? ' hidden' : ''}>${optionShareMarkup(count, ballots)}</span>
           </label>
         `;
   }).join('')}
@@ -138,7 +148,8 @@ export function renderPollNav(prev: PollNeighbor | null, next: PollNeighbor | nu
 
 // One horizontal bar per option, sorted by position, showing the count and the
 // share of ballots. This is the single results renderer for every poll; it never
-// shows which options were picked together on one ballot.
+// shows which options were picked together on one ballot. Like the ballot rows, the
+// count is visible and the whole-percent share waits for a hover or a tap.
 export function renderResults(results: PollResults): string {
   const options = [...(results.options ?? [])].sort((left, right) => left.position - right.position);
   if (options.length === 0) return '';
@@ -150,10 +161,10 @@ export function renderResults(results: PollResults): string {
     // to the next while the label beside it reads as a whole percent.
     const width = results.ballots > 0 ? count / results.ballots * 100 : 0;
     return `
-        <div class="grid gap-1" data-result-option="${option.id}">
+        <div class="grid gap-1" data-result-option="${option.id}" data-share-row>
           <div class="flex items-baseline justify-between gap-3 text-sm">
             <span class="min-w-0 truncate">${escapeHtml(option.label)}</span>
-            <span class="shrink-0 tabular-nums text-muted" data-result-count>${optionShareLabel(count, results.ballots)}</span>
+            <span class="shrink-0 tabular-nums text-muted" data-result-count>${optionShareMarkup(count, results.ballots)}</span>
           </div>
           <div class="h-2 w-full overflow-hidden rounded-full bg-[#edf0f4]">
             <div class="h-full rounded-full bg-primary" data-result-bar style="width:${width.toFixed(1)}%"></div>
@@ -207,6 +218,23 @@ export function bindDescription(app: HTMLElement): void {
       ? (toggle.dataset.collapseLabel ?? '')
       : (toggle.dataset.expandLabel ?? '');
     animateLayoutChange(text, expanded, (value) => text.classList.toggle('line-clamp-2', !value));
+  });
+}
+
+// The standing beside an option shows its count and holds its whole-percent share
+// back until the visitor asks for it. A pointer reveals that share on hover through
+// the stylesheet; a touch device has no hover, so a tap toggles `data-share-open` on
+// the row instead. Only one row is open at a time, and a tap outside every row closes
+// it, so the standings never fill up with shares nobody asked for.
+export function bindShareReveal(app: HTMLElement): void {
+  app.addEventListener('click', (event) => {
+    const target = event.target as HTMLElement | null;
+    const tapped = target?.closest<HTMLElement>('[data-share-row]') ?? null;
+    const wasOpen = tapped?.hasAttribute('data-share-open') ?? false;
+    app.querySelectorAll<HTMLElement>('[data-share-row]').forEach((row) => {
+      row.removeAttribute('data-share-open');
+    });
+    if (tapped && !wasOpen) tapped.setAttribute('data-share-open', '');
   });
 }
 
@@ -645,10 +673,11 @@ export async function mountVotePage(identifier: number, app: HTMLElement, bindNa
     return result;
   };
 
-  // Updates the standing of every option in the ballot: the count and share beside it
-  // and the width of the background that fills it, so both the numbers and the colour
-  // of the row match the results the ballot just produced. Both are rendered hidden
-  // while the counts are withheld, and the first public results reveal them.
+  // Updates the standing of every option in the ballot: the count beside it, its
+  // whole-percent share in the slot the row reveals on hover or tap, and the width of
+  // the background that fills it, so both the numbers and the colour of the row match
+  // the results the ballot just produced. All three are rendered hidden while the
+  // counts are withheld, and the first public results reveal them.
   const syncChoiceStandings = (result: PollResults) => {
     const counts = new Map((result.options ?? []).map((option) => [option.id, Number(option.count ?? 0)]));
     document.querySelectorAll<HTMLInputElement>('[data-choice-option]').forEach((optionInput) => {
@@ -657,7 +686,7 @@ export async function mountVotePage(identifier: number, app: HTMLElement, bindNa
       const share = row?.querySelector<HTMLElement>('[data-choice-share]');
       const fill = row?.querySelector<HTMLElement>('[data-choice-fill]');
       if (count === undefined || !share || !fill) return;
-      share.textContent = optionShareLabel(count, result.ballots);
+      share.innerHTML = optionShareMarkup(count, result.ballots);
       share.hidden = false;
       fill.style.width = `${(result.ballots > 0 ? count / result.ballots * 100 : 0).toFixed(1)}%`;
       fill.hidden = false;
@@ -947,4 +976,5 @@ export async function mountVotePage(identifier: number, app: HTMLElement, bindNa
 
   bindNavigation();
   bindDescription(app);
+  bindShareReveal(app);
 }
