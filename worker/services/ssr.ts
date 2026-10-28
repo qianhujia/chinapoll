@@ -366,24 +366,24 @@ ${renderFooter(settings, t)}
     </div>`;
 }
 
-// The previous/next links for a poll page, inside one full-width card. Each link
-// shows a chevron and the poll's public number and title; the direction is carried
-// by the icon and the accessible name, not by visible label text. The whole block
-// is omitted when the poll sits at both ends of the list, so a poll with no
-// neighbors adds no empty navigation.
+// The previous/next links for a poll page, at the bottom of the poll's own box rather
+// than in a card of their own; the margin above the pair and the muted link text are
+// what set them apart from the content they follow. Each link shows a chevron, its
+// public number, and its title; the direction is carried by the icon and the
+// accessible name, not by visible label text. The whole block is omitted when the
+// poll sits at both ends of the list, so a poll with no neighbors adds no empty
+// navigation. This mirrors the client's `renderPollNav`.
 function pollNavMarkup(poll: SsrPollDetail, t: Translate): string {
   if (!poll.prev && !poll.next) return '';
   const label = (neighbor: PollNeighbor): string => escapeHtml(`#${neighbor.number} ${neighbor.title}`);
   const prev = poll.prev
-    ? `<a class="flex min-w-0 items-center gap-2 no-underline hover:text-primary" href="/poll/${poll.prev.number}" data-route="/poll/${poll.prev.number}" aria-label="${escapeHtml(t('prevPoll'))}" data-poll-nav="prev">${CHEVRON_LEFT_ICON}<span class="truncate text-sm text-ink">${label(poll.prev)}</span></a>`
+    ? `<a class="flex min-w-0 items-center gap-2 text-muted no-underline hover:text-primary" href="/poll/${poll.prev.number}" data-route="/poll/${poll.prev.number}" aria-label="${escapeHtml(t('prevPoll'))}" data-poll-nav="prev">${CHEVRON_LEFT_ICON}<span class="truncate text-sm">${label(poll.prev)}</span></a>`
     : '';
   const next = poll.next
-    ? `<a class="ml-auto flex min-w-0 items-center gap-2 no-underline hover:text-primary" href="/poll/${poll.next.number}" data-route="/poll/${poll.next.number}" aria-label="${escapeHtml(t('nextPoll'))}" data-poll-nav="next"><span class="truncate text-sm text-ink">${label(poll.next)}</span>${CHEVRON_RIGHT_ICON}</a>`
+    ? `<a class="ml-auto flex min-w-0 items-center gap-2 text-muted no-underline hover:text-primary" href="/poll/${poll.next.number}" data-route="/poll/${poll.next.number}" aria-label="${escapeHtml(t('nextPoll'))}" data-poll-nav="next"><span class="truncate text-sm">${label(poll.next)}</span>${CHEVRON_RIGHT_ICON}</a>`
     : '';
   return `
-        <nav class="rounded-[22px] border border-border bg-panel p-6 shadow-card" aria-label="${escapeHtml(t('pollNavLabel'))}">
-          <div class="flex flex-wrap items-center gap-3">${prev}${next}</div>
-        </nav>`;
+          <nav class="mt-6 flex flex-wrap items-center gap-3" aria-label="${escapeHtml(t('pollNavLabel'))}">${prev}${next}</nav>`;
 }
 
 // A single poll page: title, description, badges, and the option labels. The
@@ -409,8 +409,8 @@ ${renderHeader(settings, t, '/')}
           <h1 class="mt-3 mb-2 text-center text-2xl font-bold">#${poll.number} ${escapeHtml(poll.title)}</h1>
           ${poll.description ? `<p class="mx-auto mb-0 max-w-2xl text-center text-ink line-clamp-2">${escapeHtml(poll.description)}</p>` : ''}
           <h2 class="mt-6 mb-2 text-lg font-bold">${escapeHtml(t('optionsLabel'))}</h2>
-${options}
-        </article>${pollNavMarkup(poll, t)}
+${options}${pollNavMarkup(poll, t)}
+        </article>
       </main>
 
 ${renderFooter(settings, t)}

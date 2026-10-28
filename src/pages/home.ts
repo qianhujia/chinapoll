@@ -58,7 +58,7 @@ export function renderPollRow({ poll, stats }: Awaited<ReturnType<typeof getPoll
         </div>
       </div>
 
-      <div class="col-start-2 row-start-1 flex items-center justify-center gap-5 max-[700px]:col-start-1 max-[700px]:row-auto max-[700px]:justify-start">
+      <div class="col-start-2 row-start-1 flex items-center justify-end gap-5 max-[700px]:col-start-1 max-[700px]:row-auto">
         ${voteCount}
       </div>
     </article>

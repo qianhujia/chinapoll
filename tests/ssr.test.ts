@@ -177,10 +177,14 @@ describe('server-side poll page', () => {
     expect(html).toContain('Poll navigation');
     expect(html).toContain('Previous poll');
     expect(html).toContain('Next poll');
-    // Both directions share one full-width card, and the direction is a chevron
+    // The pair sits at the bottom of the poll's own box, not in a card of its own: a
+    // margin above it and muted text set it apart, and the direction is a chevron
     // icon rather than an arrow character or a visible label.
     expect(html)
-      .toContain('<nav class="rounded-[22px] border border-border bg-panel p-6 shadow-card" aria-label="Poll navigation">');
+      .toContain('<nav class="mt-6 flex flex-wrap items-center gap-3" aria-label="Poll navigation">');
+    expect(html).not.toContain('bg-panel p-6 shadow-card" aria-label="Poll navigation"');
+    // The poll's box closes after the navigation, so the pair belongs to that box.
+    expect(html.indexOf('Poll navigation')).toBeLessThan(html.indexOf('</article>'));
     expect(html).toContain('m15 18-6-6 6-6');
     expect(html).toContain('m9 18 6-6-6-6');
     expect(html).not.toContain('←');

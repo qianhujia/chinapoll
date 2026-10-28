@@ -125,25 +125,26 @@ export function renderChoiceInputs(
   `;
 }
 
-// The previous/next links for the detail page, inside one full-width card. Each
-// link shows a chevron and the poll's public number and title; the direction is
-// carried by the icon and the accessible name, not by visible label text. Returns
-// an empty string when the poll sits at both ends of the list, so no empty
-// navigation is rendered. The markup mirrors the server-rendered nav in
+// The previous/next links for the detail page. The pair sits at the bottom of the
+// poll's own box rather than in a card of its own, so a poll and its neighbors read
+// as one block; the margin above the pair and the muted link text are what set them
+// apart from the content they follow. The previous poll stays on the left and the
+// next on the right, each showing a chevron, its public number, and its title; the
+// direction is carried by the icon and the accessible name, not by visible label
+// text. Returns an empty string when the poll sits at both ends of the list, so no
+// empty navigation is rendered. The markup mirrors the server-rendered nav in
 // worker/services/ssr.ts so the first paint and the client paint look alike.
 export function renderPollNav(prev: PollNeighbor | null, next: PollNeighbor | null): string {
   if (!prev && !next) return '';
   const label = (neighbor: PollNeighbor): string => escapeHtml(`#${neighbor.number} ${neighbor.title}`);
   const prevLink = prev
-    ? `<a class="flex min-w-0 items-center gap-2 no-underline hover:text-primary" href="/poll/${prev.number}" data-route="/poll/${prev.number}" aria-label="${escapeHtml(t('prevPoll'))}" data-poll-nav="prev">${chevronLeftIconMarkup('h-4 w-4 shrink-0')}<span class="truncate text-sm text-ink">${label(prev)}</span></a>`
+    ? `<a class="flex min-w-0 items-center gap-2 text-muted no-underline hover:text-primary" href="/poll/${prev.number}" data-route="/poll/${prev.number}" aria-label="${escapeHtml(t('prevPoll'))}" data-poll-nav="prev">${chevronLeftIconMarkup('h-4 w-4 shrink-0')}<span class="truncate text-sm">${label(prev)}</span></a>`
     : '';
   const nextLink = next
-    ? `<a class="ml-auto flex min-w-0 items-center gap-2 no-underline hover:text-primary" href="/poll/${next.number}" data-route="/poll/${next.number}" aria-label="${escapeHtml(t('nextPoll'))}" data-poll-nav="next"><span class="truncate text-sm text-ink">${label(next)}</span>${chevronRightIconMarkup('h-4 w-4 shrink-0')}</a>`
+    ? `<a class="ml-auto flex min-w-0 items-center gap-2 text-muted no-underline hover:text-primary" href="/poll/${next.number}" data-route="/poll/${next.number}" aria-label="${escapeHtml(t('nextPoll'))}" data-poll-nav="next"><span class="truncate text-sm">${label(next)}</span>${chevronRightIconMarkup('h-4 w-4 shrink-0')}</a>`
     : '';
   return `
-      <nav class="rounded-[22px] border border-border bg-panel p-6 shadow-card" aria-label="${escapeHtml(t('pollNavLabel'))}">
-        <div class="flex flex-wrap items-center gap-3">${prevLink}${nextLink}</div>
-      </nav>`;
+          <nav class="mt-6 flex flex-wrap items-center gap-3" aria-label="${escapeHtml(t('pollNavLabel'))}">${prevLink}${nextLink}</nav>`;
 }
 
 // One horizontal bar per option, sorted by position, showing the count and the
@@ -545,9 +546,9 @@ export async function mountVotePage(identifier: number, app: HTMLElement, bindNa
     : statsError
       ? `${t('statsLoadFailed')} ${statsError}`
     : ''}</p>
-        </section>
 
-        ${renderPollNav(poll.prev ?? null, poll.next ?? null)}
+          ${renderPollNav(poll.prev ?? null, poll.next ?? null)}
+        </section>
 
         ${renderCommentForm(canComment)}
 

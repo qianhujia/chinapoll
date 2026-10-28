@@ -244,8 +244,17 @@ describe('renderPollNav', () => {
       { id: 14, number: 9, title: 'Newer poll' }
     );
 
-    // Both directions share one full-width card instead of a box each.
-    expect(markup).toContain('<nav class="rounded-[22px] border border-border bg-panel p-6 shadow-card"');
+    // The pair sits at the bottom of the poll's own box, not in a card of its own: a
+    // margin above it and muted text set it apart from the content it follows.
+    expect(markup).toContain('<nav class="mt-6 flex flex-wrap items-center gap-3" aria-label="pollNavLabel">');
+    expect(markup).not.toContain('rounded-[22px]');
+    expect(markup).not.toContain('shadow-card');
+    expect(markup).not.toContain('bg-panel');
+    // Both links read as muted text that turns primary on hover; the previous one
+    // sits on the left and the next is pushed to the right.
+    expect(markup).toContain('class="flex min-w-0 items-center gap-2 text-muted no-underline hover:text-primary"');
+    expect(markup).toContain('class="ml-auto flex min-w-0 items-center gap-2 text-muted no-underline hover:text-primary"');
+    expect(markup).not.toContain('text-ink');
     // The direction is a chevron icon, with no visible arrow or label text.
     expect(markup).toContain('m15 18-6-6 6-6');
     expect(markup).toContain('m9 18 6-6-6-6');

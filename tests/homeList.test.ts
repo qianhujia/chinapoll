@@ -70,6 +70,11 @@ describe('renderPollRow', () => {
     // The title is the only link, and it points at the public number.
     expect(markup.match(/href="\/poll\/42"/g)).toHaveLength(1);
     expect(markup).not.toContain('/poll/7');
+    // The count sits against the right edge of the row, and stays on the right when
+    // the row stacks on a narrow screen, so the numbers of every poll line up.
+    expect(markup).toContain('flex items-center justify-end gap-5 max-[700px]:col-start-1 max-[700px]:row-auto');
+    expect(markup).not.toContain('justify-center');
+    expect(markup).not.toContain('max-[700px]:justify-start');
     // The count is the ballot icon and the number, not "12 ballots".
     expect(markup).toContain('data-vote-count');
     expect(markup).toContain('m9 12 2 2 4-4');
