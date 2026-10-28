@@ -651,18 +651,23 @@ export async function mountVotePage(identifier: number, app: HTMLElement, bindNa
   // Every ballot is a set of option ids; a single choice ballot carries one.
   // The duplicate and closed-poll handling is shared by every poll type.
   const sendBallot = async (payload: { optionIds: number[] }) => {
-    // The button stays disabled and the status line names the wait, so neither a slow
-    // challenge nor a slow ballot makes the form look dead. One message covers both
-    // steps - the visitor is submitting their vote from the moment they press the
-    // button - and it is cleared again once the ballot has an answer.
+    // The wait is named on the button itself: its label becomes the submitting message
+    // while the challenge and the ballot are in flight, so the form needs no line of its
+    // own to say it and a disabled button is never mistaken for a dead one. The label
+    // returns to its normal wording as soon as the ballot has an answer.
     const submitButton = document.querySelector<HTMLButtonElement>('[data-choice-submit]');
     const voteStatus = document.querySelector<HTMLElement>('.vote-status');
+    const setSubmitting = (submitting: boolean) => {
+      if (!submitButton) return;
+      submitButton.textContent = submitting ? t('submitting') : t('submitVote');
+    };
     if (submitButton) submitButton.disabled = true;
+    setSubmitting(true);
     let challengeToken: string;
     try {
-      if (voteStatus) voteStatus.textContent = t('submitting');
       challengeToken = await obtainTurnstileToken('vote');
     } catch (error) {
+      setSubmitting(false);
       const failure = `${t('submitFailed')}: ${getErrorMessage(error)}`;
       if (voteStatus) voteStatus.textContent = failure;
       showToast(failure, 'error');
@@ -680,6 +685,9 @@ export async function mountVotePage(identifier: number, app: HTMLElement, bindNa
         turnstileToken: challengeToken
       });
     } catch (error) {
+      // Whatever went wrong, the button goes back to its normal label; the status line
+      // carries the reason, and the caller decides whether the visitor can try again.
+      setSubmitting(false);
       const errorMessage = getErrorMessage(error);
       // The widget is hidden by default, so a verification failure is the only
       // case that must surface the box for the visitor to solve.
@@ -717,8 +725,10 @@ export async function mountVotePage(identifier: number, app: HTMLElement, bindNa
       resetTurnstile('vote');
       return null;
     }
-    // The ballot has an answer, so the wait message goes; a failure replaced it above.
-    if (voteStatus) voteStatus.textContent = '';
+    // The ballot has an answer, so the button carries its normal label again; a failure
+    // replaced it above. Nothing else is said on the page, because the label and the
+    // toast already did.
+    setSubmitting(false);
     resetTurnstile('vote');
     return result;
   };
@@ -807,7 +817,12 @@ export async function mountVotePage(identifier: number, app: HTMLElement, bindNa
       if (submitButton) submitButton.disabled = true;
 
       const result = await sendBallot({ optionIds });
-      if (!result) return;
+      if (!result) {
+        // The ballot did not complete, so the form offers itself again: `sync` leaves the
+        // button disabled only when there is nothing to send or the vote already landed.
+        sync();
+        return;
+      }
 
       // The toast confirms the ballot without restating its size: the results beside
       // the options already show the count and share the ballot just added to.

@@ -119,6 +119,17 @@ describe('renderChoiceInputs', () => {
     expect(markup).not.toContain('data-share-percent');
     expect(markup).not.toMatch(/\d+ · \d+%/);
   });
+
+  // The submit button is the one place the ballot's state is shown: its label is swapped
+  // for the submitting wording while the vote is in flight (see `sendBallot`) and put
+  // back afterwards, so the markup has to keep both the selector and the plain label.
+  it('labels the one submit button the ballot state is shown on', () => {
+    const markup = renderChoiceInputs('single_choice', OPTIONS, false);
+
+    expect(markup.match(/data-choice-submit/g)).toHaveLength(1);
+    expect(markup).toContain('type="submit" data-choice-submit >submitVote</button>');
+    expect(markup).not.toContain('data-vote-submitting');
+  });
 });
 
 describe('optionSharePercent', () => {
