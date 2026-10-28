@@ -651,14 +651,16 @@ export async function mountVotePage(identifier: number, app: HTMLElement, bindNa
   // Every ballot is a set of option ids; a single choice ballot carries one.
   // The duplicate and closed-poll handling is shared by every poll type.
   const sendBallot = async (payload: { optionIds: number[] }) => {
-    // The button stays disabled and the status line explains the wait while the
-    // token is obtained, so a slow challenge never looks like a dead button.
+    // The button stays disabled and the status line names the wait, so neither a slow
+    // challenge nor a slow ballot makes the form look dead. One message covers both
+    // steps - the visitor is submitting their vote from the moment they press the
+    // button - and it is cleared again once the ballot has an answer.
     const submitButton = document.querySelector<HTMLButtonElement>('[data-choice-submit]');
     const voteStatus = document.querySelector<HTMLElement>('.vote-status');
     if (submitButton) submitButton.disabled = true;
     let challengeToken: string;
     try {
-      if (voteStatus) voteStatus.textContent = t('verifying');
+      if (voteStatus) voteStatus.textContent = t('submitting');
       challengeToken = await obtainTurnstileToken('vote');
     } catch (error) {
       const failure = `${t('submitFailed')}: ${getErrorMessage(error)}`;
@@ -668,7 +670,6 @@ export async function mountVotePage(identifier: number, app: HTMLElement, bindNa
       resetTurnstile('vote');
       return null;
     }
-    if (voteStatus) voteStatus.textContent = '';
 
     let result;
     try {
@@ -716,6 +717,8 @@ export async function mountVotePage(identifier: number, app: HTMLElement, bindNa
       resetTurnstile('vote');
       return null;
     }
+    // The ballot has an answer, so the wait message goes; a failure replaced it above.
+    if (voteStatus) voteStatus.textContent = '';
     resetTurnstile('vote');
     return result;
   };

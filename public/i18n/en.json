@@ -280,6 +280,7 @@
   "ballots": "ballots",
   "submitVote": "Submit vote",
   "verifying": "Verifying…",
+  "submitting": "Submitting…",
   "pollTypeLabel": "Poll type",
   "pollTypeVerdictHint": "Approve, neutral, or oppose.",
   "pollTypeSingleChoiceHint": "Pick exactly one of 2 to 7 options.",

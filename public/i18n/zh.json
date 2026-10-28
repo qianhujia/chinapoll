@@ -280,6 +280,7 @@
   "ballots": "张选票",
   "submitVote": "提交投票",
   "verifying": "正在验证…",
+  "submitting": "正在提交…",
   "pollTypeLabel": "投票类型",
   "pollTypeVerdictHint": "赞成、中立或反对。",
   "pollTypeSingleChoiceHint": "从 2 至 7 个选项中恰好选一个。",
