@@ -10,6 +10,7 @@ import { enforceSameOrigin } from '../worker/services/csrf';
 import { validateProposal } from '../worker/api/proposal';
 import { validateSettingValue } from '../admin/lib/settings';
 import { IMAGE_DATA_URI_MAX_CHARS, imageDataUriExtension } from '../shared/settings';
+import { localizedTopicName, suggestedTopicNames, topicLabel } from '../shared/categories';
 import { validatePollOptions } from '../worker/services/pollType';
 import {
   toPublicResults,
@@ -726,6 +727,40 @@ describe('image settings', () => {
     expect(imageDataUriExtension('data:image/vnd.microsoft.icon;base64,AA')).toBe('ico');
     // An unexpected type still resolves; the response carries the real type.
     expect(imageDataUriExtension('data:image/tiff;base64,AA')).toBe('img');
+  });
+});
+// The topic label behind a document title and a chip. A suggested topic that still
+// carries its default English name is localized, so a Chinese site names it in
+// Chinese; anything else - a renamed or hand-made topic - repeats its stored name, so
+// an admin's rename is never overridden.
+describe('localizedTopicName', () => {
+  it('translates a suggested topic that keeps its default name', () => {
+    expect(localizedTopicName('economy', 'Economy', 'zh-CN')).toBe('经济');
+    expect(localizedTopicName('economy', 'Economy', 'zh-TW')).toBe('經濟');
+    expect(localizedTopicName('politics', 'Politics', 'en')).toBe('Politics');
+  });
+
+  it('repeats the stored name for a renamed or custom topic', () => {
+    expect(localizedTopicName('economy', 'Cost of living', 'zh-CN')).toBe('Cost of living');
+    expect(localizedTopicName('my-topic', 'My topic', 'zh-TW')).toBe('My topic');
+    // A slug standing in for a missing name stays the slug for every locale.
+    expect(localizedTopicName('my-topic', 'my-topic', 'en')).toBe('my-topic');
+  });
+
+  it('names the suggested set for every locale, and nothing else', () => {
+    expect(suggestedTopicNames('economy')).toEqual({ en: 'Economy', 'zh-CN': '经济', 'zh-TW': '經濟' });
+    expect(suggestedTopicNames('my-topic')).toBeNull();
+  });
+
+  // A topic page is named before its row has loaded, and the slug must never be what
+  // a visitor reads: the suggested name for the slug stands in, and only an unknown
+  // slug is its own label.
+  it('falls back to the suggested name, then to the slug', () => {
+    expect(topicLabel('economy', undefined, 'zh-CN')).toBe('经济');
+    expect(topicLabel('economy', 'Economy', 'en')).toBe('Economy');
+    expect(topicLabel('economy', 'Cost of living', 'zh-CN')).toBe('Cost of living');
+    expect(topicLabel('my-topic', 'My topic', 'zh-TW')).toBe('My topic');
+    expect(topicLabel('my-topic', undefined, 'en')).toBe('my-topic');
   });
 });
 

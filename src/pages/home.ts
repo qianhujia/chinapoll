@@ -1,13 +1,15 @@
 import { getTopics, getPolls } from '../lib/poll';
 import { bootstrapPolls, bootstrapTopics } from '../bootstrap';
 import { getPublicSettings } from '../config';
-import { localizedTopicName } from '../../shared/categories';
+import { localizedTopicName, topicLabel } from '../../shared/categories';
+import { topicSeoData, updateSeo } from '../seo';
 import {
   animateLayoutChange,
   escapeHtml,
   getErrorMessage,
   getPollsPerPage,
   getQueryValue,
+  getSiteName,
   renderFooter,
   renderHeader,
   renderModeBadge,
@@ -237,6 +239,15 @@ export async function mountHome(app: HTMLElement, page: number, bindNavigation: 
     categoryFilter,
     { all: t('categoryAll'), expand: t('topicsExpand'), collapse: t('topicsCollapse') }
   );
+
+  // A topic page names the topic in its document title and description. The route
+  // table runs before any topic is known and can only guess from the slug, so the
+  // head is rebuilt here from the loaded list, which carries the localized name.
+  if (topicSlug) {
+    const topic = (topics?.topics ?? []).find((entry) => entry.slug === topicSlug);
+    const label = topicLabel(topicSlug, topic?.name, localeCode);
+    updateSeo(topicSeoData(topicSlug, label, getSiteName(), window.location.origin));
+  }
 
   app.innerHTML = `
     <div class="mx-auto max-w-[var(--page-width)] px-5 pt-6">

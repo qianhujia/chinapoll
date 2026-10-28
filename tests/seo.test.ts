@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   buildBreadcrumbJsonLd,
   buildMetaTags,
@@ -8,10 +8,12 @@ import {
   getHomeSeoContext,
   getPollSeoContext,
   getSubmitSeoContext,
+  getTopicSeoContext,
   injectSeoIntoHtml,
   type PublicSettingsSeo
 } from '../worker/services/seo';
 import { translatorFor } from '../worker/services/ssr';
+import { getSeoForRoute, topicSeoData } from '../src/seo';
 import zhDictionary from '../public/i18n/zh.json';
 
 const settings: PublicSettingsSeo = {
@@ -123,6 +125,31 @@ describe('route contexts', () => {
     expect((seo.jsonLd as Record<string, unknown>)['@type']).toBe('WebSite');
   });
 
+  // The topic page names a topic, never its URL slug. The caller resolves the label
+  // (see `topicLabel` in shared/categories) and the head carries it in the title, the
+  // Open Graph tags, and the breadcrumb.
+  it('names a topic page in the language of the site', () => {
+    const seo = getTopicSeoContext(
+      'economy',
+      '经济',
+      { ...settings, site_name: '中国民意调查', default_locale: 'zh-CN' },
+      ORIGIN,
+      [{ number: 3, title: 'Third' }]
+    );
+
+    expect(seo.title).toBe('经济 - 中国民意调查');
+    expect(seo.description).toBe('Browse polls about 经济 on 中国民意调查.');
+    expect(seo.canonical).toBe(`${ORIGIN}/topic/economy`);
+    expect(seo.ogType).toBe('website');
+    // The breadcrumb ends at the topic, and the list travels with it.
+    const [breadcrumb, list] = seo.jsonLd as Record<string, unknown>[];
+    expect(breadcrumb.itemListElement).toEqual([
+      { '@type': 'ListItem', position: 1, name: '中国民意调查', item: `${ORIGIN}/` },
+      { '@type': 'ListItem', position: 2, name: '经济', item: `${ORIGIN}/topic/economy` }
+    ]);
+    expect(list.numberOfItems).toBe(1);
+  });
+
   it('translates the about and submit titles and descriptions', () => {
     const en = translatorFor('en');
     const zh = translatorFor('zh-CN');
@@ -157,6 +184,43 @@ describe('injectSeoIntoHtml', () => {
     expect(html).toContain('<title>ChinaPoll &amp; Co - Visible &lt;opinion&gt;</title>');
     expect(html).not.toContain('content="placeholder"');
     expect(html.match(/name="description"/g)).toHaveLength(1);
+  });
+});
+
+// The SPA names a topic page from the route table, before any topic has loaded, and
+// rebuilds the head from the loaded list afterwards (see `mountHome`). Both go
+// through `topicSeoData`, so a topic page never titles itself with its URL slug.
+describe('client topic route metadata', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('names a suggested topic in the language of the site', () => {
+    vi.stubGlobal('window', { location: { origin: ORIGIN } });
+
+    const seo = getSeoForRoute('/topic/economy', { ...settings, default_locale: 'zh-CN' });
+
+    expect(seo.title).toBe(`经济 - ${settings.site_name}`);
+    expect(seo.description).toBe(`Browse polls about 经济 on ${settings.site_name}.`);
+    expect(seo.canonical).toBe(`${ORIGIN}/topic/economy`);
+  });
+
+  it('keeps a topic the site does not suggest under its slug', () => {
+    vi.stubGlobal('window', { location: { origin: ORIGIN } });
+
+    const seo = getSeoForRoute('/topic/my-topic', settings);
+
+    expect(seo.title).toBe(`my-topic - ${settings.site_name}`);
+    expect(seo.canonical).toBe(`${ORIGIN}/topic/my-topic`);
+  });
+
+  it('builds the topic page metadata from one shared wording', () => {
+    expect(topicSeoData('economy', '经济', '中国民意调查', ORIGIN)).toEqual({
+      title: '经济 - 中国民意调查',
+      description: 'Browse polls about 经济 on 中国民意调查.',
+      canonical: `${ORIGIN}/topic/economy`,
+      ogType: 'website'
+    });
   });
 });
 

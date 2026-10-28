@@ -122,11 +122,16 @@ describe('server-rendered pages', () => {
   // so the client only reuses it for the same view.
   it('embeds the topic-filtered poll list on a topic page', async () => {
     const response = await SELF.fetch(`${ORIGIN}/topic/politics`);
-    const payload = islandFrom(await response.text());
+    const html = await response.text();
+    const payload = islandFrom(html);
 
     expect(payload!.polls).toMatchObject({ page: 1, query: '', topic: 'politics' });
     const endpoint = await (await SELF.fetch(`${ORIGIN}/api/polls?page=1&topic=politics`)).json();
     expect(payload!.polls?.body).toEqual(endpoint);
+    // The head names the topic in the site's locale instead of repeating the URL
+    // slug; the list is empty here, so the label comes from the suggested topics.
+    expect(html).toContain('<title>政治 - ');
+    expect(html).not.toContain('<title>politics - ');
   });
 
   it('renders the copy in the site default locale', async () => {

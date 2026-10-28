@@ -53,3 +53,11 @@ export function topicNames(slug: string, name: string): TopicNames {
 export function localizedTopicName(slug: string, name: string, locale: TopicLocale): string {
   return topicNames(slug, name)[locale];
 }
+
+// The label of a topic when its row may not be loaded: the stored name when there is
+// one, the suggested name for the slug otherwise, and the slug itself as the last
+// resort. A document title, a chip, and a breadcrumb all name a topic through this,
+// so an unloaded topic is never published as its slug.
+export function topicLabel(slug: string, name: string | undefined, locale: TopicLocale): string {
+  return localizedTopicName(slug, name ?? suggestedTopicNames(slug)?.en ?? slug, locale);
+}

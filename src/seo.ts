@@ -6,6 +6,7 @@
 // during client-side navigation.
 
 import { getPublicSettings } from './config';
+import { topicLabel, type TopicLocale } from '../shared/categories';
 import { t } from './ui';
 
 export interface SeoData {
@@ -96,7 +97,25 @@ export function updateSeo(seo: Partial<SeoData>): void {
   setJsonLd(currentSeo.jsonLd);
 }
 
-export function getSeoForRoute(route: string, settings: { site_name: string; site_slogan: string }): SeoData {
+// The metadata of a topic page. The route table builds it before any topic is
+// loaded, from a suggested label or the slug itself, and the list page rebuilds it
+// once the loaded topics carry the localized name; sharing one builder keeps both
+// wordings identical.
+export function topicSeoData(
+  topicSlug: string,
+  label: string,
+  siteName: string,
+  origin: string
+): Pick<SeoData, 'title' | 'description' | 'canonical' | 'ogType'> {
+  return {
+    title: `${label} - ${siteName}`,
+    description: `Browse polls about ${label} on ${siteName}.`,
+    canonical: `${origin}/topic/${topicSlug}`,
+    ogType: 'website'
+  };
+}
+
+export function getSeoForRoute(route: string, settings: { site_name: string; site_slogan: string; default_locale: string }): SeoData {
   const origin = window.location.origin;
   const base: SeoData = {
     title: settings.site_name,
@@ -193,14 +212,13 @@ export function getSeoForRoute(route: string, settings: { site_name: string; sit
         };
       }
       if (route.startsWith('/topic/')) {
-        const topicSlug = route.split('/').pop();
-        return {
-          ...base,
-          title: `${topicSlug} - ${settings.site_name}`,
-          description: `Browse polls about ${topicSlug} on ${settings.site_name}.`,
-          ogType: 'website',
-          canonical: `${origin}/topic/${topicSlug}`
-        };
+        const topicSlug = route.split('/').pop() ?? '';
+        // The route table runs before any topic is loaded, so it can only name a
+        // suggested topic; a topic page rebuilt from the loaded list corrects this
+        // with the stored name (see `mountHome`).
+        const locale = (settings.default_locale ?? 'en') as TopicLocale;
+        const label = topicLabel(topicSlug, undefined, locale);
+        return { ...base, ...topicSeoData(topicSlug, label, settings.site_name, origin) };
       }
       // Unknown route
       return {

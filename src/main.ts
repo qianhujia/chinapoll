@@ -49,7 +49,11 @@ async function render() {
 
   // Update SEO for the current route
   const settings = getPublicSettings();
-  const seo = getSeoForRoute(route, { site_name: settings.site_name, site_slogan: settings.site_slogan });
+  const seo = getSeoForRoute(route, {
+    site_name: settings.site_name,
+    site_slogan: settings.site_slogan,
+    default_locale: settings.default_locale
+  });
   updateSeo(seo);
 
   if (route === '/about') {

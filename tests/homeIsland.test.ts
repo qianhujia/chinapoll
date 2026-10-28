@@ -61,15 +61,21 @@ function listIsland(): string {
   return JSON.stringify({ topics: TOPICS, polls: { page: 1, query: '', topic: '', body: POLLS } });
 }
 
-// Stands in for the document: the island reader only needs getElementById, and the
-// header reads the query string from window.location.
+// Stands in for the document: the island reader only needs getElementById, the
+// header reads the query string from window.location, and a topic page rewrites the
+// head, so the tags it looks for are answered as already present.
 function stubDocument(island: string | null): void {
   vi.stubGlobal('document', {
     getElementById: (id: string) => (id === BOOTSTRAP_ELEMENT_ID && island !== null
       ? { textContent: island }
-      : null)
+      : null),
+    title: '',
+    querySelector: () => ({ setAttribute: () => {} }),
+    querySelectorAll: () => [],
+    createElement: () => ({ setAttribute: () => {} }),
+    head: { appendChild: () => {} }
   });
-  vi.stubGlobal('window', { location: { search: '' } });
+  vi.stubGlobal('window', { location: { search: '', origin: 'https://example.com' } });
 }
 
 // Records every request and answers the dictionary and both list endpoints.
@@ -127,5 +133,22 @@ describe('home server-provided data', () => {
     expect(calls.some((url) => url.startsWith('/api/topics'))).toBe(true);
     expect(app.innerHTML).toContain('data-topic-chips');
     expect(app.innerHTML).toContain('Should the city build more bike lanes?');
+  });
+
+  // A topic page names the topic in its document title. The route table can only
+  // guess from the slug, so the head is rebuilt from the loaded list.
+  it('names the topic in the document title on a topic page', async () => {
+    const calls: string[] = [];
+    stubDocument(listIsland());
+    stubFetch(calls);
+    await loadTranslations('en');
+
+    const app = makeApp();
+    await mountHome(app, 1, () => {}, undefined, 'politics');
+
+    // The loaded topic name is the title, never the URL slug.
+    const title = (document as unknown as { title: string }).title;
+    expect(title).toBe('Politics - ChinaPoll');
+    expect(title).not.toBe('politics - ChinaPoll');
   });
 });

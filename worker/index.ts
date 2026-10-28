@@ -36,10 +36,8 @@ import { runMaintenanceTasks } from './services/maintenance';
 import { publishHealth } from './services/publisher';
 import { isValidServerKey, serverHmacKey } from './services/ip';
 import {
-  buildBreadcrumbJsonLd,
   buildMetaTags,
   buildPollListJsonLd,
-  buildSeoContext,
   buildWebsiteJsonLd,
   getHomeSeoContext,
   getPollsListSeoContext,
@@ -49,6 +47,7 @@ import {
   getAccountSeoContext,
   getNotFoundSeoContext,
   getPollSeoContext,
+  getTopicSeoContext,
   injectSeoIntoHtml,
   type SeoContext
 } from './services/seo';
@@ -65,6 +64,7 @@ import {
 } from './services/ssr';
 import { getPollStatusLabel, PollMode, PollStatus } from './enums';
 import { apiError } from '../shared/http';
+import { topicLabel, type TopicLocale } from '../shared/categories';
 
 export interface Env {
   DB: D1Database;
@@ -244,22 +244,16 @@ async function buildPublicPage(
       console.error('ssr topic failed', error);
     }
     const polls = data?.polls ?? [];
-    const name = data?.topics.find((topic) => topic.slug === topicSlug)?.name ?? topicSlug;
-    const topicUrl = `${origin}/topic/${topicSlug}`;
+    // The document names the topic the way the chip row does, in the site's locale,
+    // rather than repeating the URL slug. The list may not carry the topic, in which
+    // case the suggested label for the slug stands in.
+    const name = topicLabel(
+      topicSlug,
+      data?.topics.find((topic) => topic.slug === topicSlug)?.name,
+      (settings.default_locale ?? 'en') as TopicLocale
+    );
     return {
-      seo: buildSeoContext(`/topic/${topicSlug}`, settings, origin, {
-        title: `${name} - ${settings.site_name}`,
-        description: `Browse polls about ${name} on ${settings.site_name}.`,
-        canonical: topicUrl,
-        ogType: 'website',
-        jsonLd: [
-          buildBreadcrumbJsonLd([
-            { name: settings.site_name, url: `${origin}/` },
-            { name, url: topicUrl }
-          ]),
-          buildPollListJsonLd(polls, settings, origin)
-        ]
-      }),
+      seo: getTopicSeoContext(topicSlug, name, settings, origin, polls),
       body: renderHomeBody({
         settings,
         topics: data?.topics ?? [],

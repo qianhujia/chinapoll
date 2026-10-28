@@ -186,6 +186,32 @@ export function buildBreadcrumbJsonLd(
   };
 }
 
+// The topic page the poll list is filtered to. `label` is the topic's name in the
+// site's locale, resolved by the caller (see `topicLabel` in shared/categories), so
+// the title never repeats the URL slug.
+export function getTopicSeoContext(
+  topicSlug: string,
+  label: string,
+  settings: PublicSettingsSeo,
+  origin: string,
+  polls: ReadonlyArray<{ number: number; title: string }>
+): SeoContext {
+  const topicUrl = `${origin}/topic/${topicSlug}`;
+  return buildSeoContext(`/topic/${topicSlug}`, settings, origin, {
+    title: `${label} - ${settings.site_name}`,
+    description: `Browse polls about ${label} on ${settings.site_name}.`,
+    canonical: topicUrl,
+    ogType: 'website',
+    jsonLd: [
+      buildBreadcrumbJsonLd([
+        { name: settings.site_name, url: `${origin}/` },
+        { name: label, url: topicUrl }
+      ]),
+      buildPollListJsonLd(polls, settings, origin)
+    ]
+  });
+}
+
 export function getPollSeoContext(
   poll: { number: number; title: string; description: string | null; status: string },
   settings: PublicSettingsSeo,
