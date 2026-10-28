@@ -449,11 +449,12 @@ export async function mountVotePage(identifier: number, app: HTMLElement, bindNa
 
   // The route's placeholder title (for example "Poll #12") is replaced with the
   // poll's own title and description now that they have loaded, matching the
-  // server-rendered metadata instead of leaving the generic placeholder.
+  // server-rendered metadata instead of leaving the generic placeholder. The
+  // description is published as one plain line, which `updateSeo` is responsible for.
   const { site_name: siteName } = getPublicSettings();
   updateSeo({
     title: `#${poll.number} ${poll.title} - ${siteName}`,
-    ...(poll.description ? { description: poll.description.slice(0, 160) } : {})
+    ...(poll.description ? { description: poll.description } : {})
   });
 
   const token = createToken();

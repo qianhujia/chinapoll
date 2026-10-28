@@ -11,6 +11,7 @@ import { validateProposal } from '../worker/api/proposal';
 import { validateSettingValue } from '../admin/lib/settings';
 import { IMAGE_DATA_URI_MAX_CHARS, imageDataUriExtension } from '../shared/settings';
 import { localizedTopicName, suggestedTopicNames, topicLabel } from '../shared/categories';
+import { SEO_DESCRIPTION_MAX_LENGTH, seoDescription } from '../shared/seo';
 import { validatePollOptions } from '../worker/services/pollType';
 import {
   toPublicResults,
@@ -764,3 +765,40 @@ describe('localizedTopicName', () => {
   });
 });
 
+// A meta description is printed as one plain sentence, so the text behind it is
+// stripped of markup and line breaks before it reaches the tag.
+describe('seoDescription', () => {
+  it('drops HTML tags and keeps their words apart', () => {
+    expect(seoDescription('<p>Bike lanes</p>')).toBe('Bike lanes');
+    expect(seoDescription('<b>More</b> lanes <br />on Main Street')).toBe('More lanes on Main Street');
+    expect(seoDescription('<a href="https://example.com/">Read more</a>')).toBe('Read more');
+  });
+
+  it('folds line breaks and runs of whitespace into one space', () => {
+    expect(seoDescription('Line one\nLine two')).toBe('Line one Line two');
+    expect(seoDescription('  a \r\n\t  b  ')).toBe('a b');
+    expect(seoDescription('Para one\n\nPara two')).toBe('Para one Para two');
+  });
+
+  it('keeps text that only uses angle brackets', () => {
+    // Only a letter may open a tag, so a comparison or arithmetic survives.
+    expect(seoDescription('Is 5 < 6 and 7 > 6?')).toBe('Is 5 < 6 and 7 > 6?');
+  });
+
+  it('cuts the result to the length a search engine shows', () => {
+    expect(seoDescription('x'.repeat(400))).toHaveLength(SEO_DESCRIPTION_MAX_LENGTH);
+
+    // The cut happens after the folding, so no fragment of a tag is left behind.
+    const cleaned = seoDescription(`<p>${'word '.repeat(80)}</p>`);
+    expect(cleaned.length).toBeLessThanOrEqual(SEO_DESCRIPTION_MAX_LENGTH);
+    expect(cleaned.startsWith('word word')).toBe(true);
+    expect(cleaned).not.toContain('<');
+  });
+
+  it('reads nothing out of an empty or markup-only description', () => {
+    expect(seoDescription('')).toBe('');
+    expect(seoDescription(null)).toBe('');
+    expect(seoDescription(undefined)).toBe('');
+    expect(seoDescription('<p></p>\n<br />')).toBe('');
+  });
+});

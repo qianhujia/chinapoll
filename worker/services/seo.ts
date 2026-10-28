@@ -6,6 +6,7 @@
 // document (see withSeoMetadata in ../index).
 
 import { escapeHtml, serializeJsonLd } from './html';
+import { seoDescription } from '../../shared/seo';
 import type { Translate } from './ssr';
 
 export interface SeoContext {
@@ -55,7 +56,9 @@ function toJsonLdList(jsonLd: SeoContext['jsonLd']): Record<string, unknown>[] {
 
 export function buildMetaTags(seo: SeoContext, settings: PublicSettingsSeo, origin: string): string {
   const title = escapeHtml(seo.title);
-  const description = escapeHtml(seo.description);
+  // Whatever text the route supplied, the tag carries one line of plain text: no tags,
+  // no line breaks, and no more than a search engine shows.
+  const description = escapeHtml(seoDescription(seo.description));
   const canonical = escapeHtml(seo.canonical);
   const siteName = escapeHtml(settings.site_name);
   const ogImage = escapeHtml(seo.ogImage ? `${origin}${seo.ogImage}` : OG_IMAGE_URL);
@@ -220,9 +223,10 @@ export function getPollSeoContext(
   // The public URL and the title use the poll's public number, never the primary
   // key, so the address a visitor sees is the identifier the site publishes.
   const pollUrl = `${origin}/poll/${poll.number}`;
-  const description = poll.description
-    ? poll.description.slice(0, 160)
-    : `Vote on "${poll.title}" - ${settings.site_slogan}`;
+  // The poll's own description when it still says something once its markup is gone,
+  // and the site's wording otherwise.
+  const description = seoDescription(poll.description)
+    || `Vote on "${poll.title}" - ${settings.site_slogan}`;
 
   return buildSeoContext(`/poll/${poll.number}`, settings, origin, {
     title: `#${poll.number} ${poll.title} - ${settings.site_name}`,

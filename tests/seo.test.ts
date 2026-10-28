@@ -13,7 +13,7 @@ import {
   type PublicSettingsSeo
 } from '../worker/services/seo';
 import { translatorFor } from '../worker/services/ssr';
-import { getSeoForRoute, topicSeoData } from '../src/seo';
+import { getSeoForRoute, topicSeoData, updateSeo } from '../src/seo';
 import zhDictionary from '../public/i18n/zh.json';
 
 const settings: PublicSettingsSeo = {
@@ -28,7 +28,13 @@ describe('buildMetaTags', () => {
   it('escapes values taken from settings and the route', () => {
     const tags = buildMetaTags(getHomeSeoContext(settings, ORIGIN), settings, ORIGIN);
     expect(tags).toContain('content="ChinaPoll &amp; Co"');
-    expect(tags).toContain('content="Visible &lt;opinion&gt;"');
+    // Everything a tag carries stays escaped; the title proves it, since its text keeps
+    // its angle brackets.
+    expect(tags)
+      .toContain('<meta property="og:title" content="ChinaPoll &amp; Co - Visible &lt;opinion&gt;" />');
+    // A description is published as plain text, so anything tag-shaped in it is dropped
+    // instead of escaped.
+    expect(tags).toContain('<meta name="description" content="Visible" />');
     // The raw value never appears inside an HTML attribute or text node; the
     // JSON-LD block is the only place it stays verbatim (inside a script).
     expect(tags).not.toContain('content="Visible <opinion>"');
@@ -65,6 +71,21 @@ describe('buildMetaTags', () => {
   it('omits the favicon link when none is configured', () => {
     const tags = buildMetaTags(getHomeSeoContext(settings, ORIGIN), settings, ORIGIN);
     expect(tags).not.toContain('rel="icon"');
+  });
+
+  // A description is shown as one sentence, so no tag and no line break may survive in
+  // it, whatever text the route handed over.
+  it('publishes the description without tags or line breaks', () => {
+    const tags = buildMetaTags(
+      { ...getHomeSeoContext(settings, ORIGIN), description: '<p>Two lines</p>\n<b>and more</b>' },
+      settings,
+      ORIGIN
+    );
+
+    expect(tags).toContain('<meta name="description" content="Two lines and more" />');
+    expect(tags).toContain('<meta property="og:description" content="Two lines and more" />');
+    expect(tags).toContain('<meta name="twitter:description" content="Two lines and more" />');
+    expect(tags).not.toContain('<b>');
   });
 });
 
@@ -123,6 +144,24 @@ describe('route contexts', () => {
     const seo = getHomeSeoContext(settings, ORIGIN);
     expect(seo.canonical).toBe(`${ORIGIN}/`);
     expect((seo.jsonLd as Record<string, unknown>)['@type']).toBe('WebSite');
+  });
+
+  // The poll's own text is published as one plain line, and a description that carries
+  // nothing but markup leaves the site's wording to stand in for it.
+  it('reads a poll description as one plain line, and falls back when it is empty', () => {
+    const tagged = getPollSeoContext(
+      { number: 42, title: 'Bike lanes', description: '<p>Build more lanes</p>\n<b>now</b>', status: 'open' },
+      settings,
+      ORIGIN
+    );
+    expect(tagged.description).toBe('Build more lanes now');
+
+    const markupOnly = getPollSeoContext(
+      { number: 42, title: 'Bike lanes', description: '<br />', status: 'open' },
+      settings,
+      ORIGIN
+    );
+    expect(markupOnly.description).toBe(`Vote on "Bike lanes" - ${settings.site_slogan}`);
   });
 
   // The topic page names a topic, never its URL slug. The caller resolves the label
@@ -224,3 +263,47 @@ describe('client topic route metadata', () => {
   });
 });
 
+// `updateSeo` writes the live document's head, so the tags it touches are answered as
+// already present and every write is recorded.
+describe('client head updates', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function stubHead() {
+    const writes: Array<{ selector: string; name: string; value: string }> = [];
+    vi.stubGlobal('window', { location: { origin: ORIGIN } });
+    vi.stubGlobal('document', {
+      title: '',
+      querySelector: (selector: string) => ({
+        setAttribute: (name: string, value: string) => { writes.push({ selector, name, value }); }
+      }),
+      querySelectorAll: () => [],
+      createElement: () => ({ setAttribute: () => {} }),
+      head: { appendChild: () => {} }
+    });
+    return writes;
+  }
+
+  it('writes the description as one plain line', () => {
+    const writes = stubHead();
+
+    updateSeo({ description: '<b>Build</b> more lanes\non Main Street' });
+
+    const content = (selector: string) => writes.find((write) => write.selector === selector)?.value;
+    expect(content('meta[name="description"]')).toBe('Build more lanes on Main Street');
+    expect(content('meta[property="og:description"]')).toBe('Build more lanes on Main Street');
+    expect(content('meta[name="twitter:description"]')).toBe('Build more lanes on Main Street');
+  });
+
+  it('falls back to the site wording when the description is only markup', () => {
+    const writes = stubHead();
+
+    updateSeo({ description: '<br />' });
+
+    // The built-in settings are in force in this environment, so their slogan stands in
+    // for a description that carried nothing but markup.
+    expect(writes.find((write) => write.selector === 'meta[name="description"]')?.value)
+      .toBe('Public opinion made visible');
+  });
+});

@@ -7,6 +7,7 @@
 
 import { getPublicSettings } from './config';
 import { topicLabel, type TopicLocale } from '../shared/categories';
+import { seoDescription } from '../shared/seo';
 import { t } from './ui';
 
 export interface SeoData {
@@ -74,23 +75,27 @@ function setJsonLd(jsonLd: Record<string, unknown> | undefined): void {
 export function updateSeo(seo: Partial<SeoData>): void {
   // The DOM escapes attribute and text values on write, so raw values are set
   // here; pre-escaping them would double-encode an ampersand or quote.
-  const { site_name: siteName, default_locale: defaultLocale } = getPublicSettings();
+  const { site_name: siteName, site_slogan: siteSlogan, default_locale: defaultLocale } = getPublicSettings();
   currentSeo = { ...currentSeo, ...seo };
+  // Every description reaches the page as one line of plain text - tags dropped, line
+  // breaks folded into spaces (see `seoDescription`) - and a route that ends up with
+  // nothing but markup falls back to the site's own wording.
+  const description = seoDescription(currentSeo.description) || seoDescription(siteSlogan);
 
   document.title = currentSeo.title;
-  setMetaTag('description', currentSeo.description);
+  setMetaTag('description', description);
   setMetaTag('application-name', siteName);
   setMetaTag('og:type', currentSeo.ogType ?? 'website', true);
   setMetaTag('og:site_name', siteName, true);
   setMetaTag('og:locale', ogLocale(defaultLocale), true);
   setMetaTag('og:title', currentSeo.title, true);
-  setMetaTag('og:description', currentSeo.description, true);
+  setMetaTag('og:description', description, true);
   setMetaTag('og:image', currentSeo.ogImage ?? '/og-image.png', true);
   setMetaTag('og:image:alt', currentSeo.title, true);
   setMetaTag('og:url', currentSeo.canonical, true);
   setMetaTag('twitter:card', currentSeo.twitterCard ?? 'summary_large_image');
   setMetaTag('twitter:title', currentSeo.title);
-  setMetaTag('twitter:description', currentSeo.description);
+  setMetaTag('twitter:description', description);
   setMetaTag('twitter:image', currentSeo.ogImage ?? '/og-image.png');
   setLinkTag('canonical', currentSeo.canonical);
   setMetaTag('robots', currentSeo.robots ?? 'index, follow');
