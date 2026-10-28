@@ -133,16 +133,17 @@ export function renderChoiceInputs(
 // next on the right, each showing a chevron, its public number, and its title; the
 // direction is carried by the icon and the accessible name, not by visible label
 // text. Returns an empty string when the poll sits at both ends of the list, so no
-// empty navigation is rendered. The markup mirrors the server-rendered nav in
+// empty navigation is rendered. The labels read as light muted text rather than as
+// body copy. The markup mirrors the server-rendered nav in
 // worker/services/ssr.ts so the first paint and the client paint look alike.
 export function renderPollNav(prev: PollNeighbor | null, next: PollNeighbor | null): string {
   if (!prev && !next) return '';
   const label = (neighbor: PollNeighbor): string => escapeHtml(`#${neighbor.number} ${neighbor.title}`);
   const prevLink = prev
-    ? `<a class="flex min-w-0 items-center gap-2 text-muted no-underline hover:text-primary" href="/poll/${prev.number}" data-route="/poll/${prev.number}" aria-label="${escapeHtml(t('prevPoll'))}" data-poll-nav="prev">${chevronLeftIconMarkup('h-4 w-4 shrink-0')}<span class="truncate text-sm">${label(prev)}</span></a>`
+    ? `<a class="flex min-w-0 items-center gap-2 text-muted no-underline hover:text-primary" href="/poll/${prev.number}" data-route="/poll/${prev.number}" aria-label="${escapeHtml(t('prevPoll'))}" data-poll-nav="prev">${chevronLeftIconMarkup('h-4 w-4 shrink-0')}<span class="truncate text-sm font-light">${label(prev)}</span></a>`
     : '';
   const nextLink = next
-    ? `<a class="ml-auto flex min-w-0 items-center gap-2 text-muted no-underline hover:text-primary" href="/poll/${next.number}" data-route="/poll/${next.number}" aria-label="${escapeHtml(t('nextPoll'))}" data-poll-nav="next"><span class="truncate text-sm">${label(next)}</span>${chevronRightIconMarkup('h-4 w-4 shrink-0')}</a>`
+    ? `<a class="ml-auto flex min-w-0 items-center gap-2 text-muted no-underline hover:text-primary" href="/poll/${next.number}" data-route="/poll/${next.number}" aria-label="${escapeHtml(t('nextPoll'))}" data-poll-nav="next"><span class="truncate text-sm font-light">${label(next)}</span>${chevronRightIconMarkup('h-4 w-4 shrink-0')}</a>`
     : '';
   return `
           <nav class="mt-6 flex flex-wrap items-center gap-3" aria-label="${escapeHtml(t('pollNavLabel'))}">${prevLink}${nextLink}</nav>`;

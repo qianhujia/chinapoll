@@ -370,17 +370,18 @@ ${renderFooter(settings, t)}
 // than in a card of their own; the margin above the pair and the muted link text are
 // what set them apart from the content they follow. Each link shows a chevron, its
 // public number, and its title; the direction is carried by the icon and the
-// accessible name, not by visible label text. The whole block is omitted when the
-// poll sits at both ends of the list, so a poll with no neighbors adds no empty
-// navigation. This mirrors the client's `renderPollNav`.
+// accessible name, not by visible label text. The labels read as light muted text
+// rather than as body copy. The whole block is omitted when the poll sits at both ends
+// of the list, so a poll with no neighbors adds no empty navigation. This mirrors the
+// client's `renderPollNav`.
 function pollNavMarkup(poll: SsrPollDetail, t: Translate): string {
   if (!poll.prev && !poll.next) return '';
   const label = (neighbor: PollNeighbor): string => escapeHtml(`#${neighbor.number} ${neighbor.title}`);
   const prev = poll.prev
-    ? `<a class="flex min-w-0 items-center gap-2 text-muted no-underline hover:text-primary" href="/poll/${poll.prev.number}" data-route="/poll/${poll.prev.number}" aria-label="${escapeHtml(t('prevPoll'))}" data-poll-nav="prev">${CHEVRON_LEFT_ICON}<span class="truncate text-sm">${label(poll.prev)}</span></a>`
+    ? `<a class="flex min-w-0 items-center gap-2 text-muted no-underline hover:text-primary" href="/poll/${poll.prev.number}" data-route="/poll/${poll.prev.number}" aria-label="${escapeHtml(t('prevPoll'))}" data-poll-nav="prev">${CHEVRON_LEFT_ICON}<span class="truncate text-sm font-light">${label(poll.prev)}</span></a>`
     : '';
   const next = poll.next
-    ? `<a class="ml-auto flex min-w-0 items-center gap-2 text-muted no-underline hover:text-primary" href="/poll/${poll.next.number}" data-route="/poll/${poll.next.number}" aria-label="${escapeHtml(t('nextPoll'))}" data-poll-nav="next"><span class="truncate text-sm">${label(poll.next)}</span>${CHEVRON_RIGHT_ICON}</a>`
+    ? `<a class="ml-auto flex min-w-0 items-center gap-2 text-muted no-underline hover:text-primary" href="/poll/${poll.next.number}" data-route="/poll/${poll.next.number}" aria-label="${escapeHtml(t('nextPoll'))}" data-poll-nav="next"><span class="truncate text-sm font-light">${label(poll.next)}</span>${CHEVRON_RIGHT_ICON}</a>`
     : '';
   return `
           <nav class="mt-6 flex flex-wrap items-center gap-3" aria-label="${escapeHtml(t('pollNavLabel'))}">${prev}${next}</nav>`;

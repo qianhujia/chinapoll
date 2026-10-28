@@ -189,6 +189,8 @@ describe('server-side poll page', () => {
     expect(html).toContain('m9 18 6-6-6-6');
     expect(html).not.toContain('←');
     expect(html).not.toContain('→');
+    // Both labels are light muted text rather than body copy.
+    expect(html.match(/<span class="truncate text-sm font-light">/g)).toHaveLength(2);
     // Each link carries the public number and title and points at that route, not
     // at the primary key the row happens to have.
     expect(html).toContain('href="/poll/4"');

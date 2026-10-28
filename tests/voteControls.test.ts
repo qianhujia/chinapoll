@@ -255,6 +255,8 @@ describe('renderPollNav', () => {
     expect(markup).toContain('class="flex min-w-0 items-center gap-2 text-muted no-underline hover:text-primary"');
     expect(markup).toContain('class="ml-auto flex min-w-0 items-center gap-2 text-muted no-underline hover:text-primary"');
     expect(markup).not.toContain('text-ink');
+    // The labels are light rather than body weight, and there are two of them.
+    expect(markup.match(/<span class="truncate text-sm font-light">/g)).toHaveLength(2);
     // The direction is a chevron icon, with no visible arrow or label text.
     expect(markup).toContain('m15 18-6-6 6-6');
     expect(markup).toContain('m9 18 6-6-6-6');
