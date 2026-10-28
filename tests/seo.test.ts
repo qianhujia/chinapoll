@@ -13,9 +13,7 @@ import {
   type PublicSettingsSeo
 } from '../worker/services/seo';
 import { translatorFor } from '../worker/services/ssr';
-import { getSeoForRoute, topicSeoData, updateSeo } from '../src/seo';
-import { loadPublicSettings } from '../src/config';
-import { DEFAULT_PUBLIC_SETTINGS } from '../worker/api/settings';
+import { getSeoForRoute, topicSeoData } from '../src/seo';
 import zhDictionary from '../public/i18n/zh.json';
 
 const settings: PublicSettingsSeo = {
@@ -41,30 +39,6 @@ describe('buildMetaTags', () => {
     expect(tags).toContain('<meta property="og:locale" content="en_US" />');
     expect(tags).toContain('<meta name="application-name" content="ChinaPoll &amp; Co" />');
     expect(tags).toContain('<meta property="og:image:alt"');
-  });
-
-  // A card builder - X above all - looks for an absolute image URL. The shipped card
-  // and an uploaded logo are both site-relative, so they are resolved against the
-  // origin of the request that built the page, never a hardcoded production host.
-  it('points the card image at the site logo, or at the card the app ships', () => {
-    const shipped = buildMetaTags(getHomeSeoContext(settings, ORIGIN), settings, ORIGIN);
-    expect(shipped).toContain(`<meta property="og:image" content="${ORIGIN}/og-image.png" />`);
-    expect(shipped).toContain(`<meta name="twitter:image" content="${ORIGIN}/og-image.png" />`);
-
-    const uploaded = buildMetaTags(
-      getHomeSeoContext(settings, ORIGIN),
-      { ...settings, logo: '/image/logo.png?v=17' },
-      ORIGIN
-    );
-    expect(uploaded).toContain(`<meta property="og:image" content="${ORIGIN}/image/logo.png?v=17" />`);
-    expect(uploaded).toContain(`<meta name="twitter:image" content="${ORIGIN}/image/logo.png?v=17" />`);
-
-    const pasted = buildMetaTags(
-      getHomeSeoContext(settings, ORIGIN),
-      { ...settings, logo: 'https://cdn.example.com/logo.png' },
-      ORIGIN
-    );
-    expect(pasted).toContain('<meta property="og:image" content="https://cdn.example.com/logo.png" />');
   });
 
   it('emits one JSON-LD script per document', () => {
@@ -141,9 +115,6 @@ describe('route contexts', () => {
     // The poll number prefixes the document title as "#42".
     expect(seo.title).toBe(`#42 Bike lanes - ${settings.site_name}`);
     expect(seo.ogType).toBe('article');
-    // The poll names no card image of its own, so the site's logo (or the shipped card)
-    // is what a link preview shows.
-    expect(seo.ogImage).toBeUndefined();
     expect(Array.isArray(seo.jsonLd)).toBe(true);
     expect(seo.jsonLd).toHaveLength(2);
   });
@@ -251,65 +222,5 @@ describe('client topic route metadata', () => {
       ogType: 'website'
     });
   });
-// `updateSeo` writes the live document's head, so the tags it touches are answered as
-// already present and every write is recorded. The public settings are module state, so
-// each test loads the ones it needs before rendering a route.
-describe('client head updates', () => {
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
-
-  async function loadSettings(logo: string): Promise<void> {
-    vi.stubGlobal('fetch', async () => ({
-      ok: true,
-      json: async () => ({
-        ...DEFAULT_PUBLIC_SETTINGS,
-        turnstile_enable: false,
-        turnstile_site_key: '',
-        logo
-      })
-    }));
-    await loadPublicSettings();
-  }
-
-  function stubHead() {
-    const writes: Array<{ selector: string; name: string; value: string }> = [];
-    vi.stubGlobal('window', { location: { origin: ORIGIN } });
-    vi.stubGlobal('document', {
-      title: '',
-      querySelector: (selector: string) => ({
-        setAttribute: (name: string, value: string) => { writes.push({ selector, name, value }); }
-      }),
-      querySelectorAll: () => [],
-      createElement: () => ({ setAttribute: () => {} }),
-      head: { appendChild: () => {} }
-    });
-    return writes;
-  }
-
-  it('writes the card image as an absolute URL', async () => {
-    await loadSettings('');
-    const writes = stubHead();
-
-    updateSeo(getSeoForRoute('/poll/12', settings));
-
-    // A card builder rejects a relative image, so the shipped card is resolved against
-    // the page the visitor is on.
-    expect(writes.find((write) => write.selector === 'meta[property="og:image"]')?.value)
-      .toBe(`${ORIGIN}/og-image.png`);
-    expect(writes.find((write) => write.selector === 'meta[name="twitter:image"]')?.value)
-      .toBe(`${ORIGIN}/og-image.png`);
-  });
-
-  it('points the card image at the configured logo', async () => {
-    await loadSettings('/image/logo.png?v=9');
-    const writes = stubHead();
-
-    updateSeo(getSeoForRoute('/poll/12', settings));
-
-    expect(writes.find((write) => write.selector === 'meta[property="og:image"]')?.value)
-      .toBe(`${ORIGIN}/image/logo.png?v=9`);
-  });
-});
 });
 

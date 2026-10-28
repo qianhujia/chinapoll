@@ -387,15 +387,6 @@ markup (`worker/services/ssr.ts`) and injects the route's `<head>` metadata
 (`worker/services/seo.ts`), so the first response already carries the headings, poll
 titles, and copy.
 
-The metadata includes the link-preview image a card builder such as X fetches with the
-page. It is the configured logo when the site has one, and the card shipped in
-`public/og-image.png` (1200x630) otherwise, always as an absolute URL on the origin that
-answered the request: a card builder rejects a relative image, and `summary_large_image`
-with an image it cannot fetch leaves the share with no card at all. The SPA writes the
-same absolute tags when it updates the head on a client-side navigation
-(`src/seo.ts`), so a poll shared from the address bar and a poll reached by a click
-preview alike.
-
 The client bundle re-renders that container, so the data it needs travels with the
 document instead of being fetched again. `worker/services/bootstrap.ts` serializes
 the settings, the locale dictionary, and (on a poll page) the poll detail, its

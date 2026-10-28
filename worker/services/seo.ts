@@ -26,12 +26,6 @@ export interface PublicSettingsSeo {
   default_locale: string;
   /** Optional base64 data URI of the configured favicon. */
   favicon?: string;
-  /**
-   * The configured logo as the public pages use it: an https URL the admin pasted,
-   * or the versioned `/image/logo.png?v=…` path of an upload. It doubles as the link
-   * preview image, so a shared poll shows the site's own brand.
-   */
-  logo?: string;
 }
 
 const DEFAULT_SEO: SeoContext = {
@@ -39,21 +33,12 @@ const DEFAULT_SEO: SeoContext = {
   description: 'ChinaPoll - a privacy-first public opinion polling platform.',
   canonical: 'https://chinapoll.org/',
   ogType: 'website',
+  ogImage: '/og-image.png',
   twitterCard: 'summary_large_image',
   robots: 'index, follow'
 };
 
-// The card image the app ships, used when the site configures no logo.
-const DEFAULT_OG_IMAGE = '/og-image.png';
-
-// The image a link preview shows: the route's own image when it names one, otherwise
-// the site's configured logo, otherwise the card the app ships. A crawler needs an
-// absolute URL, so a site-relative path is resolved against this request's origin
-// rather than assumed to live on the production host.
-export function resolveOgImage(candidate: string | undefined, origin: string): string {
-  const path = candidate?.trim() || DEFAULT_OG_IMAGE;
-  return path.startsWith('/') ? `${origin}${path}` : path;
-}
+const OG_IMAGE_URL = 'https://chinapoll.org/og-image.png';
 
 // Maps the site's default locale to an Open Graph locale tag.
 function ogLocale(defaultLocale: string): string {
@@ -73,7 +58,7 @@ export function buildMetaTags(seo: SeoContext, settings: PublicSettingsSeo, orig
   const description = escapeHtml(seo.description);
   const canonical = escapeHtml(seo.canonical);
   const siteName = escapeHtml(settings.site_name);
-  const ogImage = escapeHtml(resolveOgImage(seo.ogImage ?? settings.logo, origin));
+  const ogImage = escapeHtml(seo.ogImage ? `${origin}${seo.ogImage}` : OG_IMAGE_URL);
 
   const tags: string[] = [
     `<meta name="description" content="${description}" />`,
@@ -128,6 +113,7 @@ export function buildSeoContext(
     description: settings.site_slogan,
     canonical: origin + route,
     ogType: 'website',
+    ogImage: '/og-image.png',
     twitterCard: 'summary_large_image',
     robots: 'index, follow',
     ...extra
@@ -243,6 +229,7 @@ export function getPollSeoContext(
     description,
     canonical: pollUrl,
     ogType: 'article',
+    ogImage: '/og-image.png',
     jsonLd: [
       {
         '@context': 'https://schema.org',
