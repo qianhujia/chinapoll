@@ -26,7 +26,7 @@ const ORIGIN = 'https://example.com';
 
 describe('buildMetaTags', () => {
   it('escapes values taken from settings and the route', () => {
-    const tags = buildMetaTags(getHomeSeoContext(settings, ORIGIN), settings, ORIGIN);
+    const tags = buildMetaTags(getHomeSeoContext(settings, ORIGIN), settings);
     expect(tags).toContain('content="ChinaPoll &amp; Co"');
     // Everything a tag carries stays escaped; the title proves it, since its text keeps
     // its angle brackets.
@@ -40,16 +40,24 @@ describe('buildMetaTags', () => {
     expect(tags).not.toContain('content="Visible <opinion>"');
   });
 
-  it('marks up the Open Graph locale and application name', () => {
-    const tags = buildMetaTags(getHomeSeoContext(settings, ORIGIN), settings, ORIGIN);
+  it('marks up the Open Graph locale, the application name, and the card type', () => {
+    const tags = buildMetaTags(getHomeSeoContext(settings, ORIGIN), settings);
     expect(tags).toContain('<meta property="og:locale" content="en_US" />');
     expect(tags).toContain('<meta name="application-name" content="ChinaPoll &amp; Co" />');
-    expect(tags).toContain('<meta property="og:image:alt"');
+    expect(tags).toContain('<meta name="twitter:card" content="summary" />');
+  });
+
+  // No page carries a share image any more: the same site-wide picture said nothing
+  // about the page it was shared from, so the head leaves the image tags out.
+  it('publishes no share image', () => {
+    const tags = buildMetaTags(getHomeSeoContext(settings, ORIGIN), settings);
+    expect(tags).not.toContain('og:image');
+    expect(tags).not.toContain('twitter:image');
   });
 
   it('emits one JSON-LD script per document', () => {
     const seo = { ...getHomeSeoContext(settings, ORIGIN), jsonLd: [{ '@type': 'A' }, { '@type': 'B' }] };
-    const tags = buildMetaTags(seo, settings, ORIGIN);
+    const tags = buildMetaTags(seo, settings);
     expect(tags.match(/application\/ld\+json/g)).toHaveLength(2);
   });
 
@@ -57,19 +65,18 @@ describe('buildMetaTags', () => {
     const tags = buildMetaTags(
       { ...getHomeSeoContext(settings, ORIGIN), jsonLd: { name: '</script><script>alert(1)</script>' } },
       settings,
-      ORIGIN
     );
     expect(tags).not.toContain('</script><script>alert(1)');
   });
 
   it('inlines the admin-configured favicon when one is set', () => {
     const favicon = 'data:image/x-icon;base64,AAABAAEA';
-    const tags = buildMetaTags(getHomeSeoContext(settings, ORIGIN), { ...settings, favicon }, ORIGIN);
+    const tags = buildMetaTags(getHomeSeoContext(settings, ORIGIN), { ...settings, favicon });
     expect(tags).toContain(`<link rel="icon" href="${favicon}" />`);
   });
 
   it('omits the favicon link when none is configured', () => {
-    const tags = buildMetaTags(getHomeSeoContext(settings, ORIGIN), settings, ORIGIN);
+    const tags = buildMetaTags(getHomeSeoContext(settings, ORIGIN), settings);
     expect(tags).not.toContain('rel="icon"');
   });
 
@@ -79,7 +86,6 @@ describe('buildMetaTags', () => {
     const tags = buildMetaTags(
       { ...getHomeSeoContext(settings, ORIGIN), description: '<p>Two lines</p>\n<b>and more</b>' },
       settings,
-      ORIGIN
     );
 
     expect(tags).toContain('<meta name="description" content="Two lines and more" />');
@@ -217,7 +223,7 @@ describe('injectSeoIntoHtml', () => {
 
   it('replaces the placeholder title and drops the placeholder description', () => {
     const seo = getHomeSeoContext(settings, ORIGIN);
-    const html = injectSeoIntoHtml(shell, buildMetaTags(seo, settings, ORIGIN), seo.title);
+    const html = injectSeoIntoHtml(shell, buildMetaTags(seo, settings), seo.title);
 
     expect(html).not.toContain('<title>ChinaPoll</title>');
     expect(html).toContain('<title>ChinaPoll &amp; Co - Visible &lt;opinion&gt;</title>');
@@ -294,6 +300,17 @@ describe('client head updates', () => {
     expect(content('meta[name="description"]')).toBe('Build more lanes on Main Street');
     expect(content('meta[property="og:description"]')).toBe('Build more lanes on Main Street');
     expect(content('meta[name="twitter:description"]')).toBe('Build more lanes on Main Street');
+  });
+
+  it('leaves the share image tags out of the head', () => {
+    const writes = stubHead();
+
+    updateSeo({});
+
+    const selectors = writes.map((write) => write.selector);
+    expect(selectors).not.toContain('meta[property="og:image"]');
+    expect(selectors).not.toContain('meta[name="twitter:image"]');
+    expect(writes.find((write) => write.selector === 'meta[name="twitter:card"]')?.value).toBe('summary');
   });
 
   it('falls back to the site wording when the description is only markup', () => {

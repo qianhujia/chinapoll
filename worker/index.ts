@@ -333,7 +333,7 @@ async function withSeoMetadata(
 
   const url = new URL(request.url);
   const page = await buildPublicPage(url.pathname, url.searchParams, settings, origin, env);
-  const metaTags = buildMetaTags(page.seo, settings, origin);
+  const metaTags = buildMetaTags(page.seo, settings);
   const shell = applyHtmlLang(await response.text(), settings.default_locale);
   const rendered = injectAppBody(injectSeoIntoHtml(shell, metaTags, page.seo.title), page.body);
 

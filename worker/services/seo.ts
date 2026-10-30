@@ -14,8 +14,6 @@ export interface SeoContext {
   description: string;
   canonical: string;
   ogType?: 'website' | 'article';
-  ogImage?: string;
-  twitterCard?: 'summary' | 'summary_large_image';
   /** One or more JSON-LD documents, each emitted in its own script block. */
   jsonLd?: Record<string, unknown> | Record<string, unknown>[];
   robots?: string;
@@ -34,12 +32,8 @@ const DEFAULT_SEO: SeoContext = {
   description: 'ChinaPoll - a privacy-first public opinion polling platform.',
   canonical: 'https://chinapoll.org/',
   ogType: 'website',
-  ogImage: '/og-image.png',
-  twitterCard: 'summary_large_image',
   robots: 'index, follow'
 };
-
-const OG_IMAGE_URL = 'https://chinapoll.org/og-image.png';
 
 // Maps the site's default locale to an Open Graph locale tag.
 function ogLocale(defaultLocale: string): string {
@@ -54,14 +48,13 @@ function toJsonLdList(jsonLd: SeoContext['jsonLd']): Record<string, unknown>[] {
   return Array.isArray(jsonLd) ? jsonLd : [jsonLd];
 }
 
-export function buildMetaTags(seo: SeoContext, settings: PublicSettingsSeo, origin: string): string {
+export function buildMetaTags(seo: SeoContext, settings: PublicSettingsSeo): string {
   const title = escapeHtml(seo.title);
   // Whatever text the route supplied, the tag carries one line of plain text: no tags,
   // no line breaks, and no more than a search engine shows.
   const description = escapeHtml(seoDescription(seo.description));
   const canonical = escapeHtml(seo.canonical);
   const siteName = escapeHtml(settings.site_name);
-  const ogImage = escapeHtml(seo.ogImage ? `${origin}${seo.ogImage}` : OG_IMAGE_URL);
 
   const tags: string[] = [
     `<meta name="description" content="${description}" />`,
@@ -71,13 +64,10 @@ export function buildMetaTags(seo: SeoContext, settings: PublicSettingsSeo, orig
     `<meta property="og:locale" content="${ogLocale(settings.default_locale)}" />`,
     `<meta property="og:title" content="${title}" />`,
     `<meta property="og:description" content="${description}" />`,
-    `<meta property="og:image" content="${ogImage}" />`,
-    `<meta property="og:image:alt" content="${title}" />`,
     `<meta property="og:url" content="${canonical}" />`,
-    `<meta name="twitter:card" content="${seo.twitterCard ?? 'summary_large_image'}" />`,
+    `<meta name="twitter:card" content="summary" />`,
     `<meta name="twitter:title" content="${title}" />`,
     `<meta name="twitter:description" content="${description}" />`,
-    `<meta name="twitter:image" content="${ogImage}" />`,
     `<link rel="canonical" href="${canonical}" />`,
     `<meta name="robots" content="${seo.robots ?? 'index, follow'}" />`
   ];
@@ -116,8 +106,6 @@ export function buildSeoContext(
     description: settings.site_slogan,
     canonical: origin + route,
     ogType: 'website',
-    ogImage: '/og-image.png',
-    twitterCard: 'summary_large_image',
     robots: 'index, follow',
     ...extra
   };
@@ -233,7 +221,6 @@ export function getPollSeoContext(
     description,
     canonical: pollUrl,
     ogType: 'article',
-    ogImage: '/og-image.png',
     jsonLd: [
       {
         '@context': 'https://schema.org',

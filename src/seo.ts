@@ -15,8 +15,6 @@ export interface SeoData {
   description: string;
   canonical: string;
   ogType?: 'website' | 'article';
-  ogImage?: string;
-  twitterCard?: 'summary' | 'summary_large_image';
   robots?: string;
   jsonLd?: Record<string, unknown>;
 }
@@ -26,8 +24,6 @@ const DEFAULT_SEO: SeoData = {
   description: 'ChinaPoll - a privacy-first public opinion polling platform.',
   canonical: 'https://chinapoll.org/',
   ogType: 'website',
-  ogImage: '/og-image.png',
-  twitterCard: 'summary_large_image',
   robots: 'index, follow'
 };
 
@@ -90,13 +86,10 @@ export function updateSeo(seo: Partial<SeoData>): void {
   setMetaTag('og:locale', ogLocale(defaultLocale), true);
   setMetaTag('og:title', currentSeo.title, true);
   setMetaTag('og:description', description, true);
-  setMetaTag('og:image', currentSeo.ogImage ?? '/og-image.png', true);
-  setMetaTag('og:image:alt', currentSeo.title, true);
   setMetaTag('og:url', currentSeo.canonical, true);
-  setMetaTag('twitter:card', currentSeo.twitterCard ?? 'summary_large_image');
+  setMetaTag('twitter:card', 'summary');
   setMetaTag('twitter:title', currentSeo.title);
   setMetaTag('twitter:description', description);
-  setMetaTag('twitter:image', currentSeo.ogImage ?? '/og-image.png');
   setLinkTag('canonical', currentSeo.canonical);
   setMetaTag('robots', currentSeo.robots ?? 'index, follow');
   setJsonLd(currentSeo.jsonLd);
@@ -127,8 +120,6 @@ export function getSeoForRoute(route: string, settings: { site_name: string; sit
     description: settings.site_slogan,
     canonical: origin + route,
     ogType: 'website',
-    ogImage: '/og-image.png',
-    twitterCard: 'summary_large_image',
     robots: 'index, follow'
   };
 
