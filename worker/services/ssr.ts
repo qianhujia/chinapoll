@@ -443,7 +443,7 @@ ${renderHeader(settings, t, '/about')}
           <p class="text-muted">${escapeHtml(t('aboutBody'))}</p>
           <ul class="list-disc space-y-2 pl-6">${points}
           </ul>
-          <p class="mt-4 mb-0 text-sm text-muted">${escapeHtml(t('aiPrivacyNote'))}</p>${sections}
+          ${sections}
         </section>
       </main>
 

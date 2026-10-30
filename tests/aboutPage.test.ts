@@ -31,8 +31,7 @@ const ABOUT_KEYS: readonly string[] = [
   'aboutPointOne',
   'aboutPointTwo',
   'aboutPointThree',
-  ...ABOUT_SECTIONS.flatMap((section) => [section.title, ...section.points]),
-  'aiPrivacyNote'
+  ...ABOUT_SECTIONS.flatMap((section) => [section.title, ...section.points])
 ];
 
 beforeAll(async () => {

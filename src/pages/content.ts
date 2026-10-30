@@ -39,7 +39,6 @@ export function mountAboutPage(app: HTMLElement, bindNavigation: () => void): vo
             <li>${t('aboutPointTwo')}</li>
             <li>${t('aboutPointThree')}</li>
           </ul>
-          <p class="mt-4 mb-0 text-sm text-muted">${t('aiPrivacyNote')}</p>
           ${ABOUT_SECTIONS.map(aboutSectionMarkup).join('')}
         </section>
       </main>
