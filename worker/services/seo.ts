@@ -15,7 +15,7 @@ export interface SeoContext {
   canonical: string;
   ogType?: 'website' | 'article';
   /** Absolute URL of the image a link card shows; empty while the site has none. */
-  twitterImage?: string;
+  shareImage?: string;
   /** One or more JSON-LD documents, each emitted in its own script block. */
   jsonLd?: Record<string, unknown> | Record<string, unknown>[];
   robots?: string;
@@ -25,6 +25,8 @@ export interface PublicSettingsSeo {
   site_name: string;
   site_slogan: string;
   default_locale: string;
+  /** The card image as the public pages use it: a served path or a pasted https URL. */
+  social_image?: string;
   /** The header logo as the public pages use it: a served path or a pasted https URL. */
   logo?: string;
   /** The favicon as the public pages use it: a served path or a pasted https URL. */
@@ -76,11 +78,16 @@ export function buildMetaTags(seo: SeoContext, settings: PublicSettingsSeo): str
     `<meta name="robots" content="${seo.robots ?? 'index, follow'}" />`
   ];
 
-  // X fetches the card image itself and cannot read a relative path, so only the
-  // absolute URL from the context is published, and nothing at all while the site has
-  // no image to show (see `shareImageUrl`).
-  if (seo.twitterImage) {
-    tags.push(`<meta name="twitter:image" content="${escapeHtml(seo.twitterImage)}" />`);
+  // A card builder fetches the image itself and cannot read a relative path, so only
+  // the absolute URL from the context is published, and nothing at all while the site
+  // has no image to show (see `shareImageUrl`). The same picture serves the Open Graph
+  // tags other platforms read and the X card, with the page title as its alt text.
+  if (seo.shareImage) {
+    const image = escapeHtml(seo.shareImage);
+    tags.push(`<meta property="og:image" content="${image}" />`);
+    tags.push(`<meta property="og:image:alt" content="${title}" />`);
+    tags.push(`<meta name="twitter:image" content="${image}" />`);
+    tags.push(`<meta name="twitter:image:alt" content="${title}" />`);
   }
 
   // The favicon is admin-controlled: an uploaded icon is served by the site's own
@@ -118,7 +125,7 @@ export function buildSeoContext(
     description: settings.site_slogan,
     canonical: origin + route,
     ogType: 'website',
-    twitterImage: shareImageUrl(settings, origin),
+    shareImage: shareImageUrl(settings, origin),
     robots: 'index, follow',
     ...extra
   };

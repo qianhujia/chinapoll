@@ -51,6 +51,8 @@ export interface SettingSchema {
   pattern?: string;
   secret?: boolean;
   public?: boolean;
+  /** For an image setting: the smallest side an uploaded image may have. */
+  minImagePx?: number;
 }
 
 // An image setting holds one of three things:
@@ -113,6 +115,131 @@ export function imageSettingError(value: string): string | null {
 // The unit suffixes a rate-limit value accepts. Shown in the admin dashboard next
 // to every rate-limit field so an operator does not have to guess or consult the
 // docs. The same set is enforced by RATE_LIMIT_PATTERN in worker/api/settings.ts.
+// The smallest side an image a card builder shows may have. A card picture is the one
+// exception to "any usable image": a smaller upload is dropped by the card builder and
+// leaves the placeholder icon the setting exists to replace.
+export const CARD_IMAGE_MIN_PX = 144;
+
+export interface ImageSize {
+  width: number;
+  height: number;
+}
+
+// The pixel size an uploaded image states in its own header, or null when the payload
+// is not one of the raster formats a card builder renders. Only PNG, JPEG, and WebP
+// are read: an SVG states no pixel size, and an icon is not a card picture.
+export function imagePixelSize(dataUri: string): ImageSize | null {
+  const bytes = decodeBase64Image(dataUri);
+  if (!bytes) return null;
+  return pngSize(bytes) ?? jpegSize(bytes) ?? webpSize(bytes);
+}
+
+// Why an image setting value was rejected, or null when it is valid. A setting that
+// declares minImagePx has to carry an upload at least that size on each side, in a
+// format a card builder renders; a pasted https URL passes either way, because its
+// size is not knowable here without fetching it.
+export function imageSettingValueError(schema: SettingSchema, value: string): string | null {
+  const error = imageSettingError(value);
+  if (error || !schema.minImagePx || !value.startsWith('data:')) return error;
+  const size = imagePixelSize(value);
+  if (!size) return 'must be a PNG, JPEG, or WebP image, which is what a card builder renders';
+  if (size.width < schema.minImagePx || size.height < schema.minImagePx) {
+    return `must be at least ${schema.minImagePx}x${schema.minImagePx} pixels`;
+  }
+  return null;
+}
+
+// The bytes of a base64 image data URI, or null when the value is not one.
+function decodeBase64Image(dataUri: string): Uint8Array | null {
+  const payload = dataUri.match(/^data:image\/[\w.+-]+;base64,(.*)$/s)?.[1];
+  if (payload === undefined) return null;
+  try {
+    const binary = atob(payload);
+    const bytes = new Uint8Array(binary.length);
+    for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+    return bytes;
+  } catch {
+    return null;
+  }
+}
+
+function uint16(bytes: Uint8Array, offset: number, littleEndian: boolean): number {
+  return littleEndian
+    ? bytes[offset] | (bytes[offset + 1] << 8)
+    : (bytes[offset] << 8) | bytes[offset + 1];
+}
+
+function uint24(bytes: Uint8Array, offset: number): number {
+  return bytes[offset] | (bytes[offset + 1] << 8) | (bytes[offset + 2] << 16);
+}
+
+function uint32(bytes: Uint8Array, offset: number, littleEndian: boolean): number {
+  if (littleEndian) {
+    return (bytes[offset] | (bytes[offset + 1] << 8) | (bytes[offset + 2] << 16) | (bytes[offset + 3] << 24)) >>> 0;
+  }
+  return ((bytes[offset] << 24) | (bytes[offset + 1] << 16) | (bytes[offset + 2] << 8) | bytes[offset + 3]) >>> 0;
+}
+
+function asciiAt(bytes: Uint8Array, offset: number, text: string): boolean {
+  for (let index = 0; index < text.length; index += 1) {
+    if (bytes[offset + index] !== text.charCodeAt(index)) return false;
+  }
+  return true;
+}
+
+const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+
+// A PNG states its size in the IHDR chunk that follows the 8-byte signature: a 4-byte
+// chunk length, the 4-byte chunk type, then width and height as 32-bit big-endian.
+function pngSize(bytes: Uint8Array): ImageSize | null {
+  if (bytes.length < 24 || PNG_SIGNATURE.some((byte, index) => bytes[index] !== byte)) return null;
+  return { width: uint32(bytes, 16, false), height: uint32(bytes, 20, false) };
+}
+
+// A JPEG states its size in a frame header (SOF0-SOF15, minus the Huffman, JPG, and
+// arithmetic-table markers that share the range): the marker, its 2-byte big-endian
+// length, the sample precision, then height and width as 16-bit big-endian values.
+function jpegSize(bytes: Uint8Array): ImageSize | null {
+  if (bytes.length < 4 || bytes[0] !== 0xff || bytes[1] !== 0xd8) return null;
+  let offset = 2;
+  while (offset + 9 < bytes.length) {
+    if (bytes[offset] !== 0xff) return null;
+    const marker = bytes[offset + 1];
+    // A repeated 0xFF is a fill byte, not a marker of its own.
+    if (marker === 0xff) { offset += 1; continue; }
+    const length = uint16(bytes, offset + 2, false);
+    const isFrameHeader = marker >= 0xc0 && marker <= 0xcf
+      && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc;
+    if (isFrameHeader && length >= 7) {
+      return { width: uint16(bytes, offset + 7, false), height: uint16(bytes, offset + 5, false) };
+    }
+    // The entropy-coded scan follows the start-of-scan marker, and no size can appear
+    // after it, so the walk stops there.
+    if (marker === 0xda || length < 2) return null;
+    offset += 2 + length;
+  }
+  return null;
+}
+
+// A WebP container names its variant right after the RIFF header, and every variant
+// stores both sides one pixel smaller than they are.
+function webpSize(bytes: Uint8Array): ImageSize | null {
+  if (!asciiAt(bytes, 0, 'RIFF') || !asciiAt(bytes, 8, 'WEBP')) return null;
+  if (bytes.length >= 30 && asciiAt(bytes, 12, 'VP8X')) {
+    return { width: uint24(bytes, 24) + 1, height: uint24(bytes, 27) + 1 };
+  }
+  if (bytes.length >= 25 && asciiAt(bytes, 12, 'VP8L')) {
+    // 14 bits of width, then 14 bits of height, packed after the 0x2F signature.
+    const bits = uint32(bytes, 21, true);
+    return { width: (bits & 0x3fff) + 1, height: ((bits >> 14) & 0x3fff) + 1 };
+  }
+  if (bytes.length >= 30 && asciiAt(bytes, 12, 'VP8 ')) {
+    // The lossy variant stores both sides as 14-bit values after its 3-byte start code.
+    return { width: uint16(bytes, 26, true) & 0x3fff, height: uint16(bytes, 28, true) & 0x3fff };
+  }
+  return null;
+}
+
 export const RATE_LIMIT_UNITS_HELP =
   'Units: /s = per second, /m = per minute, /h = per hour, /d = per day, /w = per week.';
 
@@ -173,7 +300,7 @@ export const SETTING_SCHEMAS: SettingSchema[] = [
     type: 'image',
     category: 'appearance',
     label: 'Logo',
-    description: 'Logo shown in the header on every public page, and used as the image a shared link shows in its card. Upload an image file (PNG, SVG, WebP) or paste an https image URL. An upload is stored in the database and served from /image/logo.<extension>.',
+    description: 'Logo shown in the header on every public page, and used as the card image when no social image is set. Upload an image file (PNG, SVG, WebP) or paste an https image URL. An upload is stored in the database and served from /image/logo.<extension>.',
     defaultValue: '',
     required: false,
     public: true,
@@ -183,7 +310,18 @@ export const SETTING_SCHEMAS: SettingSchema[] = [
     type: 'image',
     category: 'appearance',
     label: 'Favicon',
-    description: 'Favicon shown in browser tabs, and used as the card image while no logo is configured. Upload an image file (ICO, PNG, SVG) or paste an https image URL. An upload is stored in the database and served from /image/favicon.<extension>.',
+    description: 'Favicon shown in browser tabs, and used as the card image when neither a social image nor a logo is configured. Upload an image file (ICO, PNG, SVG) or paste an https image URL. An upload is stored in the database and served from /image/favicon.<extension>.',
+    defaultValue: '',
+    required: false,
+    public: true,
+  },
+  {
+    key: 'social_image',
+    type: 'image',
+    category: 'appearance',
+    label: 'Social image',
+    description: `Image a shared link shows on social platforms: the Open Graph and X card picture. Upload a PNG, JPEG, or WebP at least ${CARD_IMAGE_MIN_PX}x${CARD_IMAGE_MIN_PX} pixels, or paste an https image URL. An upload is stored in the database and served from /image/social_image.<extension>.`,
+    minImagePx: CARD_IMAGE_MIN_PX,
     defaultValue: '',
     required: false,
     public: true,

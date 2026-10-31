@@ -35,13 +35,16 @@ Public keys: `default_locale` (`en`, `zh-CN`, or `zh-TW`), `site_name`,
 - Rate limits use `"<count>/<unit>"` with unit `w|d|h|m|s`.
 - `hero_background_color` accepts any CSS color (hex, rgb/a, hsl/a, or named) or
   gradient.
-- The header logo and favicon (`logo`, `favicon`) each hold an `https` URL or an
+- The branding images (`logo`, `favicon`, `social_image`) each hold an `https` URL or an
   uploaded base64 data URI; `/api/settings/public` returns the URL to use. An
-  uploaded image is served from `/image/logo.<ext>` or `/image/favicon.<ext>`,
-  versioned by the row's update time, so the payload never travels in the
-  settings document. The logo is also the image a shared link shows in its card,
-  with the favicon standing in while no logo is configured; the head publishes it as
-  an absolute URL, because a card builder fetches the image itself.
+  uploaded image is served from `/image/<key>.<ext>`, versioned by the row's update
+  time, so the payload never travels in the settings document.
+- `social_image` is the picture a shared link shows: the head publishes it as
+  `og:image` and `twitter:image`, with the page title as the alt text. An upload has
+  to be a PNG, JPEG, or WebP of at least 144x144 pixels, the size a card builder
+  requires; a pasted URL is accepted as it is. The header `logo` stands in while no
+  social image is set, and the `favicon` after that. The URL is published as an
+  absolute one, because a card builder fetches the image itself and cannot read a path.
 - `/api/settings/public` also returns the read-only `turnstile_enable` and
   `turnstile_site_key` from the Worker environment; they cannot be changed from
   the settings table.

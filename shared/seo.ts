@@ -27,17 +27,17 @@ export function seoDescription(text: string | null | undefined): string {
     .trim();
 }
 
-// The image a link card shows for the site: the configured logo, or the favicon while
-// no logo is set. A card builder fetches the URL itself and cannot read a path, so a
-// branding route the site serves (/image/logo.png) is resolved against the origin the
-// page is published on, while an https URL the operator pasted is already absolute and
-// is used as it is. Empty when neither is configured, which leaves the card without an
-// image.
+// The image a link card shows for the site: the social image, or the header logo while
+// none is set, or the favicon as the last stand-in. A card builder fetches the URL
+// itself and cannot read a path, so a branding route the site serves (/image/logo.png)
+// is resolved against the origin the page is published on, while an https URL the
+// operator pasted is already absolute and is used as it is. Empty when none is
+// configured, which leaves the card without an image.
 export function shareImageUrl(
-  branding: { logo?: string; favicon?: string },
+  branding: { social_image?: string; logo?: string; favicon?: string },
   origin: string
 ): string {
-  for (const value of [branding.logo, branding.favicon]) {
+  for (const value of [branding.social_image, branding.logo, branding.favicon]) {
     const image = (value ?? '').trim();
     if (!image) continue;
     if (/^https:\/\//i.test(image)) return image;

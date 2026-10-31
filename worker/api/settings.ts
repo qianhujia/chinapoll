@@ -28,10 +28,11 @@ export const DEFAULT_PUBLIC_SETTINGS = {
   site_slogan: 'Public opinion made visible',
   data_repository_url: 'https://github.com/qianhujia/chinapoll-data',
   // Branding images, stored as base64 data URIs so the public site renders them
-  // without a separate asset pipeline. Empty falls back to the site wordmark and
-  // the default browser favicon request.
+  // without a separate asset pipeline. Empty falls back to the site wordmark, the
+  // default browser favicon request, and no card image.
   logo: '',
   favicon: '',
+  social_image: '',
   polls_per_page: 15,
   comments_per_page: 30,
   page_max_width_px: 960,
@@ -171,6 +172,7 @@ export async function loadPublicSettings(db: D1Database): Promise<PublicSettings
         if (value && !isHttpsUrl(value)) invalid(row.key, 'must be an HTTPS URL or empty');
         settings.data_repository_url = value;
         break;
+      case 'social_image':
       case 'logo':
       case 'favicon': {
         if (value) {

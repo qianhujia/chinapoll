@@ -9,7 +9,7 @@ import {
   getSettingDefault as getSharedSettingDefault,
   isSettingPublic,
   isSettingSecret,
-  imageSettingError,
+  imageSettingValueError,
   type SettingSchema,
   type SettingCategory,
 } from '../../shared/settings';
@@ -107,8 +107,9 @@ export function validateSettingValue(key: string, value: string): SettingValidat
     }
     case 'image': {
       // An image is an uploaded base64 data URI or a pasted https URL. An empty
-      // value removes the image and returned earlier.
-      const error = imageSettingError(value);
+      // value removes the image and returned earlier; a setting that declares
+      // minImagePx also has to clear that size (see imageSettingValueError).
+      const error = imageSettingValueError(schema, value);
       if (error) return { ok: false, error: `${schema.label} ${error}.` };
       return { ok: true, value };
     }

@@ -53,6 +53,7 @@ async function render() {
     site_name: settings.site_name,
     site_slogan: settings.site_slogan,
     default_locale: settings.default_locale,
+    social_image: settings.social_image,
     logo: settings.logo,
     favicon: settings.favicon
   });

@@ -76,6 +76,20 @@ describe('public settings: Turnstile', () => {
     expect(Array.from(new Uint8Array(await image.arrayBuffer()))).toEqual([1, 2, 3, 4]);
   });
 
+  // The card image is an image setting like the logo, so an upload reaches the pages
+  // through the same versioned branding URL.
+  it('serves an uploaded social image from the image endpoint', async () => {
+    await env.DB.prepare("INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('social_image', ?, 1700000001)")
+      .bind('data:image/png;base64,AQIDBA==').run();
+
+    const settings = await (await SELF.fetch(`${ORIGIN}/api/settings/public`)).json() as Record<string, unknown>;
+    expect(settings.social_image).toBe('/image/social_image.png?v=1700000001');
+
+    const image = await SELF.fetch(`${ORIGIN}/image/social_image.png?v=1700000001`);
+    expect(image.status).toBe(200);
+    expect(image.headers.get('content-type')).toBe('image/png');
+  });
+
   // A pasted URL is used by the pages directly, so the site serves it as it is and
   // the branding endpoint has nothing to answer with.
   it('serves a pasted favicon URL as it is', async () => {

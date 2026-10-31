@@ -16,7 +16,7 @@ export interface SeoData {
   canonical: string;
   ogType?: 'website' | 'article';
   /** Absolute URL of the image a link card shows; empty while the site has none. */
-  twitterImage?: string;
+  shareImage?: string;
   robots?: string;
   jsonLd?: Record<string, unknown>;
 }
@@ -92,9 +92,16 @@ export function updateSeo(seo: Partial<SeoData>): void {
   setMetaTag('twitter:card', 'summary');
   setMetaTag('twitter:title', currentSeo.title);
   setMetaTag('twitter:description', description);
-  // The card image is the site logo; X fetches it itself, so only an absolute URL is
-  // written, and none at all while the site has no image (see `shareImageUrl`).
-  if (currentSeo.twitterImage) setMetaTag('twitter:image', currentSeo.twitterImage);
+  // A card builder fetches the image itself, so only an absolute URL is written, and
+  // none at all while the site has no image (see `shareImageUrl`). The same picture
+  // feeds the Open Graph tags other platforms read and the X card, with the page title
+  // as its alt text.
+  if (currentSeo.shareImage) {
+    setMetaTag('og:image', currentSeo.shareImage, true);
+    setMetaTag('og:image:alt', currentSeo.title, true);
+    setMetaTag('twitter:image', currentSeo.shareImage);
+    setMetaTag('twitter:image:alt', currentSeo.title);
+  }
   setLinkTag('canonical', currentSeo.canonical);
   setMetaTag('robots', currentSeo.robots ?? 'index, follow');
   setJsonLd(currentSeo.jsonLd);
@@ -120,7 +127,7 @@ export function topicSeoData(
 
 export function getSeoForRoute(
   route: string,
-  settings: { site_name: string; site_slogan: string; default_locale: string; logo?: string; favicon?: string }
+  settings: { site_name: string; site_slogan: string; default_locale: string; social_image?: string; logo?: string; favicon?: string }
 ): SeoData {
   const origin = window.location.origin;
   const base: SeoData = {
@@ -128,7 +135,7 @@ export function getSeoForRoute(
     description: settings.site_slogan,
     canonical: origin + route,
     ogType: 'website',
-    twitterImage: shareImageUrl(settings, origin),
+    shareImage: shareImageUrl(settings, origin),
     robots: 'index, follow'
   };
 

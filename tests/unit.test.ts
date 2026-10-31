@@ -9,7 +9,7 @@ import { checkAccountAge, validateUserPassword } from '../worker/services/users'
 import { enforceSameOrigin } from '../worker/services/csrf';
 import { validateProposal } from '../worker/api/proposal';
 import { validateSettingValue } from '../admin/lib/settings';
-import { IMAGE_DATA_URI_MAX_CHARS, imageDataUriExtension } from '../shared/settings';
+import { IMAGE_DATA_URI_MAX_CHARS, imageDataUriExtension, imagePixelSize } from '../shared/settings';
 import { localizedTopicName, suggestedTopicNames, topicLabel } from '../shared/categories';
 import { SEO_DESCRIPTION_MAX_LENGTH, seoDescription } from '../shared/seo';
 import { validatePollOptions } from '../worker/services/pollType';
@@ -730,6 +730,107 @@ describe('image settings', () => {
     expect(imageDataUriExtension('data:image/tiff;base64,AA')).toBe('img');
   });
 });
+
+// A shared link shows the image the operator uploaded for it, and a card builder drops
+// an image smaller than 144x144, so the card picture is validated against the size the
+// payload states in its own header. Reading that size means walking the PNG, JPEG, and
+// WebP layouts, which is what these tests pin down.
+describe('social image uploads', () => {
+  function dataUri(type: string, bytes: number[]): string {
+    return `data:image/${type};base64,${Buffer.from(Uint8Array.from(bytes)).toString('base64')}`;
+  }
+
+  function ascii(text: string): number[] {
+    return Array.from(text, (character) => character.charCodeAt(0));
+  }
+
+  // The 8-byte signature, then the IHDR chunk: a 4-byte length, the chunk type, and
+  // both sides as 32-bit big-endian values.
+  function png(width: number, height: number): string {
+    return dataUri('png', [
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+      (width >> 24) & 0xff, (width >> 16) & 0xff, (width >> 8) & 0xff, width & 0xff,
+      (height >> 24) & 0xff, (height >> 16) & 0xff, (height >> 8) & 0xff, height & 0xff
+    ]);
+  }
+
+  // A SOF0 frame header: the marker, its 2-byte length, the sample precision, then
+  // height and width as 16-bit big-endian values.
+  function jpeg(width: number, height: number): string {
+    return dataUri('jpeg', [
+      0xff, 0xd8, 0xff, 0xc0, 0x00, 0x11, 0x08,
+      (height >> 8) & 0xff, height & 0xff, (width >> 8) & 0xff, width & 0xff, 0x00
+    ]);
+  }
+
+  // Every WebP variant stores both sides one pixel smaller than they are: VP8X as
+  // 24-bit values, VP8L packed into 14 bits each, and VP8 as 14-bit values after its
+  // start code.
+  function webp(variant: 'VP8X' | 'VP8L' | 'VP8 ', width: number, height: number): string {
+    const bytes = [...ascii('RIFF'), 0, 0, 0, 0, ...ascii('WEBP'), ...ascii(variant), 0, 0, 0, 0];
+    if (variant === 'VP8X') {
+      bytes.push(0, 0, 0, 0,
+        (width - 1) & 0xff, ((width - 1) >> 8) & 0xff, ((width - 1) >> 16) & 0xff,
+        (height - 1) & 0xff, ((height - 1) >> 8) & 0xff, ((height - 1) >> 16) & 0xff);
+      return dataUri('webp', bytes);
+    }
+    if (variant === 'VP8L') {
+      const bits = (width - 1) | ((height - 1) << 14);
+      bytes.push(0x2f, bits & 0xff, (bits >> 8) & 0xff, (bits >> 16) & 0xff, (bits >> 24) & 0xff);
+      return dataUri('webp', bytes);
+    }
+    bytes.push(0x00, 0x00, 0x00, 0x9d, 0x01, 0x2a, width & 0xff, (width >> 8) & 0xff, height & 0xff, (height >> 8) & 0xff);
+    return dataUri('webp', bytes);
+  }
+
+  it('reads the size out of each format a card builder renders', () => {
+    expect(imagePixelSize(png(1200, 630))).toEqual({ width: 1200, height: 630 });
+    expect(imagePixelSize(jpeg(144, 145))).toEqual({ width: 144, height: 145 });
+    expect(imagePixelSize(webp('VP8X', 1200, 630))).toEqual({ width: 1200, height: 630 });
+    expect(imagePixelSize(webp('VP8L', 300, 200))).toEqual({ width: 300, height: 200 });
+    expect(imagePixelSize(webp('VP8 ', 512, 512))).toEqual({ width: 512, height: 512 });
+  });
+
+  it('states no size for a format that carries none', () => {
+    // An SVG is scalable, so it has no pixel size of its own.
+    expect(imagePixelSize('data:image/svg+xml;base64,PHN2Zy8+')).toBeNull();
+    expect(imagePixelSize('data:image/png;base64,AA')).toBeNull();
+    expect(imagePixelSize('https://cdn.example.com/card.png')).toBeNull();
+  });
+
+  it('accepts an upload that is at least 144x144', () => {
+    expect(validateSettingValue('social_image', png(144, 144))).toEqual({ ok: true, value: png(144, 144) });
+    expect(validateSettingValue('social_image', webp('VP8X', 1200, 630)).ok).toBe(true);
+  });
+
+  it('rejects an upload a card builder would drop as too small', () => {
+    const short = validateSettingValue('social_image', png(250, 64));
+    expect(short.ok).toBe(false);
+    expect(short.ok ? '' : short.error).toContain('at least 144x144 pixels');
+
+    expect(validateSettingValue('social_image', jpeg(144, 143)).ok).toBe(false);
+  });
+
+  it('rejects a format a card builder cannot render', () => {
+    expect(validateSettingValue('social_image', 'data:image/svg+xml;base64,PHN2Zy8+').ok).toBe(false);
+    expect(validateSettingValue('social_image', 'data:image/x-icon;base64,AA').ok).toBe(false);
+  });
+
+  // A pasted URL is used as it is: its size is not knowable without fetching it, so the
+  // requirement stays with the operator there.
+  it('accepts a pasted https URL, whose size is not knowable here', () => {
+    expect(validateSettingValue('social_image', 'https://cdn.example.com/card.png'))
+      .toEqual({ ok: true, value: 'https://cdn.example.com/card.png' });
+  });
+
+  // The logo and the favicon are shown in the page rather than in a card, so no size
+  // rule applies to them.
+  it('leaves the logo and favicon at any size', () => {
+    expect(validateSettingValue('logo', png(250, 64)).ok).toBe(true);
+    expect(validateSettingValue('favicon', 'data:image/x-icon;base64,AA').ok).toBe(true);
+  });
+});
+
 // The topic label behind a document title and a chip. A suggested topic that still
 // carries its default English name is localized, so a Chinese site names it in
 // Chinese; anything else - a renamed or hand-made topic - repeats its stored name, so

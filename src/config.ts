@@ -8,6 +8,7 @@ export interface PublicSettings {
   data_repository_url: string;
   logo: string;
   favicon: string;
+  social_image: string;
   polls_per_page: number;
   comments_per_page: number;
   page_max_width_px: number;
@@ -41,6 +42,7 @@ const defaultSettings: PublicSettings = {
   data_repository_url: '',
   logo: '',
   favicon: '',
+  social_image: '',
   polls_per_page: 15,
   comments_per_page: 30,
   page_max_width_px: 960,
@@ -80,6 +82,7 @@ export function isValidPublicSettings(value: unknown): value is PublicSettings {
     && typeof result.data_repository_url === 'string'
     && typeof result.logo === 'string'
     && typeof result.favicon === 'string'
+    && typeof result.social_image === 'string'
     && Number.isSafeInteger(result.polls_per_page) && result.polls_per_page >= 1 && result.polls_per_page <= 100
     && Number.isSafeInteger(result.comments_per_page) && result.comments_per_page >= 1 && result.comments_per_page <= 100
     && Number.isSafeInteger(result.page_max_width_px) && result.page_max_width_px >= 100 && result.page_max_width_px <= 9999

@@ -1,4 +1,4 @@
-// Serves the configured logo and favicon.
+// Serves the configured logo, favicon, and social image.
 //
 // A branding setting holds either an https URL the admin pasted or a base64 data
 // URI produced by an upload (see shared/settings.ts). A pasted URL is used by the
@@ -9,7 +9,7 @@
 // that request the icon path instead of reading the document's
 // `<link rel="icon">`.
 
-export type BrandingKey = 'logo' | 'favicon';
+export type BrandingKey = 'logo' | 'favicon' | 'social_image';
 
 // Headers for a branding response. The Worker's wrapper normally forces
 // `no-store` on every response; these bytes are versioned by the URL instead, so
@@ -45,7 +45,7 @@ const imageCache = new Map<BrandingKey, CachedImage>();
 // cosmetic: the stored row decides the content type that is returned, so a wrong
 // extension is answered rather than rejected and an image replaced with another
 // format keeps working until its versioned URL is regenerated.
-const IMAGE_PATH_PATTERN = /^\/image\/(logo|favicon)(?:\.[a-z0-9]+)?$/;
+const IMAGE_PATH_PATTERN = /^\/image\/(logo|favicon|social_image)(?:\.[a-z0-9]+)?$/;
 
 // The branding key a request path names, or null for any other path. Also used by
 // the request router to keep these responses out of the `no-store` wrapper.
