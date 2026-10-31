@@ -7,7 +7,7 @@
 
 import { getPublicSettings } from './config';
 import { topicLabel, type TopicLocale } from '../shared/categories';
-import { seoDescription } from '../shared/seo';
+import { seoDescription, shareImageUrl } from '../shared/seo';
 import { t } from './ui';
 
 export interface SeoData {
@@ -15,6 +15,8 @@ export interface SeoData {
   description: string;
   canonical: string;
   ogType?: 'website' | 'article';
+  /** Absolute URL of the image a link card shows; empty while the site has none. */
+  twitterImage?: string;
   robots?: string;
   jsonLd?: Record<string, unknown>;
 }
@@ -90,6 +92,9 @@ export function updateSeo(seo: Partial<SeoData>): void {
   setMetaTag('twitter:card', 'summary');
   setMetaTag('twitter:title', currentSeo.title);
   setMetaTag('twitter:description', description);
+  // The card image is the site logo; X fetches it itself, so only an absolute URL is
+  // written, and none at all while the site has no image (see `shareImageUrl`).
+  if (currentSeo.twitterImage) setMetaTag('twitter:image', currentSeo.twitterImage);
   setLinkTag('canonical', currentSeo.canonical);
   setMetaTag('robots', currentSeo.robots ?? 'index, follow');
   setJsonLd(currentSeo.jsonLd);
@@ -113,13 +118,17 @@ export function topicSeoData(
   };
 }
 
-export function getSeoForRoute(route: string, settings: { site_name: string; site_slogan: string; default_locale: string }): SeoData {
+export function getSeoForRoute(
+  route: string,
+  settings: { site_name: string; site_slogan: string; default_locale: string; logo?: string; favicon?: string }
+): SeoData {
   const origin = window.location.origin;
   const base: SeoData = {
     title: settings.site_name,
     description: settings.site_slogan,
     canonical: origin + route,
     ogType: 'website',
+    twitterImage: shareImageUrl(settings, origin),
     robots: 'index, follow'
   };
 

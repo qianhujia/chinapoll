@@ -55,6 +55,11 @@ async function seedPollAt(title: string, createdAt: number): Promise<number> {
 
 beforeAll(async () => {
   await applySchema();
+  // A configured logo travels into the document head as the absolute card image a
+  // share builder fetches. Written before the first request, so the settings cache is
+  // filled with it.
+  await env.DB.prepare("INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('logo', ?, 1700000000)")
+    .bind('data:image/png;base64,AQIDBA==').run();
   // Written before the first request so the Worker's settings cache sees it.
   await env.DB.prepare("INSERT INTO settings (key, value) VALUES ('default_locale', 'zh-CN')").run();
 });
@@ -85,6 +90,9 @@ describe('server-rendered pages', () => {
     expect(html).not.toContain(`href="/poll/${pollId}"`);
     expect(html).toContain('name="description"');
     expect(html).toContain('property="og:locale"');
+    // A shared link shows the site logo: the head publishes it as an absolute URL, which
+    // a card builder fetches itself and cannot read from a relative path.
+    expect(html).toContain(`<meta name="twitter:image" content="${ORIGIN}/image/logo.png?v=1700000000" />`);
     expect(html).toContain('application/ld+json');
     // The hero statistics are rendered server-side instead of being fetched by
     // the SPA after the page loads.

@@ -47,12 +47,34 @@ describe('buildMetaTags', () => {
     expect(tags).toContain('<meta name="twitter:card" content="summary" />');
   });
 
-  // No page carries a share image any more: the same site-wide picture said nothing
-  // about the page it was shared from, so the head leaves the image tags out.
-  it('publishes no share image', () => {
+  // A site with no logo and no favicon publishes no card image at all, rather than
+  // pointing every page at the same picture.
+  it('publishes no card image while none is configured', () => {
     const tags = buildMetaTags(getHomeSeoContext(settings, ORIGIN), settings);
     expect(tags).not.toContain('og:image');
     expect(tags).not.toContain('twitter:image');
+  });
+
+  // A shared link shows the site's own image: the configured logo, or the favicon
+  // while no logo is set. The card builder fetches that URL itself, so a path the site
+  // serves is published as an absolute one.
+  it('shows the site logo in the card, as an absolute URL', () => {
+    const branded = { ...settings, logo: '/image/logo.png?v=1700000000' };
+    const tags = buildMetaTags(getHomeSeoContext(branded, ORIGIN), branded);
+
+    expect(tags).toContain('<meta name="twitter:image" content="https://example.com/image/logo.png?v=1700000000" />');
+  });
+
+  it('falls back to the favicon while no logo is configured', () => {
+    const faviconOnly = { ...settings, favicon: '/image/favicon.png?v=1' };
+
+    expect(getHomeSeoContext(faviconOnly, ORIGIN).twitterImage).toBe('https://example.com/image/favicon.png?v=1');
+  });
+
+  it('keeps a pasted image URL as it is', () => {
+    const pasted = { ...settings, logo: 'https://cdn.example.com/logo.png' };
+
+    expect(getHomeSeoContext(pasted, ORIGIN).twitterImage).toBe('https://cdn.example.com/logo.png');
   });
 
   it('emits one JSON-LD script per document', () => {
@@ -259,6 +281,16 @@ describe('client topic route metadata', () => {
     expect(seo.canonical).toBe(`${ORIGIN}/topic/my-topic`);
   });
 
+  // A link shared from a client-side navigation carries the same card image as the
+  // server-rendered first paint.
+  it('carries the logo into the client route metadata', () => {
+    vi.stubGlobal('window', { location: { origin: ORIGIN } });
+
+    const seo = getSeoForRoute('/', { ...settings, logo: '/image/logo.png?v=7' });
+
+    expect(seo.twitterImage).toBe('https://example.com/image/logo.png?v=7');
+  });
+
   it('builds the topic page metadata from one shared wording', () => {
     expect(topicSeoData('economy', '经济', '中国民意调查', ORIGIN)).toEqual({
       title: '经济 - 中国民意调查',
@@ -302,15 +334,24 @@ describe('client head updates', () => {
     expect(content('meta[name="twitter:description"]')).toBe('Build more lanes on Main Street');
   });
 
-  it('leaves the share image tags out of the head', () => {
+  it('writes no card image while the site has none', () => {
     const writes = stubHead();
 
-    updateSeo({});
+    updateSeo({ twitterImage: '' });
 
     const selectors = writes.map((write) => write.selector);
     expect(selectors).not.toContain('meta[property="og:image"]');
     expect(selectors).not.toContain('meta[name="twitter:image"]');
     expect(writes.find((write) => write.selector === 'meta[name="twitter:card"]')?.value).toBe('summary');
+  });
+
+  it('writes the card image when the site has one', () => {
+    const writes = stubHead();
+
+    updateSeo({ twitterImage: 'https://example.com/image/logo.png?v=1' });
+
+    expect(writes.find((write) => write.selector === 'meta[name="twitter:image"]')?.value)
+      .toBe('https://example.com/image/logo.png?v=1');
   });
 
   it('falls back to the site wording when the description is only markup', () => {

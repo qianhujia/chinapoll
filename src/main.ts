@@ -52,7 +52,9 @@ async function render() {
   const seo = getSeoForRoute(route, {
     site_name: settings.site_name,
     site_slogan: settings.site_slogan,
-    default_locale: settings.default_locale
+    default_locale: settings.default_locale,
+    logo: settings.logo,
+    favicon: settings.favicon
   });
   updateSeo(seo);
 

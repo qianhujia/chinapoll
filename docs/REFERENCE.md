@@ -39,7 +39,9 @@ Public keys: `default_locale` (`en`, `zh-CN`, or `zh-TW`), `site_name`,
   uploaded base64 data URI; `/api/settings/public` returns the URL to use. An
   uploaded image is served from `/image/logo.<ext>` or `/image/favicon.<ext>`,
   versioned by the row's update time, so the payload never travels in the
-  settings document.
+  settings document. The logo is also the image a shared link shows in its card,
+  with the favicon standing in while no logo is configured; the head publishes it as
+  an absolute URL, because a card builder fetches the image itself.
 - `/api/settings/public` also returns the read-only `turnstile_enable` and
   `turnstile_site_key` from the Worker environment; they cannot be changed from
   the settings table.

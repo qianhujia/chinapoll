@@ -6,7 +6,7 @@
 // document (see withSeoMetadata in ../index).
 
 import { escapeHtml, serializeJsonLd } from './html';
-import { seoDescription } from '../../shared/seo';
+import { seoDescription, shareImageUrl } from '../../shared/seo';
 import type { Translate } from './ssr';
 
 export interface SeoContext {
@@ -14,6 +14,8 @@ export interface SeoContext {
   description: string;
   canonical: string;
   ogType?: 'website' | 'article';
+  /** Absolute URL of the image a link card shows; empty while the site has none. */
+  twitterImage?: string;
   /** One or more JSON-LD documents, each emitted in its own script block. */
   jsonLd?: Record<string, unknown> | Record<string, unknown>[];
   robots?: string;
@@ -23,7 +25,9 @@ export interface PublicSettingsSeo {
   site_name: string;
   site_slogan: string;
   default_locale: string;
-  /** Optional base64 data URI of the configured favicon. */
+  /** The header logo as the public pages use it: a served path or a pasted https URL. */
+  logo?: string;
+  /** The favicon as the public pages use it: a served path or a pasted https URL. */
   favicon?: string;
 }
 
@@ -72,8 +76,16 @@ export function buildMetaTags(seo: SeoContext, settings: PublicSettingsSeo): str
     `<meta name="robots" content="${seo.robots ?? 'index, follow'}" />`
   ];
 
-  // The favicon is admin-controlled and stored as a data URI, so the document
-  // ships it inline. Without one the browser requests the site default.
+  // X fetches the card image itself and cannot read a relative path, so only the
+  // absolute URL from the context is published, and nothing at all while the site has
+  // no image to show (see `shareImageUrl`).
+  if (seo.twitterImage) {
+    tags.push(`<meta name="twitter:image" content="${escapeHtml(seo.twitterImage)}" />`);
+  }
+
+  // The favicon is admin-controlled: an uploaded icon is served by the site's own
+  // image route and a pasted one by wherever it is hosted. Without one the browser
+  // requests the site default.
   if (settings.favicon) {
     tags.push(`<link rel="icon" href="${escapeHtml(settings.favicon)}" />`);
   }
@@ -106,6 +118,7 @@ export function buildSeoContext(
     description: settings.site_slogan,
     canonical: origin + route,
     ogType: 'website',
+    twitterImage: shareImageUrl(settings, origin),
     robots: 'index, follow',
     ...extra
   };
