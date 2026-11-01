@@ -14,12 +14,16 @@ import {
 } from '../worker/services/seo';
 import { translatorFor } from '../worker/services/ssr';
 import { getSeoForRoute, topicSeoData, updateSeo } from '../src/seo';
+import { DEFAULT_HOME_DESCRIPTION_TEMPLATE, DEFAULT_TOPIC_DESCRIPTION_TEMPLATE } from '../shared/seo';
 import zhDictionary from '../public/i18n/zh.json';
 
 const settings: PublicSettingsSeo = {
   site_name: 'ChinaPoll & Co',
   site_slogan: 'Visible <opinion>',
-  default_locale: 'en'
+  default_locale: 'en',
+  // The wording the site ships with; both pages resolve it like any stored value.
+  home_description: DEFAULT_HOME_DESCRIPTION_TEMPLATE,
+  topic_description: DEFAULT_TOPIC_DESCRIPTION_TEMPLATE
 };
 
 const ORIGIN = 'https://example.com';
@@ -229,6 +233,47 @@ describe('route contexts', () => {
     expect(list.numberOfItems).toBe(1);
   });
 
+  // Both descriptions are wording the admin edits, so a stored template is resolved
+  // against the page's own values. An unfilled `{topic}` (or a value that is nothing
+  // but markup) leaves the built-in wording in place rather than blanking the tag.
+  it('publishes the admin-configured home description with the site variables filled in', () => {
+    const configured = getHomeSeoContext(
+      { ...settings, home_description: 'Polls on {site_name} - {slogan}' },
+      ORIGIN
+    );
+    expect(configured.description).toBe('Polls on ChinaPoll & Co - Visible');
+    // The tag-shaped text the slogan carries is still dropped after the placeholder
+    // was filled in: a description is published as one plain line whatever it started as.
+
+    // The value is published as one plain line, the same as any other description.
+    const single = { ...settings, home_description: 'Polls on {site_name}' };
+    const tags = buildMetaTags(getHomeSeoContext(single, ORIGIN), single);
+    expect(tags).toContain('<meta name="description" content="Polls on ChinaPoll &amp; Co" />');
+  });
+
+  it('falls back to the site slogan while the home description is empty', () => {
+    expect(getHomeSeoContext({ ...settings, home_description: '' }, ORIGIN).description)
+      .toBe(settings.site_slogan);
+    expect(getHomeSeoContext({ ...settings, home_description: '<br />' }, ORIGIN).description)
+      .toBe(settings.site_slogan);
+  });
+
+  it('publishes the admin-configured topic description with the topic filled in', () => {
+    const seo = getTopicSeoContext(
+      'economy',
+      '经济',
+      { ...settings, site_name: '中国民意调查', topic_description: '关于 {topic} 的投票（{site_name}）' },
+      ORIGIN,
+      []
+    );
+    expect(seo.description).toBe('关于 经济 的投票（中国民意调查）');
+
+    // The shipped template is what a site without a stored value publishes.
+    const shipped = getTopicSeoContext('economy', '经济', settings, ORIGIN, []);
+    expect(shipped.description).toBe(`Browse polls about 经济 on ${settings.site_name}.`);
+  });
+
+
   it('translates the about and submit titles and descriptions', () => {
     const en = translatorFor('en');
     const zh = translatorFor('zh-CN');
@@ -304,12 +349,43 @@ describe('client topic route metadata', () => {
   });
 
   it('builds the topic page metadata from one shared wording', () => {
-    expect(topicSeoData('economy', '经济', '中国民意调查', ORIGIN)).toEqual({
+    expect(topicSeoData('economy', '经济', {
+      site_name: '中国民意调查',
+      site_slogan: '',
+      default_locale: 'zh-CN',
+      topic_description: DEFAULT_TOPIC_DESCRIPTION_TEMPLATE
+    }, ORIGIN)).toEqual({
       title: '经济 - 中国民意调查',
       description: 'Browse polls about 经济 on 中国民意调查.',
       canonical: `${ORIGIN}/topic/economy`,
       ogType: 'website'
     });
+  });
+
+  // The client head is rebuilt on every route change, so the home route and a topic
+  // route have to resolve the same configured templates the server-rendered head used.
+  it('resolves the configured home description for the home route', () => {
+    vi.stubGlobal('window', { location: { origin: ORIGIN } });
+
+    const seo = getSeoForRoute('/', {
+      ...settings,
+      site_slogan: 'Open ballots',
+      home_description: 'Polls on {site_name} · {slogan}'
+    });
+
+    expect(seo.description).toBe('Polls on ChinaPoll & Co · Open ballots');
+  });
+
+  it('resolves the configured topic description with the topic name', () => {
+    vi.stubGlobal('window', { location: { origin: ORIGIN } });
+
+    const seo = getSeoForRoute('/topic/economy', {
+      ...settings,
+      default_locale: 'zh-CN',
+      topic_description: '{topic} polls on {site_name}'
+    });
+
+    expect(seo.description).toBe(`经济 polls on ${settings.site_name}`);
   });
 });
 

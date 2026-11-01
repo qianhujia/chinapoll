@@ -18,7 +18,8 @@ it. The audit log records only the settings whose effective value changed, and a
 reset to the default is marked with `"default": true`.
 
 Public keys: `default_locale` (`en`, `zh-CN`, or `zh-TW`), `site_name`,
-`site_slogan`, `data_repository_url`, `polls_per_page`, `comments_per_page`,
+`site_slogan`, `home_description`, `topic_description`, `data_repository_url`,
+`polls_per_page`, `comments_per_page`,
 `page_max_width_px`, `hero_title`, `hero_subtitle`, `hero_background_color`
 (a CSS color or gradient; empty means none), `read_only_mode`,
 `min_votes_to_display`, `min_views_to_display`, `report_rate_limit`,
@@ -27,6 +28,15 @@ Public keys: `default_locale` (`en`, `zh-CN`, or `zh-TW`), `site_name`,
 `ai_enable` flag (true whenever the private `ai_provider` is not `off`).
 
 - Page sizes are 1-100; the page width is in pixels.
+- `home_description` and `topic_description` are the meta descriptions of the home
+  page and of a topic page: the one line a search engine or a link card shows, up to
+  300 characters, and empty for the built-in wording. Both are templates, and the
+  admin dashboard lists the variables next to each field: `{site_name}` and `{slogan}`
+  are filled in on either page, and `{topic}` with the topic's resolved name on a
+  topic page. A `{name}` the page does not provide stays as it is, and a value that
+  ends up empty once its markup and placeholders are gone leaves the built-in wording
+  in place (`{slogan}` for the home page, `Browse polls about {topic} on {site_name}.`
+  for a topic page), so a shared link never shows a blank description.
 - `min_votes_to_display` (default 10) hides result counts until a poll reaches
   that many votes. The threshold hides results only, so voting is always
   possible on an open poll.

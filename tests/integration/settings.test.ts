@@ -5,6 +5,7 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { env, SELF } from 'cloudflare:test';
 import { handlePublicSettingsRequest } from '../../worker/api/settings';
+import { DEFAULT_HOME_DESCRIPTION_TEMPLATE, DEFAULT_TOPIC_DESCRIPTION_TEMPLATE } from '../../shared/seo';
 import { ORIGIN, applySchema } from './helpers';
 
 const SITE_KEY = '0x4AAAAAAAtest-site-key';
@@ -112,5 +113,44 @@ describe('public settings: Turnstile', () => {
     const settings = await (await SELF.fetch(`${ORIGIN}/api/settings/public`)).json() as Record<string, unknown>;
     expect(settings.turnstile_enable).toBe(false);
     expect(settings.turnstile_site_key).toBe('');
+  });
+});
+
+// The home page and topic page descriptions are templates the admin edits, so the
+// stored text travels to the pages as it was entered: the `{variable}` placeholders
+// are resolved where the description is published, not where it is stored.
+describe('public settings: page descriptions', () => {
+  it('serves the configured home and topic description templates', async () => {
+    await env.DB.batch([
+      env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('home_description', ?)")
+        .bind('Polls on {site_name}'),
+      env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('topic_description', ?)")
+        .bind('{topic} polls on {site_name}')
+    ]);
+
+    const settings = await (await publicSettingsResponse({})).json() as Record<string, unknown>;
+    expect(settings.home_description).toBe('Polls on {site_name}');
+    expect(settings.topic_description).toBe('{topic} polls on {site_name}');
+  });
+
+  it('falls back to the shipped wording while no value is stored', async () => {
+    await env.DB.batch([
+      env.DB.prepare("DELETE FROM settings WHERE key = 'home_description'"),
+      env.DB.prepare("DELETE FROM settings WHERE key = 'topic_description'")
+    ]);
+
+    const settings = await (await publicSettingsResponse({})).json() as Record<string, unknown>;
+    expect(settings.home_description).toBe(DEFAULT_HOME_DESCRIPTION_TEMPLATE);
+    expect(settings.topic_description).toBe(DEFAULT_TOPIC_DESCRIPTION_TEMPLATE);
+  });
+
+  it('rejects a stored template that does not fit a settings row', async () => {
+    await env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('home_description', ?)")
+      .bind('x'.repeat(301)).run();
+
+    // The endpoint logs the offending key and answers 500 rather than serving a
+    // half-loaded payload; the request router falls back to the defaults.
+    const response = await publicSettingsResponse({});
+    expect(response.status).toBe(500);
   });
 });

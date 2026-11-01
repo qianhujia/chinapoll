@@ -52,6 +52,8 @@ async function render() {
   const seo = getSeoForRoute(route, {
     site_name: settings.site_name,
     site_slogan: settings.site_slogan,
+    home_description: settings.home_description,
+    topic_description: settings.topic_description,
     default_locale: settings.default_locale,
     social_image: settings.social_image,
     logo: settings.logo,

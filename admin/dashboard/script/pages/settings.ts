@@ -135,6 +135,9 @@ export const scriptSettings = `  var SETTINGS_IMAGE_TYPES = ['image/png', 'image
       '<div><label for="' + labelTarget + '">' + esc(item.label) + '</label>' +
       '<div class="meta">' + metaParts.join(' · ') + '</div>' +
       (item.description ? '<div class="small muted desc">' + esc(item.description) + '</div>' : '') +
+      (item.variables && item.variables.length
+        ? '<div class="small muted desc">Variables: ' + item.variables.map(function (name) { return '{' + esc(name) + '}'; }).join(', ') + '</div>'
+        : '') +
       '</div>' +
       '<div>' + inputHtml + '</div>' +
       '<div class="setting-status" data-status-key="' + esc(item.key) + '">' + (item.isSet ? ('last updated ' + esc(formatDate(item.updatedAt))) : '') + '</div>' +

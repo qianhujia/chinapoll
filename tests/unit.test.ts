@@ -9,9 +9,14 @@ import { checkAccountAge, validateUserPassword } from '../worker/services/users'
 import { enforceSameOrigin } from '../worker/services/csrf';
 import { validateProposal } from '../worker/api/proposal';
 import { validateSettingValue } from '../admin/lib/settings';
-import { IMAGE_DATA_URI_MAX_CHARS, imageDataUriExtension, imagePixelSize } from '../shared/settings';
+import { IMAGE_DATA_URI_MAX_CHARS, getSettingSchema, imageDataUriExtension, imagePixelSize } from '../shared/settings';
 import { localizedTopicName, suggestedTopicNames, topicLabel } from '../shared/categories';
-import { SEO_DESCRIPTION_MAX_LENGTH, seoDescription } from '../shared/seo';
+import {
+  DEFAULT_TOPIC_DESCRIPTION_TEMPLATE,
+  SEO_DESCRIPTION_MAX_LENGTH,
+  resolveSeoDescription,
+  seoDescription
+} from '../shared/seo';
 import { validatePollOptions } from '../worker/services/pollType';
 import {
   toPublicResults,
@@ -903,3 +908,55 @@ describe('seoDescription', () => {
     expect(seoDescription('<p></p>\n<br />')).toBe('');
   });
 });
+
+// An admin-edited description is a template: its `{name}` placeholders are filled
+// from the page's own values before the text is reduced to one plain line.
+describe('resolveSeoDescription', () => {
+  it('fills the variables a page provides', () => {
+    expect(resolveSeoDescription('Browse polls about {topic} on {site_name}.', {
+      topic: 'Economy',
+      site_name: 'ChinaPoll'
+    })).toBe('Browse polls about Economy on ChinaPoll.');
+  });
+
+  it('leaves a variable the page does not provide as it is', () => {
+    // A visible placeholder is better than a sentence that silently lost a word.
+    expect(resolveSeoDescription('{topic} on {site_name}', { site_name: 'ChinaPoll' }))
+      .toBe('{topic} on ChinaPoll');
+  });
+
+  it('reduces the filled text to one plain line', () => {
+    expect(resolveSeoDescription('<p>{site_name}</p>\n<b>polls</b>', { site_name: 'ChinaPoll' }))
+      .toBe('ChinaPoll polls');
+    expect(resolveSeoDescription('{missing}')).toBe('{missing}');
+    expect(resolveSeoDescription('')).toBe('');
+    expect(resolveSeoDescription(undefined)).toBe('');
+  });
+});
+
+// The home page and topic page descriptions are the two settings whose value is a
+// template: the schema names the variables the admin may use, the dashboard lists
+// them next to the field, and the validator keeps the text within a settings row.
+describe('page description settings', () => {
+  it('publishes both descriptions and the variables each page provides', () => {
+    expect(getSettingSchema('home_description')?.variables).toEqual(['site_name', 'slogan']);
+    expect(getSettingSchema('topic_description')?.variables).toEqual(['site_name', 'slogan', 'topic']);
+    expect(getSettingSchema('home_description')?.public).toBe(true);
+    expect(getSettingSchema('topic_description')?.defaultValue)
+      .toBe(DEFAULT_TOPIC_DESCRIPTION_TEMPLATE);
+  });
+
+  it('accepts a template and keeps an empty value as the built-in wording', () => {
+    expect(validateSettingValue('home_description', 'Polls on {site_name}'))
+      .toEqual({ ok: true, value: 'Polls on {site_name}' });
+    expect(validateSettingValue('topic_description', '')).toEqual({ ok: true, value: '' });
+  });
+
+  it('rejects a template longer than a stored value may be', () => {
+    expect(validateSettingValue('topic_description', 'x'.repeat(301))).toEqual({
+      ok: false,
+      error: 'Topic page description must not exceed 300 characters.'
+    });
+  });
+});
+

@@ -3,6 +3,10 @@
 
 import { isTurnstileEnabled, turnstileSiteKey, type TurnstileEnv } from '../services/turnstile';
 import { apiError } from '../../shared/http';
+import {
+  DEFAULT_HOME_DESCRIPTION_TEMPLATE,
+  DEFAULT_TOPIC_DESCRIPTION_TEMPLATE
+} from '../../shared/seo';
 import { imageDataUriExtension, imageSettingError, type AiProvider } from '../../shared/settings';
 
 interface SettingRow {
@@ -26,6 +30,12 @@ export const DEFAULT_PUBLIC_SETTINGS = {
   default_locale: 'en',
   site_name: 'ChinaPoll',
   site_slogan: 'Public opinion made visible',
+  // The meta description of the home page and of a topic page. Both are templates:
+  // `{site_name}` and `{slogan}` are filled in on either page, and `{topic}` with the
+  // topic's name on a topic page (see `resolveSeoDescription` in shared/seo.ts). An
+  // empty result leaves the built-in fallback in place.
+  home_description: DEFAULT_HOME_DESCRIPTION_TEMPLATE,
+  topic_description: DEFAULT_TOPIC_DESCRIPTION_TEMPLATE,
   data_repository_url: 'https://github.com/qianhujia/chinapoll-data',
   // Branding images, stored as base64 data URIs so the public site renders them
   // without a separate asset pipeline. Empty falls back to the site wordmark, the
@@ -167,6 +177,13 @@ export async function loadPublicSettings(db: D1Database): Promise<PublicSettings
       case 'site_slogan':
         if (value.length > 300) invalid(row.key, 'must not exceed 300 characters');
         settings.site_slogan = value;
+        break;
+      case 'home_description':
+      case 'topic_description':
+        // Both hold a template, so the text is stored as entered; the placeholders are
+        // resolved when the description is published (see `resolveSeoDescription`).
+        if (value.length > 300) invalid(row.key, 'must not exceed 300 characters');
+        (settings as Record<string, unknown>)[row.key] = value;
         break;
       case 'data_repository_url':
         if (value && !isHttpsUrl(value)) invalid(row.key, 'must be an HTTPS URL or empty');

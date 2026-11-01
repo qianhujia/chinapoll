@@ -48,6 +48,8 @@ interface SettingDetail {
   enumOptions?: { value: string; label: string }[];
   min?: number;
   max?: number;
+  /** Template variables the value may use, shown as a hint in the dashboard. */
+  variables?: string[];
   updatedAt: string | null;
 }
 
@@ -153,6 +155,7 @@ async function listSettings(env: AdminEnv): Promise<Response> {
       enumOptions: getSettingEnumOptions(key),
       min: schema?.min,
       max: schema?.max,
+      variables: schema?.variables,
       updatedAt: row?.updated_at ? new Date(row.updated_at * 1000).toISOString() : null,
     };
 

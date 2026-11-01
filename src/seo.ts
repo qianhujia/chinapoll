@@ -7,7 +7,12 @@
 
 import { getPublicSettings } from './config';
 import { topicLabel, type TopicLocale } from '../shared/categories';
-import { seoDescription, shareImageUrl } from '../shared/seo';
+import {
+  DEFAULT_TOPIC_DESCRIPTION_TEMPLATE,
+  resolveSeoDescription,
+  seoDescription,
+  shareImageUrl
+} from '../shared/seo';
 import { t } from './ui';
 
 export interface SeoData {
@@ -107,6 +112,40 @@ export function updateSeo(seo: Partial<SeoData>): void {
   setJsonLd(currentSeo.jsonLd);
 }
 
+// The public settings the head is built from. The description templates are optional
+// so a caller that only needs the site identity still works; it then gets the
+// built-in wording.
+export interface SeoSettings {
+  site_name: string;
+  site_slogan: string;
+  default_locale: string;
+  /** Template for the home page's meta description: `{site_name}`, `{slogan}`. */
+  home_description?: string;
+  /** Template for a topic page's meta description: `{site_name}`, `{slogan}`, `{topic}`. */
+  topic_description?: string;
+  social_image?: string;
+  logo?: string;
+  favicon?: string;
+}
+
+// The description the home page publishes: the wording the admin configured with the
+// site's own values filled in, or the site slogan while none is stored - or the
+// stored one leaves nothing once its placeholders and markup are gone.
+function homeDescription(settings: SeoSettings): string {
+  return resolveSeoDescription(settings.home_description, {
+    site_name: settings.site_name,
+    slogan: settings.site_slogan
+  }) || settings.site_slogan;
+}
+
+// The description a topic page publishes: the admin-configured wording with the
+// topic's resolved name filled in, or the built-in wording while none is stored.
+function topicDescription(settings: SeoSettings, label: string): string {
+  const variables = { site_name: settings.site_name, slogan: settings.site_slogan, topic: label };
+  return resolveSeoDescription(settings.topic_description ?? DEFAULT_TOPIC_DESCRIPTION_TEMPLATE, variables)
+    || resolveSeoDescription(DEFAULT_TOPIC_DESCRIPTION_TEMPLATE, variables);
+}
+
 // The metadata of a topic page. The route table builds it before any topic is
 // loaded, from a suggested label or the slug itself, and the list page rebuilds it
 // once the loaded topics carry the localized name; sharing one builder keeps both
@@ -114,21 +153,18 @@ export function updateSeo(seo: Partial<SeoData>): void {
 export function topicSeoData(
   topicSlug: string,
   label: string,
-  siteName: string,
+  settings: SeoSettings,
   origin: string
 ): Pick<SeoData, 'title' | 'description' | 'canonical' | 'ogType'> {
   return {
-    title: `${label} - ${siteName}`,
-    description: `Browse polls about ${label} on ${siteName}.`,
+    title: `${label} - ${settings.site_name}`,
+    description: topicDescription(settings, label),
     canonical: `${origin}/topic/${topicSlug}`,
     ogType: 'website'
   };
 }
 
-export function getSeoForRoute(
-  route: string,
-  settings: { site_name: string; site_slogan: string; default_locale: string; social_image?: string; logo?: string; favicon?: string }
-): SeoData {
+export function getSeoForRoute(route: string, settings: SeoSettings): SeoData {
   const origin = window.location.origin;
   const base: SeoData = {
     title: settings.site_name,
@@ -142,7 +178,7 @@ export function getSeoForRoute(
   switch (route) {
     case '/':
     case '/index.html':
-      return { ...base, title: `${settings.site_name} - ${settings.site_slogan}`, description: settings.site_slogan };
+      return { ...base, title: `${settings.site_name} - ${settings.site_slogan}`, description: homeDescription(settings) };
 
     case '/polls':
       return {
@@ -230,7 +266,7 @@ export function getSeoForRoute(
         // with the stored name (see `mountHome`).
         const locale = (settings.default_locale ?? 'en') as TopicLocale;
         const label = topicLabel(topicSlug, undefined, locale);
-        return { ...base, ...topicSeoData(topicSlug, label, settings.site_name, origin) };
+        return { ...base, ...topicSeoData(topicSlug, label, settings, origin) };
       }
       // Unknown route
       return {

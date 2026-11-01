@@ -67,6 +67,15 @@ beforeAll(async () => {
     .bind('data:image/png;base64,AQIDBA==').run();
   // Written before the first request so the Worker's settings cache sees it.
   await env.DB.prepare("INSERT INTO settings (key, value) VALUES ('default_locale', 'zh-CN')").run();
+  // The page descriptions are templates the admin edits; both hold placeholders here,
+  // so the document head proves they are resolved with the page's own values (see the
+  // assertions below). Written before the first request, like the settings above.
+  await env.DB.batch([
+    env.DB.prepare("INSERT INTO settings (key, value) VALUES ('home_description', ?)")
+      .bind('Polls on {site_name} - {slogan}'),
+    env.DB.prepare("INSERT INTO settings (key, value) VALUES ('topic_description', ?)")
+      .bind('{topic} polls | {site_name}')
+  ]);
 });
 
 // A published poll always has a public number, and the seed helper inserts polls
@@ -94,6 +103,9 @@ describe('server-rendered pages', () => {
     expect(html).toContain(`href="/poll/${pollNumber}"`);
     expect(html).not.toContain(`href="/poll/${pollId}"`);
     expect(html).toContain('name="description"');
+    // The configured home description template is resolved with the site's values.
+    expect(html)
+      .toContain('<meta name="description" content="Polls on ChinaPoll - Public opinion made visible" />');
     expect(html).toContain('property="og:locale"');
     // A shared link shows the social image: the head publishes it as an absolute URL,
     // which a card builder fetches itself and cannot read from a relative path. The logo
@@ -147,6 +159,8 @@ describe('server-rendered pages', () => {
     // slug; the list is empty here, so the label comes from the suggested topics.
     expect(html).toContain('<title>政治 - ');
     expect(html).not.toContain('<title>politics - ');
+    // The topic description template is resolved with the topic's localized name.
+    expect(html).toContain('<meta name="description" content="政治 polls | ChinaPoll" />');
   });
 
   it('renders the copy in the site default locale', async () => {

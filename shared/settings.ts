@@ -3,6 +3,11 @@
 // and the admin dashboard. The actual stored values remain simple key-value strings
 // in the `settings` table; this module only adds metadata for validation and UI.
 
+import {
+  DEFAULT_HOME_DESCRIPTION_TEMPLATE,
+  DEFAULT_TOPIC_DESCRIPTION_TEMPLATE,
+} from './seo';
+
 export type SettingType =
   | 'string'
   // A multi-line text value, rendered as a textarea in the admin dashboard.
@@ -53,6 +58,13 @@ export interface SettingSchema {
   public?: boolean;
   /** For an image setting: the smallest side an uploaded image may have. */
   minImagePx?: number;
+  /**
+   * Template variables the value may use, named without braces (e.g. "site_name").
+   * The admin dashboard lists them next to the field as a hint; a variable that is
+   * not in the list is left as it is when the value is resolved (see
+   * `resolveSeoDescription` in shared/seo.ts).
+   */
+  variables?: string[];
 }
 
 // An image setting holds one of three things:
@@ -267,6 +279,30 @@ export const SETTING_SCHEMAS: SettingSchema[] = [
     required: false,
     max: 300,
     public: true,
+  },
+  {
+    key: 'home_description',
+    type: 'string',
+    category: 'general',
+    label: 'Home page description',
+    description: 'Meta description of the home page, shown in search results and link cards.',
+    defaultValue: DEFAULT_HOME_DESCRIPTION_TEMPLATE,
+    required: false,
+    max: 300,
+    public: true,
+    variables: ['site_name', 'slogan'],
+  },
+  {
+    key: 'topic_description',
+    type: 'string',
+    category: 'general',
+    label: 'Topic page description',
+    description: 'Meta description of a topic page, shown in search results and link cards.',
+    defaultValue: DEFAULT_TOPIC_DESCRIPTION_TEMPLATE,
+    required: false,
+    max: 300,
+    public: true,
+    variables: ['site_name', 'slogan', 'topic'],
   },
   {
     key: 'default_locale',

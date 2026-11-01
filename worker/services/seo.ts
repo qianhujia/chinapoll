@@ -6,7 +6,12 @@
 // document (see withSeoMetadata in ../index).
 
 import { escapeHtml, serializeJsonLd } from './html';
-import { seoDescription, shareImageUrl } from '../../shared/seo';
+import {
+  DEFAULT_TOPIC_DESCRIPTION_TEMPLATE,
+  resolveSeoDescription,
+  seoDescription,
+  shareImageUrl
+} from '../../shared/seo';
 import type { Translate } from './ssr';
 
 export interface SeoContext {
@@ -25,6 +30,16 @@ export interface PublicSettingsSeo {
   site_name: string;
   site_slogan: string;
   default_locale: string;
+  /**
+   * The home page's meta description template. `{site_name}` and `{slogan}` are
+   * filled in; empty falls back to the site slogan.
+   */
+  home_description?: string;
+  /**
+   * The topic page's meta description template. `{site_name}`, `{slogan}`, and
+   * `{topic}` are filled in; empty falls back to the built-in wording.
+   */
+  topic_description?: string;
   /** The card image as the public pages use it: a served path or a pasted https URL. */
   social_image?: string;
   /** The header logo as the public pages use it: a served path or a pasted https URL. */
@@ -197,6 +212,16 @@ export function buildBreadcrumbJsonLd(
   };
 }
 
+// The description a topic page publishes: the admin-configured template with the
+// topic's resolved name (see `topicLabel`) filled in, or the built-in wording while
+// none is stored - or the stored one leaves nothing once its placeholders and markup
+// are gone - so the tag never blanks out.
+function topicDescription(settings: PublicSettingsSeo, label: string): string {
+  const variables = { site_name: settings.site_name, slogan: settings.site_slogan, topic: label };
+  return resolveSeoDescription(settings.topic_description ?? DEFAULT_TOPIC_DESCRIPTION_TEMPLATE, variables)
+    || resolveSeoDescription(DEFAULT_TOPIC_DESCRIPTION_TEMPLATE, variables);
+}
+
 // The topic page the poll list is filtered to. `label` is the topic's name in the
 // site's locale, resolved by the caller (see `topicLabel` in shared/categories), so
 // the title never repeats the URL slug.
@@ -210,7 +235,7 @@ export function getTopicSeoContext(
   const topicUrl = `${origin}/topic/${topicSlug}`;
   return buildSeoContext(`/topic/${topicSlug}`, settings, origin, {
     title: `${label} - ${settings.site_name}`,
-    description: `Browse polls about ${label} on ${settings.site_name}.`,
+    description: topicDescription(settings, label),
     canonical: topicUrl,
     ogType: 'website',
     jsonLd: [
@@ -266,7 +291,13 @@ export function getPollSeoContext(
 export function getHomeSeoContext(settings: PublicSettingsSeo, origin: string): SeoContext {
   return buildSeoContext('/', settings, origin, {
     title: `${settings.site_name} - ${settings.site_slogan}`,
-    description: settings.site_slogan,
+    // The wording the admin configured, with the site's own values filled in. A
+    // description that ends up empty - no value stored, or nothing but markup and
+    // unfilled placeholders - leaves the site slogan to stand in for it.
+    description: resolveSeoDescription(settings.home_description, {
+      site_name: settings.site_name,
+      slogan: settings.site_slogan
+    }) || settings.site_slogan,
     ogType: 'website',
     jsonLd: buildWebsiteJsonLd(settings, origin)
   });

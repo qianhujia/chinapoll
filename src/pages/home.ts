@@ -9,7 +9,6 @@ import {
   getErrorMessage,
   getPollsPerPage,
   getQueryValue,
-  getSiteName,
   renderFooter,
   renderHeader,
   renderModeBadge,
@@ -246,7 +245,7 @@ export async function mountHome(app: HTMLElement, page: number, bindNavigation: 
   if (topicSlug) {
     const topic = (topics?.topics ?? []).find((entry) => entry.slug === topicSlug);
     const label = topicLabel(topicSlug, topic?.name, localeCode);
-    updateSeo(topicSeoData(topicSlug, label, getSiteName(), window.location.origin));
+    updateSeo(topicSeoData(topicSlug, label, getPublicSettings(), window.location.origin));
   }
 
   app.innerHTML = `

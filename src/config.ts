@@ -1,10 +1,13 @@
 import { fetchJson } from './lib/poll';
 import { readBootstrap } from './bootstrap';
+import { DEFAULT_HOME_DESCRIPTION_TEMPLATE, DEFAULT_TOPIC_DESCRIPTION_TEMPLATE } from '../shared/seo';
 
 export interface PublicSettings {
   default_locale: 'en' | 'zh-CN' | 'zh-TW';
   site_name: string;
   site_slogan: string;
+  home_description: string;
+  topic_description: string;
   data_repository_url: string;
   logo: string;
   favicon: string;
@@ -39,6 +42,8 @@ const defaultSettings: PublicSettings = {
   default_locale: 'en',
   site_name: 'ChinaPoll',
   site_slogan: 'Public opinion made visible',
+  home_description: DEFAULT_HOME_DESCRIPTION_TEMPLATE,
+  topic_description: DEFAULT_TOPIC_DESCRIPTION_TEMPLATE,
   data_repository_url: '',
   logo: '',
   favicon: '',
@@ -79,6 +84,8 @@ export function isValidPublicSettings(value: unknown): value is PublicSettings {
   return (result.default_locale === 'en' || result.default_locale === 'zh-CN' || result.default_locale === 'zh-TW')
     && typeof result.site_name === 'string'
     && typeof result.site_slogan === 'string'
+    && typeof result.home_description === 'string'
+    && typeof result.topic_description === 'string'
     && typeof result.data_repository_url === 'string'
     && typeof result.logo === 'string'
     && typeof result.favicon === 'string'
