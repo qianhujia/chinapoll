@@ -227,6 +227,7 @@
   "commentLoginRequired": "Sign in to comment.",
   "commentLoginAction": "Sign in to comment",
   "proposalLoginRequired": "You need an account to submit a poll.",
+  "contactEmailNotice": "Do not want to register? Email your poll to {email} instead.",
   "statusOpen": "Open",
   "statusClosed": "Closed",
   "statusArchived": "Archived",

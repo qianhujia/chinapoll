@@ -10,6 +10,7 @@ import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { loadTranslations } from '../src/i18n';
 import {
   categoryFieldMarkup,
+  contactEmailMarkup,
   descriptionFieldMarkup,
   durationFieldMarkup,
   optionsFieldsetMarkup
@@ -28,7 +29,8 @@ const DICTIONARY: Record<string, string> = {
   duration1y: '1 year',
   optionsLabel: 'Options',
   addOption: 'Add option',
-  proposalDescriptionLabel: 'Description (optional)'
+  proposalDescriptionLabel: 'Description (optional)',
+  contactEmailNotice: 'Do not want to register? Email your poll to {email} instead.'
 };
 
 beforeAll(async () => {
@@ -70,5 +72,32 @@ describe('submit form labels', () => {
     expect(descriptionFieldMarkup()).not.toContain('data-ai-enhance-description');
     expect(categoryFieldMarkup()).not.toContain('data-ai-category');
     expect(categoryFieldMarkup()).not.toContain('data-category-ai-tag');
+  });
+});
+
+describe('submit contact email notice', () => {
+  it('fills the address into the translated sentence as a link', () => {
+    const markup = contactEmailMarkup('polls@example.com');
+
+    expect(markup).toContain('Do not want to register? Email your poll to <a');
+    expect(markup).toContain('href="mailto:polls@example.com"');
+    expect(markup).toContain('>polls@example.com</a> instead.');
+    // The placeholder is what the link replaces; it is never shown to the visitor.
+    expect(markup).not.toContain('{email}');
+  });
+
+  it('keeps the link when a translation drops the placeholder', async () => {
+    // A wording that names no placeholder still has to reach the address, the way the
+    // footer credit keeps its link (see `renderFooter`).
+    vi.stubGlobal('fetch', async () => ({ ok: true, json: async () => ({ contactEmailNotice: 'Write to us.' }) }));
+    await loadTranslations('en');
+
+    const markup = contactEmailMarkup('polls@example.com');
+    expect(markup).toContain('Write to us.');
+    expect(markup).toContain('href="mailto:polls@example.com"');
+
+    // Hand the dictionary the tests above use back to the loader.
+    vi.stubGlobal('fetch', async () => ({ ok: true, json: async () => DICTIONARY }));
+    await loadTranslations('en');
   });
 });

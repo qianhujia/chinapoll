@@ -1,5 +1,6 @@
 import {
   categoryFieldMarkup,
+  contactEmailMarkup,
   descriptionFieldMarkup,
   durationFieldMarkup,
   optionsFieldsetMarkup,
@@ -9,6 +10,7 @@ import {
 import { ABOUT_SECTIONS, type AboutSection } from '../../shared/about';
 import { bindProposalForm } from './proposalForm';
 import { getCurrentUser } from '../lib/session';
+import { getPublicSettings } from '../config';
 import { renderFooter, renderHeader, renderToast, t } from '../ui';
 
 
@@ -50,6 +52,10 @@ export function mountAboutPage(app: HTMLElement, bindNavigation: () => void): vo
 }
 
 export function mountProposePage(app: HTMLElement, bindNavigation: () => void): void {
+  // The address a visitor can write to instead of registering. The sign-in prompt
+  // and the form both offer it, and an unset address renders nothing at all.
+  const contactEmail = contactEmailMarkup(getPublicSettings().submit_contact_email);
+
   if (!getCurrentUser()) {
     app.innerHTML = `
       <div class="mx-auto max-w-[var(--page-width)] px-5 pt-6 pb-16">
@@ -58,6 +64,7 @@ export function mountProposePage(app: HTMLElement, bindNavigation: () => void): 
           <section class="grid gap-3 rounded-[22px] border border-border bg-panel p-6 text-center shadow-card">
             <p class="m-0 text-muted">${t('proposalLoginRequired')}</p>
             <a class="mx-auto cursor-pointer rounded-full border border-primary bg-primary px-4 py-2.5 text-white no-underline" href="/login" data-route="/login">${t('loginRequiredAction')}</a>
+            ${contactEmail}
           </section>
         </main>
         ${renderFooter()}
@@ -76,6 +83,7 @@ export function mountProposePage(app: HTMLElement, bindNavigation: () => void): 
           <p class="m-0 text-muted">${t('proposalBody')}</p>
           ${proposalRulesMarkup()}
           <form class="grid gap-3" data-proposal-form>
+            ${contactEmail}
             <fieldset class="m-0 grid gap-2 border-0 p-0">
               <legend class="mb-2 font-bold">${t('pollTypeLabel')}</legend>
               <div class="grid gap-2.5 sm:grid-cols-3">

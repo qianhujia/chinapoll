@@ -10,6 +10,7 @@ import {
   isSettingPublic,
   isSettingSecret,
   imageSettingValueError,
+  emailSettingError,
   type SettingSchema,
   type SettingCategory,
 } from '../../shared/settings';
@@ -97,6 +98,14 @@ export function validateSettingValue(key: string, value: string): SettingValidat
       if (value && !isUrl(value)) {
         return { ok: false, error: `${schema.label} must be a valid HTTPS URL.` };
       }
+      return { ok: true, value };
+    }
+    case 'email': {
+      // The address is published as a `mailto:` link on the submit page, so it has
+      // to be one plain address (see emailSettingError). An empty value removes it
+      // and returned earlier.
+      const error = emailSettingError(value);
+      if (error) return { ok: false, error: `${schema.label} ${error}.` };
       return { ok: true, value };
     }
     case 'color': {

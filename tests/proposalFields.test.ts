@@ -12,6 +12,7 @@ import {
   DESCRIPTION_MIN_ROWS,
   categoryFieldMarkup,
   categoryOptionMarkup,
+  contactEmailMarkup,
   descriptionFieldMarkup,
   durationFieldMarkup,
   nextDescriptionHeight,
@@ -185,5 +186,39 @@ describe('bold form labels', () => {
     expect(durationFieldMarkup()).toContain('font-bold');
     expect(boldLabelCount(pollTypeCard('verdict', 'pollTypeVerdict', 'pollTypeVerdictHint', true))).toBe(1);
     expect(boldLabelCount(optionsFieldsetMarkup())).toBe(1);
+  });
+});
+
+// The operator's address is the way in for a visitor who does not want an account:
+// the notice above the poll type field and in the sign-in prompt links to it. With no
+// address configured the page renders nothing at all, and the address is only ever a
+// link target, never markup.
+describe('contactEmailMarkup', () => {
+  it('shows no notice while the operator has not set an address', () => {
+    expect(contactEmailMarkup('')).toBe('');
+    // A stored value of spaces counts as unset as well.
+    expect(contactEmailMarkup('   ')).toBe('');
+  });
+
+  it('links the configured address, which the field reports to a reader', () => {
+    const markup = contactEmailMarkup('  polls@example.com  ');
+
+    // The wording is looked up when the notice is built; translations are not loaded
+    // in this environment, so it reads as its i18n key with the address filled in.
+    expect(markup).toContain('contactEmailNotice');
+    expect(markup).toContain('href="mailto:polls@example.com"');
+    expect(markup).toContain('>polls@example.com</a>');
+    // The notice is a highlighted note rather than a plain line of text.
+    expect(markup).toContain('data-contact-email');
+    expect(markup).toContain('role="note"');
+    expect(markup).toContain('bg-primary-soft');
+    expect(markup).toContain('border-[#c7d8f2]');
+  });
+
+  it('escapes a stored address instead of letting it inject markup', () => {
+    const markup = contactEmailMarkup('" onmouseover="alert(1)');
+
+    expect(markup).not.toContain('onmouseover="alert(1)"');
+    expect(markup).toContain('&quot; onmouseover=&quot;alert(1)');
   });
 });

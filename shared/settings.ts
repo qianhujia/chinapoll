@@ -17,6 +17,9 @@ export type SettingType =
   | 'enum'
   | 'rate_limit'
   | 'url'
+  // A single email address, published as a `mailto:` link. It is validated by
+  // emailSettingError and rendered as an email input in the admin dashboard.
+  | 'email'
   | 'color'
   // An image is either an https URL the admin pasted or a base64 data URI
   // produced by an upload (see imageSettingError).
@@ -122,6 +125,55 @@ export function imageSettingError(value: string): string | null {
     // Not a URL at all; fall through to the shared error below.
   }
   return 'must be an https image URL or an uploaded image';
+}
+
+// The longest address a setting may hold. The value is a single address rather than
+// a text field, and the cap keeps a stored row small.
+export const EMAIL_MAX_LENGTH = 200;
+
+// One plain address: a local part, an "@", and a domain that carries at least one
+// dot, with no whitespace anywhere. Nothing more elaborate is enforced here, because
+// a stricter pattern would reject addresses that are in fact deliverable.
+export const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// Why an email setting value was rejected, or null when it is valid. The wording
+// finishes the sentence "<label> <requirement>" in the admin validator and
+// "setting <key> <requirement>" in the public settings loader, exactly like
+// imageSettingError above.
+export function emailSettingError(value: string): string | null {
+  if (value.length > EMAIL_MAX_LENGTH) return `must not exceed ${EMAIL_MAX_LENGTH} characters`;
+  if (!EMAIL_PATTERN.test(value)) return 'must be an email address';
+  return null;
+}
+
+// The submit page's address travels to the browser encoded rather than as it is
+// written: base64 of its UTF-8 bytes, which holds no "@" and no dot, so the email
+// pattern a link harvester runs over a document matches nothing and the page never
+// ships a plain `mailto:` target. This is obfuscation, not secrecy: the browser has
+// to read the address to build its link, so a crawler that runs scripts can still
+// find it on the rendered page.
+export function encodeContactEmail(value: string): string {
+  if (!value) return '';
+  const bytes = new TextEncoder().encode(value);
+  let binary = '';
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+
+// The address a payload carries, or an empty string when it is not one this build
+// wrote. An unreadable value hides the notice instead of breaking the page, and the
+// decoded text has to be an address for the same reason it has to be one when it is
+// stored.
+export function decodeContactEmail(value: string): string {
+  if (!value) return '';
+  try {
+    const binary = atob(value);
+    const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+    const decoded = new TextDecoder().decode(bytes);
+    return EMAIL_PATTERN.test(decoded) ? decoded : '';
+  } catch {
+    return '';
+  }
 }
 
 // The unit suffixes a rate-limit value accepts. Shown in the admin dashboard next
@@ -441,6 +493,17 @@ export const SETTING_SCHEMAS: SettingSchema[] = [
     description: 'When enabled, submitted polls are published immediately. When disabled, they stay pending until an admin approves them.',
     defaultValue: false,
     required: true,
+    public: true,
+  },
+  {
+    key: 'submit_contact_email',
+    type: 'email',
+    category: 'polls',
+    label: 'Submit page contact email',
+    description: 'Address the submit page offers to a visitor who would rather not register: the notice above the poll type field and in the sign-in prompt link to it. Leave empty to hide the notice.',
+    defaultValue: '',
+    required: false,
+    max: EMAIL_MAX_LENGTH,
     public: true,
   },
   {

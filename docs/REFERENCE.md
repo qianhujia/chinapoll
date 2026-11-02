@@ -24,8 +24,9 @@ Public keys: `default_locale` (`en`, `zh-CN`, or `zh-TW`), `site_name`,
 (a CSS color or gradient; empty means none), `read_only_mode`,
 `min_votes_to_display`, `min_views_to_display`, `report_rate_limit`,
 `report_auto_hide_threshold`, `report_auto_hide_priority_threshold`,
-`vote_rate_limit`, `comment_rate_limit`, `proposal_rate_limit`, and the derived
-`ai_enable` flag (true whenever the private `ai_provider` is not `off`).
+`vote_rate_limit`, `comment_rate_limit`, `proposal_rate_limit`,
+`submit_contact_email`, and the derived `ai_enable` flag (true whenever the private
+`ai_provider` is not `off`).
 
 - Page sizes are 1-100; the page width is in pixels.
 - `home_description` and `topic_description` are the meta descriptions of the home
@@ -55,6 +56,17 @@ Public keys: `default_locale` (`en`, `zh-CN`, or `zh-TW`), `site_name`,
   requires; a pasted URL is accepted as it is. The header `logo` stands in while no
   social image is set, and the `favicon` after that. The URL is published as an
   absolute one, because a card builder fetches the image itself and cannot read a path.
+- `submit_contact_email` (empty by default) is the address the submit page offers to
+  a visitor who would rather not register. A highlighted notice above the poll type
+  field, and the sign-in prompt shown to a visitor who is not signed in, build a
+  `mailto:` link to it in the browser. The operator stores a plain address (a local
+  part, an `@`, and a domain; anything else is rejected), but `/api/settings/public`
+  and the bootstrap island carry it as base64 of its UTF-8 bytes, which holds no `@`
+  and no dot, so no document the site serves holds an address or a `mailto:` target
+  for a link harvester to lift (`encodeContactEmail` and `decodeContactEmail` in
+  `shared/settings.ts`; an unreadable value hides the notice). That is obfuscation
+  rather than secrecy: the browser decodes the address to build the link, so a
+  crawler that runs scripts can still read it. An empty value hides the notice.
 - `/api/settings/public` also returns the read-only `turnstile_enable` and
   `turnstile_site_key` from the Worker environment; they cannot be changed from
   the settings table.

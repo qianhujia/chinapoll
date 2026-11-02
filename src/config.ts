@@ -1,5 +1,6 @@
 import { fetchJson } from './lib/poll';
 import { readBootstrap } from './bootstrap';
+import { decodeContactEmail } from '../shared/settings';
 import { DEFAULT_HOME_DESCRIPTION_TEMPLATE, DEFAULT_TOPIC_DESCRIPTION_TEMPLATE } from '../shared/seo';
 
 export interface PublicSettings {
@@ -23,6 +24,7 @@ export interface PublicSettings {
   turnstile_site_key: string;
   login_badge_enable: boolean;
   auto_approve_polls: boolean;
+  submit_contact_email: string;
   user_poll_delay_minutes: number;
   user_comment_delay_minutes: number;
   max_accounts_per_ip: number;
@@ -59,6 +61,7 @@ const defaultSettings: PublicSettings = {
   turnstile_site_key: '',
   login_badge_enable: false,
   auto_approve_polls: false,
+  submit_contact_email: '',
   user_poll_delay_minutes: 10,
   user_comment_delay_minutes: 10,
   max_accounts_per_ip: 4,
@@ -101,6 +104,7 @@ export function isValidPublicSettings(value: unknown): value is PublicSettings {
     && typeof result.turnstile_site_key === 'string'
     && typeof result.login_badge_enable === 'boolean'
     && typeof result.auto_approve_polls === 'boolean'
+    && typeof result.submit_contact_email === 'string'
     && Number.isSafeInteger(result.user_poll_delay_minutes) && result.user_poll_delay_minutes >= 0
     && Number.isSafeInteger(result.user_comment_delay_minutes) && result.user_comment_delay_minutes >= 0
     && Number.isSafeInteger(result.max_accounts_per_ip) && result.max_accounts_per_ip >= 1
@@ -116,6 +120,14 @@ export function isValidPublicSettings(value: unknown): value is PublicSettings {
     && Number.isSafeInteger(result.report_auto_hide_priority_threshold) && result.report_auto_hide_priority_threshold >= 0;
 }
 
+// The payload carries the submit page's address encoded, so no document a visitor
+// receives holds a plain address or a `mailto:` target (see `encodeContactEmail`).
+// The app works with the address itself, so it is decoded once, here, on the way in
+// from either source: the bootstrap island and the endpoint answer the same value.
+function decodedSettings(payload: PublicSettings): PublicSettings {
+  return { ...payload, submit_contact_email: decodeContactEmail(payload.submit_contact_email) };
+}
+
 export async function loadPublicSettings(): Promise<PublicSettings> {
   // The document may already carry the settings (see ./bootstrap). The Worker
   // builds them from the same stored rows and the same Turnstile environment as
@@ -123,7 +135,7 @@ export async function loadPublicSettings(): Promise<PublicSettings> {
   // /api/settings/public request on the first load.
   const embedded = readBootstrap()?.settings;
   if (embedded && isValidPublicSettings(embedded)) {
-    publicSettings = embedded;
+    publicSettings = decodedSettings(embedded);
     return publicSettings;
   }
 
@@ -131,7 +143,7 @@ export async function loadPublicSettings(): Promise<PublicSettings> {
   if (!isValidPublicSettings(result)) {
     throw new Error('Invalid public settings response.');
   }
-  publicSettings = result;
+  publicSettings = decodedSettings(result);
   return publicSettings;
 }
 

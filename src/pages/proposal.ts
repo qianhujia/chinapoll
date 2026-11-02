@@ -143,6 +143,23 @@ export function proposalRulesMarkup(): string {
           </ol>`;
 }
 
+// The address the operator offers to a visitor who would rather not register: the
+// notice sits above the poll type field and in the sign-in prompt. No address
+// configured leaves no notice at all, and the address is only ever used inside a
+// `mailto:` link, so a hostile stored value cannot inject markup. The wording
+// carries `{email}`; a translation that drops the placeholder still keeps the link,
+// the way the footer credit keeps its site link (see `renderFooter`).
+export function contactEmailMarkup(email: string): string {
+  const address = email.trim();
+  if (!address) return '';
+  const escaped = escapeHtml(address);
+  const link = `<a class="font-bold text-primary no-underline" href="mailto:${escaped}" data-contact-email-link>${escaped}</a>`;
+  const notice = t('contactEmailNotice');
+  const body = notice.includes('{email}') ? notice.replace('{email}', link) : `${notice} ${link}`;
+  return `
+            <p class="m-0 rounded-[14px] border border-[#c7d8f2] bg-primary-soft px-3.5 py-3 text-sm text-ink" role="note" data-contact-email>${body}</p>`;
+}
+
 // The optional description: a plain field with its own label, no collapsible
 // wrapper. It starts at two rows and grows with the text up to 30 rows, after
 // which it scrolls instead of growing further (see `bindProposalForm`).

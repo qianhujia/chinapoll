@@ -83,7 +83,7 @@ export const scriptSettings = `  var SETTINGS_IMAGE_TYPES = ['image/png', 'image
   }
 
   function settingRow(item) {
-    var type = item.isSecret ? 'password' : (item.type === 'boolean' ? 'checkbox' : (item.type === 'enum' ? 'select' : (item.type === 'image' ? 'file' : 'text')));
+    var type = item.isSecret ? 'password' : (item.type === 'boolean' ? 'checkbox' : (item.type === 'enum' ? 'select' : (item.type === 'image' ? 'file' : (item.type === 'email' ? 'email' : 'text'))));
     var value = item.isSecret ? '' : (item.value === null ? '' : item.value);
     var placeholder = item.isSecret ? 'Leave blank to keep the current secret' : 'Not set';
     var enumOptions = item.enumOptions ? item.enumOptions.map(function (o) {

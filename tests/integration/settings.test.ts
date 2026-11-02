@@ -5,6 +5,7 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { env, SELF } from 'cloudflare:test';
 import { handlePublicSettingsRequest } from '../../worker/api/settings';
+import { decodeContactEmail } from '../../shared/settings';
 import { DEFAULT_HOME_DESCRIPTION_TEMPLATE, DEFAULT_TOPIC_DESCRIPTION_TEMPLATE } from '../../shared/seo';
 import { ORIGIN, applySchema } from './helpers';
 
@@ -152,5 +153,41 @@ describe('public settings: page descriptions', () => {
     // half-loaded payload; the request router falls back to the defaults.
     const response = await publicSettingsResponse({});
     expect(response.status).toBe(500);
+
+    // A stored row outlives the test that wrote it, and one invalid row fails every
+    // later request in this file, so it is removed again.
+    await env.DB.prepare("DELETE FROM settings WHERE key = 'home_description'").run();
+  });
+});
+
+// The submit page offers the operator's address to a visitor who would rather not
+// register. The page builds the `mailto:` link in the browser, so the value travels
+// encoded and a harvester reading the payload finds no address to lift; a malformed
+// stored value is refused instead of being published.
+describe('public settings: submit contact email', () => {
+  it('serves the configured address encoded and never in the clear', async () => {
+    await env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('submit_contact_email', ?)")
+      .bind('polls@example.com').run();
+
+    const body = await (await publicSettingsResponse({})).text();
+    const settings = JSON.parse(body) as Record<string, unknown>;
+
+    expect(body).not.toContain('polls@example.com');
+    expect(body).not.toContain('mailto:');
+    expect(decodeContactEmail(String(settings.submit_contact_email))).toBe('polls@example.com');
+  });
+
+  it('serves an empty address, which hides the notice', async () => {
+    await env.DB.prepare("DELETE FROM settings WHERE key = 'submit_contact_email'").run();
+
+    const settings = await (await publicSettingsResponse({})).json() as Record<string, unknown>;
+    expect(settings.submit_contact_email).toBe('');
+  });
+
+  it('rejects a stored value that is not an email address', async () => {
+    await env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('submit_contact_email', ?)")
+      .bind('not-an-address').run();
+
+    expect((await publicSettingsResponse({})).status).toBe(500);
   });
 });

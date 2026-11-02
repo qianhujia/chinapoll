@@ -227,6 +227,7 @@
   "commentLoginRequired": "登录后即可评论。",
   "commentLoginAction": "登录评论",
   "proposalLoginRequired": "提交投票需要一个账号。",
+  "contactEmailNotice": "不想註冊？也可以把投票寄到 {email}。",
   "statusOpen": "进行中",
   "statusClosed": "已结束",
   "statusArchived": "已归档",

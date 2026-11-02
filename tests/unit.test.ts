@@ -9,7 +9,7 @@ import { checkAccountAge, validateUserPassword } from '../worker/services/users'
 import { enforceSameOrigin } from '../worker/services/csrf';
 import { validateProposal } from '../worker/api/proposal';
 import { validateSettingValue } from '../admin/lib/settings';
-import { IMAGE_DATA_URI_MAX_CHARS, getSettingSchema, imageDataUriExtension, imagePixelSize } from '../shared/settings';
+import { EMAIL_MAX_LENGTH, IMAGE_DATA_URI_MAX_CHARS, decodeContactEmail, encodeContactEmail, getSettingSchema, imageDataUriExtension, imagePixelSize } from '../shared/settings';
 import { localizedTopicName, suggestedTopicNames, topicLabel } from '../shared/categories';
 import {
   DEFAULT_TOPIC_DESCRIPTION_TEMPLATE,
@@ -957,6 +957,80 @@ describe('page description settings', () => {
       ok: false,
       error: 'Topic page description must not exceed 300 characters.'
     });
+  });
+});
+
+// The submit page offers an address to a visitor who would rather not register, and
+// the operator sets it from the dashboard. The page publishes it as a `mailto:` link,
+// so the value has to be one plain address; the schema drives the field the dashboard
+// renders and the length the loader accepts.
+describe('submit contact email setting', () => {
+  it('publishes one optional address the operator can set', () => {
+    const schema = getSettingSchema('submit_contact_email');
+
+    expect(schema?.type).toBe('email');
+    expect(schema?.category).toBe('polls');
+    expect(schema?.public).toBe(true);
+    expect(schema?.required).toBe(false);
+    // An unset address hides the notice, so the default is the empty string.
+    expect(schema?.defaultValue).toBe('');
+    expect(schema?.max).toBe(EMAIL_MAX_LENGTH);
+  });
+
+  it('accepts an address and the empty value that hides the notice', () => {
+    expect(validateSettingValue('submit_contact_email', 'polls@example.com'))
+      .toEqual({ ok: true, value: 'polls@example.com' });
+    expect(validateSettingValue('submit_contact_email', '')).toEqual({ ok: true, value: '' });
+  });
+
+  it('rejects anything that is not one plain address', () => {
+    const rejected = ['polls', 'polls@example', '@example.com', 'a b@example.com', 'polls@example.com extra'];
+
+    for (const value of rejected) {
+      expect(validateSettingValue('submit_contact_email', value)).toEqual({
+        ok: false,
+        error: 'Submit page contact email must be an email address.'
+      });
+    }
+  });
+
+  it('rejects an address longer than a settings field may hold', () => {
+    expect(validateSettingValue('submit_contact_email', `${'x'.repeat(EMAIL_MAX_LENGTH)}@example.com`)).toEqual({
+      ok: false,
+      error: `Submit page contact email must not exceed ${EMAIL_MAX_LENGTH} characters.`
+    });
+  });
+
+  // The address reaches the browser encoded, so the document a visitor is served
+  // holds neither a plain address nor a `mailto:` target for a harvester to lift.
+  it('hides the address in a payload and reads it back', () => {
+    const encoded = encodeContactEmail('polls@example.com');
+
+    // Base64 holds no "@", no dot, and none of the address' own letters, so an email
+    // pattern run over a document matches nothing.
+    expect(encoded).not.toContain('@');
+    expect(encoded).not.toContain('.');
+    expect(encoded).not.toContain('polls');
+    expect(encoded).not.toContain('mailto:');
+    expect(decodeContactEmail(encoded)).toBe('polls@example.com');
+  });
+
+  it('keeps an unset address empty in both directions', () => {
+    expect(encodeContactEmail('')).toBe('');
+    expect(decodeContactEmail('')).toBe('');
+  });
+
+  it('carries an address outside ASCII through the same round trip', () => {
+    expect(decodeContactEmail(encodeContactEmail('咨询@例え.jp'))).toBe('咨询@例え.jp');
+  });
+
+  it('hides the notice when a payload value cannot be read back', () => {
+    // A plain address (a document written before the payload was obfuscated, or a
+    // hand-written one) is not decodable and must never reach a link.
+    expect(decodeContactEmail('polls@example.com')).toBe('');
+    expect(decodeContactEmail('not base64!')).toBe('');
+    // Decodable, but not an address.
+    expect(decodeContactEmail(encodeContactEmail('not-an-address'))).toBe('');
   });
 });
 

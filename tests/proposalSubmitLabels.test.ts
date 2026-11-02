@@ -9,6 +9,7 @@ import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { loadTranslations, setDefaultLocale } from '../src/i18n';
 import {
   DESCRIPTION_MIN_ROWS,
+  contactEmailMarkup,
   descriptionFieldMarkup,
   durationFieldMarkup,
   optionsFieldsetMarkup,
@@ -81,5 +82,18 @@ describe('template option rows', () => {
     // starts from two empty rows and the verdict words are cleaned away.
     expect(templateOptionLabels('single_choice')).toEqual([]);
     expect(templateOptionLabels('multi_choice')).toEqual([]);
+  });
+});
+
+// The notice that offers the operator's address to a visitor who would rather not
+// register reads in the loaded locale, like every other label on the form.
+describe('contact notice in Chinese', () => {
+  it('shows the address inside the Chinese sentence', () => {
+    const markup = contactEmailMarkup('polls@example.com');
+
+    expect(markup).toContain('不想注册？也可以把投票发送到 <a');
+    expect(markup).toContain('href="mailto:polls@example.com"');
+    expect(markup).toContain('>polls@example.com</a>。');
+    expect(markup).not.toContain('contactEmailNotice');
   });
 });

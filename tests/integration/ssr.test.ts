@@ -6,6 +6,7 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { env, SELF } from 'cloudflare:test';
 import { ORIGIN, applySchema, lastId, seedOptions, seedPoll } from './helpers';
+import { decodeContactEmail } from '../../shared/settings';
 import zhDictionary from '../../public/i18n/zh.json';
 
 // The bootstrap island the document carries, or null when the response has none.
@@ -67,6 +68,10 @@ beforeAll(async () => {
     .bind('data:image/png;base64,AQIDBA==').run();
   // Written before the first request so the Worker's settings cache sees it.
   await env.DB.prepare("INSERT INTO settings (key, value) VALUES ('default_locale', 'zh-CN')").run();
+  // The address the submit page offers. Written before the first request like the
+  // settings above, because the document must carry it encoded (see the submit page
+  // test below) rather than as a plain address a harvester could lift.
+  await env.DB.prepare("INSERT INTO settings (key, value) VALUES ('submit_contact_email', 'polls@example.com')").run();
   // The page descriptions are templates the admin edits; both hold placeholders here,
   // so the document head proves they are resolved with the page's own values (see the
   // assertions below). Written before the first request, like the settings above.
@@ -259,6 +264,19 @@ describe('server-rendered pages', () => {
     expect(payload!.poll?.stats).toMatchObject({ pollId, ballots: 0, hidden: true });
     expect(payload!.poll?.comments).toMatchObject({ pollId, total: 0 });
     expect(payload!.poll?.comments?.comments).toEqual([]);
+  });
+
+  // The address the submit page offers is the one value a link harvester would go
+  // after, so the document carries it encoded and the browser builds the `mailto:`
+  // link from the decoded value: a crawler reading the HTML finds neither an address
+  // nor a mailto target.
+  it('obfuscates the submit page contact address in the document', async () => {
+    const html = await (await SELF.fetch(`${ORIGIN}/submit`)).text();
+
+    expect(html).not.toContain('polls@example.com');
+    expect(html).not.toContain('mailto:');
+    expect(decodeContactEmail(String(islandFrom(html)?.settings?.submit_contact_email)))
+      .toBe('polls@example.com');
   });
 
   it('embeds the poll data for the requested comment page only', async () => {

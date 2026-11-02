@@ -7,7 +7,7 @@ import {
   DEFAULT_HOME_DESCRIPTION_TEMPLATE,
   DEFAULT_TOPIC_DESCRIPTION_TEMPLATE
 } from '../../shared/seo';
-import { imageDataUriExtension, imageSettingError, type AiProvider } from '../../shared/settings';
+import { imageDataUriExtension, imageSettingError, encodeContactEmail, emailSettingError, type AiProvider } from '../../shared/settings';
 
 interface SettingRow {
   key: string;
@@ -60,6 +60,10 @@ export const DEFAULT_PUBLIC_SETTINGS = {
   // When true, submitted polls are published immediately; when false they stay
   // pending until an admin approves them.
   auto_approve_polls: false,
+  // The address the submit page offers to a visitor who would rather not register.
+  // It is served publicly because the page renders it as a `mailto:` link; an empty
+  // value hides the notice entirely.
+  submit_contact_email: '',
   // Account gating and authentication limits. Delay values are whole minutes;
   // "N/w|d|h|m|s" values use the shared rate-limit format.
   user_poll_delay_minutes: 10,
@@ -212,6 +216,15 @@ export async function loadPublicSettings(db: D1Database): Promise<PublicSettings
       case 'user_comment_delay_minutes':
         if (!isInteger(value, 0, 525600)) invalid(row.key, 'must be an integer from 0 to 525600');
         (settings as Record<string, unknown>)[row.key] = Number(value);
+        break;
+      case 'submit_contact_email':
+        // An empty value hides the notice on the submit page; anything else has to be
+        // one plain address, because the page renders it as a `mailto:` link.
+        if (value) {
+          const error = emailSettingError(value);
+          if (error) invalid(row.key, error);
+        }
+        settings.submit_contact_email = value;
         break;
       case 'max_accounts_per_ip':
         if (!isInteger(value, 1, 1000)) invalid(row.key, 'must be an integer from 1 to 1000');
@@ -366,6 +379,10 @@ export function publicSettingsPayload(
   // are read-only: they change only when the Worker is redeployed.
   return {
     ...stripPrivateSettings(settings),
+    // The submit page's address leaves encoded (see `encodeContactEmail`), so the
+    // document held by a visitor, or by a harvester reading it, carries no plain
+    // address and no `mailto:` target; the page decodes it to build its link.
+    submit_contact_email: encodeContactEmail(settings.submit_contact_email),
     turnstile_enable: isTurnstileEnabled(env),
     turnstile_site_key: turnstileSiteKey(env)
   };
