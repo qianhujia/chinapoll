@@ -220,6 +220,10 @@ describe('renderResults', () => {
     const markup = renderResults(results);
 
     expect(markup.match(/data-result-option=/g)).toHaveLength(2);
+    // A result row is a shrinkable grid item (`min-w-0`), so a label too long for the
+    // box ellipsizes inside it rather than stretching the page on a narrow screen.
+    expect(markup).toContain('<div class="grid min-w-0 gap-1" data-result-option="11"');
+    expect(markup.match(/<div class="grid min-w-0 gap-1" data-result-option=/g)).toHaveLength(2);
     // The count is visible and the whole-percent share is held in its own slot, which
     // the row reveals on hover or tap. The share is of the ballots cast, not of the
     // option counts, and it reads as a whole percent: `75%`, not `75.0%`.
@@ -266,8 +270,10 @@ describe('renderPollNav', () => {
     expect(markup).toContain('class="flex min-w-0 items-center gap-2 text-muted no-underline hover:text-primary"');
     expect(markup).toContain('class="ml-auto flex min-w-0 items-center gap-2 text-muted no-underline hover:text-primary"');
     expect(markup).not.toContain('text-ink');
-    // The labels are light rather than body weight, and there are two of them.
-    expect(markup.match(/<span class="truncate text-sm font-light">/g)).toHaveLength(2);
+    // The labels are light rather than body weight, and there are two of them. Each
+    // carries `min-w-0` next to `truncate`, so a long neighbour title ellipsizes
+    // inside its link instead of stretching the page on a narrow screen.
+    expect(markup.match(/<span class="min-w-0 truncate text-sm font-light">/g)).toHaveLength(2);
     // The direction is a chevron icon, with no visible arrow or label text.
     expect(markup).toContain('m15 18-6-6 6-6');
     expect(markup).toContain('m9 18 6-6-6-6');

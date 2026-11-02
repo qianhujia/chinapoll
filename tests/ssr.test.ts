@@ -189,8 +189,13 @@ describe('server-side poll page', () => {
     expect(html).toContain('m9 18 6-6-6-6');
     expect(html).not.toContain('←');
     expect(html).not.toContain('→');
-    // Both labels are light muted text rather than body copy.
-    expect(html.match(/<span class="truncate text-sm font-light">/g)).toHaveLength(2);
+    // Both labels are light muted text rather than body copy. Each carries `min-w-0`
+    // next to `truncate`, and the poll's box is a `min-w-0` grid item, so a long
+    // neighbour title ellipsizes inside its link on a narrow screen instead of
+    // stretching the page.
+    expect(html.match(/<span class="min-w-0 truncate text-sm font-light">/g)).toHaveLength(2);
+    expect(html)
+      .toContain('<article class="min-w-0 rounded-[22px] border border-border bg-panel p-6 shadow-card">');
     // Each link carries the public number and title and points at that route, not
     // at the primary key the row happens to have.
     expect(html).toContain('href="/poll/4"');

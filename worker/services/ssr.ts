@@ -374,14 +374,20 @@ ${renderFooter(settings, t)}
 // rather than as body copy. The whole block is omitted when the poll sits at both ends
 // of the list, so a poll with no neighbors adds no empty navigation. This mirrors the
 // client's `renderPollNav`.
+//
+// A long neighbor title ellipsizes instead of stretching the page: the label is
+// `truncate` with `min-w-0`, its link is a `min-w-0` flex item, and the poll's box
+// (`renderPollBody` below) is a `min-w-0` grid item, so each level of the chain can be
+// narrower than the nowrap text inside it. The pair wraps onto a line of its own on a
+// narrow screen, where each link then fills that line.
 function pollNavMarkup(poll: SsrPollDetail, t: Translate): string {
   if (!poll.prev && !poll.next) return '';
   const label = (neighbor: PollNeighbor): string => escapeHtml(`#${neighbor.number} ${neighbor.title}`);
   const prev = poll.prev
-    ? `<a class="flex min-w-0 items-center gap-2 text-muted no-underline hover:text-primary" href="/poll/${poll.prev.number}" data-route="/poll/${poll.prev.number}" aria-label="${escapeHtml(t('prevPoll'))}" data-poll-nav="prev">${CHEVRON_LEFT_ICON}<span class="truncate text-sm font-light">${label(poll.prev)}</span></a>`
+    ? `<a class="flex min-w-0 items-center gap-2 text-muted no-underline hover:text-primary" href="/poll/${poll.prev.number}" data-route="/poll/${poll.prev.number}" aria-label="${escapeHtml(t('prevPoll'))}" data-poll-nav="prev">${CHEVRON_LEFT_ICON}<span class="min-w-0 truncate text-sm font-light">${label(poll.prev)}</span></a>`
     : '';
   const next = poll.next
-    ? `<a class="ml-auto flex min-w-0 items-center gap-2 text-muted no-underline hover:text-primary" href="/poll/${poll.next.number}" data-route="/poll/${poll.next.number}" aria-label="${escapeHtml(t('nextPoll'))}" data-poll-nav="next"><span class="truncate text-sm font-light">${label(poll.next)}</span>${CHEVRON_RIGHT_ICON}</a>`
+    ? `<a class="ml-auto flex min-w-0 items-center gap-2 text-muted no-underline hover:text-primary" href="/poll/${poll.next.number}" data-route="/poll/${poll.next.number}" aria-label="${escapeHtml(t('nextPoll'))}" data-poll-nav="next"><span class="min-w-0 truncate text-sm font-light">${label(poll.next)}</span>${CHEVRON_RIGHT_ICON}</a>`
     : '';
   return `
           <nav class="mt-6 flex flex-wrap items-center gap-3" aria-label="${escapeHtml(t('pollNavLabel'))}">${prev}${next}</nav>`;
@@ -401,7 +407,7 @@ export function renderPollBody(poll: SsrPollDetail, settings: SsrSettings, t: Tr
   return `    <div class="mx-auto max-w-[var(--page-width)] px-5 pt-6 pb-16">
 ${renderHeader(settings, t, '/')}
       <main class="grid gap-5">
-        <article class="rounded-[22px] border border-border bg-panel p-6 shadow-card">
+        <article class="min-w-0 rounded-[22px] border border-border bg-panel p-6 shadow-card">
           <div class="flex flex-wrap items-center justify-center gap-2 text-center">
             ${badge(modeLabel(poll.mode, poll.endAt, t))}
             ${badge(pollTypeLabel(poll.pollType, t))}

@@ -136,14 +136,20 @@ export function renderChoiceInputs(
 // empty navigation is rendered. The labels read as light muted text rather than as
 // body copy. The markup mirrors the server-rendered nav in
 // worker/services/ssr.ts so the first paint and the client paint look alike.
+//
+// A long neighbor title ellipsizes instead of stretching the page: the label is
+// `truncate` with `min-w-0`, its link is a `min-w-0` flex item, and the panel holding
+// the pair is a `min-w-0` grid item (see `mountVotePage`), so each level of the chain
+// can be narrower than the nowrap text inside it. The pair wraps onto a line of its
+// own on a narrow screen, where each link then fills that line.
 export function renderPollNav(prev: PollNeighbor | null, next: PollNeighbor | null): string {
   if (!prev && !next) return '';
   const label = (neighbor: PollNeighbor): string => escapeHtml(`#${neighbor.number} ${neighbor.title}`);
   const prevLink = prev
-    ? `<a class="flex min-w-0 items-center gap-2 text-muted no-underline hover:text-primary" href="/poll/${prev.number}" data-route="/poll/${prev.number}" aria-label="${escapeHtml(t('prevPoll'))}" data-poll-nav="prev">${chevronLeftIconMarkup('h-4 w-4 shrink-0')}<span class="truncate text-sm font-light">${label(prev)}</span></a>`
+    ? `<a class="flex min-w-0 items-center gap-2 text-muted no-underline hover:text-primary" href="/poll/${prev.number}" data-route="/poll/${prev.number}" aria-label="${escapeHtml(t('prevPoll'))}" data-poll-nav="prev">${chevronLeftIconMarkup('h-4 w-4 shrink-0')}<span class="min-w-0 truncate text-sm font-light">${label(prev)}</span></a>`
     : '';
   const nextLink = next
-    ? `<a class="ml-auto flex min-w-0 items-center gap-2 text-muted no-underline hover:text-primary" href="/poll/${next.number}" data-route="/poll/${next.number}" aria-label="${escapeHtml(t('nextPoll'))}" data-poll-nav="next"><span class="truncate text-sm font-light">${label(next)}</span>${chevronRightIconMarkup('h-4 w-4 shrink-0')}</a>`
+    ? `<a class="ml-auto flex min-w-0 items-center gap-2 text-muted no-underline hover:text-primary" href="/poll/${next.number}" data-route="/poll/${next.number}" aria-label="${escapeHtml(t('nextPoll'))}" data-poll-nav="next"><span class="min-w-0 truncate text-sm font-light">${label(next)}</span>${chevronRightIconMarkup('h-4 w-4 shrink-0')}</a>`
     : '';
   return `
           <nav class="mt-6 flex flex-wrap items-center gap-3" aria-label="${escapeHtml(t('pollNavLabel'))}">${prevLink}${nextLink}</nav>`;
@@ -164,7 +170,7 @@ export function renderResults(results: PollResults): string {
     // to the next while the label beside it reads as a whole percent.
     const width = results.ballots > 0 ? count / results.ballots * 100 : 0;
     return `
-        <div class="grid gap-1" data-result-option="${option.id}" data-share-row>
+        <div class="grid min-w-0 gap-1" data-result-option="${option.id}" data-share-row>
           <div class="flex items-baseline justify-between gap-3 text-sm">
             <span class="min-w-0 truncate">${escapeHtml(option.label)}</span>
             <span class="shrink-0 tabular-nums text-muted" data-result-count>${optionShareMarkup(count, results.ballots)}</span>
@@ -552,12 +558,15 @@ export async function mountVotePage(identifier: number, app: HTMLElement, bindNa
   // The claim entries need a session, so a signed-out visitor sees a sign-in link
   // instead of the claim button.
   const signedIn = getCurrentUser() !== null;
+  // The poll's own box is a `min-w-0` grid item: a long nowrap label inside it (a
+  // neighbor title, a result label) then ellipsizes rather than stretching the grid
+  // track and, with it, the page on a narrow screen (see `renderPollNav`).
   app.innerHTML = `
     <div class="mx-auto max-w-[var(--page-width)] px-5 pt-6 pb-16">
       ${renderHeader('/')}
 
       <main class="grid gap-5">
-        <section class="rounded-[22px] border border-border bg-panel p-6 shadow-card">
+        <section class="min-w-0 rounded-[22px] border border-border bg-panel p-6 shadow-card">
           <div class="flex items-start justify-between gap-4">
             <div class="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
               <h1 class="m-0 text-2xl font-bold">#${poll.number} ${escapeHtml(poll.title)}</h1>
