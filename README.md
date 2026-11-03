@@ -70,7 +70,9 @@ no polls because the repository ships no seed or demo data.
   derived from each account's own author key. The earlier `IP_HASH_KEY` name is no
   longer read, so the secret must be stored as `SERVER_HMAC_KEY`.
 - `TURNSTILE_SITE_KEY` and `TURNSTILE_SECRET_KEY` enable Turnstile when both are
-  set; otherwise it stays off, which is the local default.
+  set; otherwise it stays off, which is the local default. It guards submissions -
+  casting a vote, signing in or up, commenting, and reporting - and is drawn only
+  when a form is submitted, so reading a poll or its results never runs a challenge.
 - **Application settings** are rows in the D1 `settings` table, served publicly
   by `/api/settings/public`, and edited from the admin dashboard. Missing or
   invalid values fall back to built-in defaults.
@@ -173,7 +175,9 @@ builds, and a check that the built SPA loads no third-party origin other than
 ## Build check
 
 The Vite production build compiles Tailwind utilities and Lucide icons into the
-deployed bundles; neither library is needed at runtime.
+deployed bundles; neither library is needed at runtime. Poll link cards are drawn
+in the Worker instead, so two assets do travel with a deployment: the bundled
+`@resvg/resvg-wasm` rasterizer, and the fonts in `public/og/`.
 
 ```bash
 npm run build

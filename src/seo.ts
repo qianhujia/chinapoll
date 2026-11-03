@@ -66,9 +66,12 @@ function setLinkTag(rel: string, href: string): void {
 }
 
 function setJsonLd(jsonLd: Record<string, unknown> | undefined): void {
-  // Remove existing JSON-LD scripts
-  document.querySelectorAll('script[type="application/ld+json"]').forEach(el => el.remove());
+  // A route that carries no structured data leaves the document's own script alone: the
+  // Worker renders the site-level nodes into the shell, so deleting them on the first
+  // client-side metadata update would leave the rendered page with none. A route that
+  // does carry data replaces whatever was there.
   if (!jsonLd) return;
+  document.querySelectorAll('script[type="application/ld+json"]').forEach(el => el.remove());
   const script = document.createElement('script');
   script.type = 'application/ld+json';
   script.textContent = JSON.stringify(jsonLd);
@@ -94,7 +97,10 @@ export function updateSeo(seo: Partial<SeoData>): void {
   setMetaTag('og:title', currentSeo.title, true);
   setMetaTag('og:description', description, true);
   setMetaTag('og:url', currentSeo.canonical, true);
-  setMetaTag('twitter:card', 'summary');
+  // The large card is what a wide image needs: a `summary` card crops one into a small
+  // square beside the text, while the large card shows it across the width. The tag is
+  // written on every page, image or not.
+  setMetaTag('twitter:card', 'summary_large_image');
   setMetaTag('twitter:title', currentSeo.title);
   setMetaTag('twitter:description', description);
   // A card builder fetches the image itself, so only an absolute URL is written, and

@@ -70,3 +70,61 @@ export function shareImageUrl(
   }
   return '';
 }
+
+// One option of a poll as structured data carries it: its label, and the votes it
+// collected (null while the count is withheld).
+export interface PollAnswer {
+  label: string;
+  count: number | null;
+}
+
+// The standing a poll publishes: the options in display order with their counts, and
+// the ballot total. `hidden` mirrors the page's own rule - below the display threshold
+// the site withholds its counts, and markup drawn from them has to withhold them too
+// (see `toPublicResults` in worker/services/options.ts).
+export interface PollStandings {
+  hidden: boolean;
+  ballots: number | null;
+  answers: ReadonlyArray<PollAnswer>;
+}
+
+// The poll as a schema.org Question: the title is the question, the options are the
+// suggested answers, and each answer carries the votes it collected, so a search engine
+// reading the page can see the same standing the page shows. The numbers are the public
+// ones: while the poll is below the display threshold - or the standings could not be
+// read, which is passed as null - no count is published here either, so the markup never
+// reveals a tally the site is still withholding. Shared by the server-rendered head and
+// the SPA, which refreshes the node with the counts it loaded.
+export function buildPollQuestionJsonLd(
+  poll: { number: number; title: string; description: string | null },
+  standings: PollStandings | null,
+  settings: { site_name: string },
+  origin: string
+): Record<string, unknown> {
+  const url = `${origin}/poll/${poll.number}`;
+  const answers = standings?.answers ?? [];
+  // The counts are published only when the page shows them.
+  const counted = standings && !standings.hidden ? standings : null;
+
+  return {
+    '@context': 'https://schema.org',
+    '@type': 'Question',
+    name: poll.title,
+    text: seoDescription(poll.description) || poll.title,
+    url,
+    // The options are the answers the poll suggests, so the count of them is what the
+    // question offers; the votes go on the answers themselves.
+    answerCount: answers.length,
+    ...(counted?.ballots != null ? { upvoteCount: counted.ballots } : {}),
+    ...(answers.length > 0
+      ? {
+        suggestedAnswer: answers.map((answer) => ({
+          '@type': 'Answer',
+          text: answer.label,
+          ...(counted && answer.count !== null ? { upvoteCount: answer.count } : {})
+        }))
+      }
+      : {}),
+    author: { '@type': 'Organization', name: settings.site_name, url: origin }
+  };
+}

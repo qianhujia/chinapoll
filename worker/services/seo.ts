@@ -8,9 +8,11 @@
 import { escapeHtml, serializeJsonLd } from './html';
 import {
   DEFAULT_TOPIC_DESCRIPTION_TEMPLATE,
+  buildPollQuestionJsonLd,
   resolveSeoDescription,
   seoDescription,
-  shareImageUrl
+  shareImageUrl,
+  type PollStandings
 } from '../../shared/seo';
 import type { Translate } from './ssr';
 
@@ -69,6 +71,21 @@ function toJsonLdList(jsonLd: SeoContext['jsonLd']): Record<string, unknown>[] {
   return Array.isArray(jsonLd) ? jsonLd : [jsonLd];
 }
 
+// The two feeds the poll list publishes, as the head advertises them. A link element needs
+// an absolute URL, which is what the canonical one carries, so a document served from
+// another host advertises its own feeds.
+function feedLinks(canonical: string, siteName: string): string[] {
+  try {
+    const { origin } = new URL(canonical);
+    return [
+      `<link rel="alternate" type="application/rss+xml" title="${siteName}" href="${escapeHtml(`${origin}/feed.xml`)}" />`,
+      `<link rel="alternate" type="application/feed+json" title="${siteName}" href="${escapeHtml(`${origin}/feed.json`)}" />`
+    ];
+  } catch {
+    return [];
+  }
+}
+
 export function buildMetaTags(seo: SeoContext, settings: PublicSettingsSeo): string {
   const title = escapeHtml(seo.title);
   // Whatever text the route supplied, the tag carries one line of plain text: no tags,
@@ -86,10 +103,15 @@ export function buildMetaTags(seo: SeoContext, settings: PublicSettingsSeo): str
     `<meta property="og:title" content="${title}" />`,
     `<meta property="og:description" content="${description}" />`,
     `<meta property="og:url" content="${canonical}" />`,
-    `<meta name="twitter:card" content="summary" />`,
+    // The large card is what a wide image needs: a `summary` card crops one into a
+    // small square beside the text, which cuts a poll card in half, while the large
+    // card shows it across the width.
+    `<meta name="twitter:card" content="summary_large_image" />`,
     `<meta name="twitter:title" content="${title}" />`,
     `<meta name="twitter:description" content="${description}" />`,
     `<link rel="canonical" href="${canonical}" />`,
+    // A reader that subscribes to the poll list finds both feeds in the head.
+    ...feedLinks(seo.canonical, siteName),
     `<meta name="robots" content="${seo.robots ?? 'index, follow'}" />`
   ];
 
@@ -251,7 +273,11 @@ export function getTopicSeoContext(
 export function getPollSeoContext(
   poll: { number: number; title: string; description: string | null; status: string },
   settings: PublicSettingsSeo,
-  origin: string
+  origin: string,
+  // The option labels with the counts the page publishes, or null when they could not
+  // be read. A poll below the display threshold reports `hidden`, which keeps the
+  // counts out of the markup exactly as it keeps them off the page.
+  standings: PollStandings | null = null
 ): SeoContext {
   // The public URL and the title use the poll's public number, never the primary
   // key, so the address a visitor sees is the identifier the site publishes.
@@ -266,6 +292,9 @@ export function getPollSeoContext(
     description,
     canonical: pollUrl,
     ogType: 'article',
+    // A shared poll shows its own card: the picture the Worker draws from the poll itself
+    // (see worker/services/ogImage.ts), rather than the site-wide social image.
+    shareImage: `${origin}/og/poll/${poll.number}.png`,
     jsonLd: [
       {
         '@context': 'https://schema.org',
@@ -280,6 +309,9 @@ export function getPollSeoContext(
         },
         keywords: ['poll', 'voting', 'public opinion', 'anonymous']
       },
+      // The poll itself as a Question with its answers, so the title and the standing
+      // reach a search engine that reads structured data.
+      buildPollQuestionJsonLd(poll, standings, settings, origin),
       buildBreadcrumbJsonLd([
         { name: settings.site_name, url: `${origin}/` },
         { name: poll.title, url: pollUrl }

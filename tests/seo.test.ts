@@ -48,7 +48,9 @@ describe('buildMetaTags', () => {
     const tags = buildMetaTags(getHomeSeoContext(settings, ORIGIN), settings);
     expect(tags).toContain('<meta property="og:locale" content="en_US" />');
     expect(tags).toContain('<meta name="application-name" content="ChinaPoll &amp; Co" />');
-    expect(tags).toContain('<meta name="twitter:card" content="summary" />');
+    // The large card, so a wide image is not cropped into a small square beside the
+    // text. It is written on every page, whether an image is configured or not.
+    expect(tags).toContain('<meta name="twitter:card" content="summary_large_image" />');
   });
 
   // A site that configured no image publishes no card image at all, rather than
@@ -181,7 +183,70 @@ describe('route contexts', () => {
     expect(seo.title).toBe(`#42 Bike lanes - ${settings.site_name}`);
     expect(seo.ogType).toBe('article');
     expect(Array.isArray(seo.jsonLd)).toBe(true);
-    expect(seo.jsonLd).toHaveLength(2);
+    // The poll as a Dataset, the poll as a Question, and the breadcrumb.
+    expect(seo.jsonLd).toHaveLength(3);
+    expect((seo.jsonLd as Record<string, unknown>[]).map((node) => node['@type']))
+      .toEqual(['Dataset', 'Question', 'BreadcrumbList']);
+  });
+
+  // The Question node is what a search engine reads the standing from, so it carries the
+  // title, the option labels, and the votes each collected.
+  it('publishes the poll as a Question with its answers and their counts', () => {
+    const seo = getPollSeoContext(
+      { number: 42, title: 'Bike lanes', description: 'Build more lanes.', status: 'open' },
+      settings,
+      ORIGIN,
+      {
+        hidden: false,
+        ballots: 14,
+        answers: [
+          { label: 'Yes', count: 12 },
+          { label: 'No', count: 2 }
+        ]
+      }
+    );
+
+    const question = (seo.jsonLd as Record<string, unknown>[])[1];
+    expect(question).toMatchObject({
+      '@context': 'https://schema.org',
+      '@type': 'Question',
+      name: 'Bike lanes',
+      text: 'Build more lanes.',
+      url: `${ORIGIN}/poll/42`,
+      answerCount: 2,
+      upvoteCount: 14
+    });
+    expect(question.suggestedAnswer).toEqual([
+      { '@type': 'Answer', text: 'Yes', upvoteCount: 12 },
+      { '@type': 'Answer', text: 'No', upvoteCount: 2 }
+    ]);
+  });
+
+  // Below the display threshold the page withholds its counts, and so does the markup:
+  // the question still lists its answers, but no tally reaches a search engine.
+  it('withholds the counts of a poll that is below the display threshold', () => {
+    const seo = getPollSeoContext(
+      { number: 42, title: 'Bike lanes', description: 'Build more lanes.', status: 'open' },
+      settings,
+      ORIGIN,
+      {
+        hidden: true,
+        ballots: 3,
+        answers: [
+          { label: 'Yes', count: null },
+          { label: 'No', count: null }
+        ]
+      }
+    );
+
+    const question = (seo.jsonLd as Record<string, unknown>[])[1];
+    expect(question).not.toHaveProperty('upvoteCount');
+    expect(question.suggestedAnswer).toEqual([
+      { '@type': 'Answer', text: 'Yes' },
+      { '@type': 'Answer', text: 'No' }
+    ]);
+    // Nothing that looks like a tally reaches the document either.
+    expect(JSON.stringify(question)).not.toContain('"upvoteCount"');
   });
 
   it('gives the home page the website structured data', () => {
@@ -430,7 +495,8 @@ describe('client head updates', () => {
     const selectors = writes.map((write) => write.selector);
     expect(selectors).not.toContain('meta[property="og:image"]');
     expect(selectors).not.toContain('meta[name="twitter:image"]');
-    expect(writes.find((write) => write.selector === 'meta[name="twitter:card"]')?.value).toBe('summary');
+    expect(writes.find((write) => write.selector === 'meta[name="twitter:card"]')?.value)
+      .toBe('summary_large_image');
   });
 
   it('writes the card image when the site has one', () => {

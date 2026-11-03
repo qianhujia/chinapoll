@@ -259,6 +259,28 @@ option count breaks the chain. They are aggregate values for one poll at one
 hour and cannot be traced back to a ballot. The legacy `approve`/`oppose`/`neutral`
 columns and the version 1 and 2 payloads no longer exist.
 
+## og_images
+
+One rendered link card per poll. The poll page points a card builder at
+`/og/poll/<number>.png`, and the Worker answers that route from here (see
+`worker/services/ogImage.ts`). Public by design: the picture is what the site shows
+a shared link.
+
+| Column | Contents | Readers | Retention |
+| --- | --- | --- | --- |
+| poll_id | poll the card describes; deleted with the poll | Public (through the image route) | until the poll is deleted |
+| signature | the poll text and counts the picture was drawn from | none | as above |
+| content_type, image | the PNG bytes, stored as a BLOB | Public | as above |
+| width, height | card size in pixels | none | as above |
+| site_url | the address the card prints (`chinapoll.org/poll/1`) | none | as above |
+| generated_at | when the picture was last drawn | none | as above |
+
+Note: the card carries only what the poll page publishes. Below the display
+threshold the row's signature records `hidden` and the picture prints no tally, so
+a small poll's numbers cannot be read out of its card either. `signature` is the
+only thing compared to decide a redraw; a row whose signature still matches is
+served as it is, which is why views and unrelated edits never cause a render.
+
 ## publish_state, publish_runs
 
 Publisher bookkeeping for the public audit repository. Read by the Workers only;

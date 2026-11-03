@@ -33,6 +33,16 @@ import { handleUserRequest } from './api/user';
 import { brandingKeyFromPath, handleBrandingRequest } from './api/branding';
 import { makeSnapshot } from './services/snapshot';
 import { runMaintenanceTasks } from './services/maintenance';
+import { buildJsonFeed, buildRssFeed, loadFeedPolls } from './services/feeds';
+import {
+  OG_IMAGE_MAX_AGE_SECONDS,
+  drawOgCard,
+  loadOgCardFacts,
+  loadOgImage,
+  ogSignature,
+  refreshOgCards
+} from './services/ogImage';
+import { toHex } from '../shared/crypto';
 import { publishHealth } from './services/publisher';
 import { isValidServerKey, serverHmacKey } from './services/ip';
 import {
@@ -63,7 +73,9 @@ import {
   type HomeSsrData
 } from './services/ssr';
 import { getPollStatusLabel, PollMode, PollStatus } from './enums';
+import { countPollBallots, getPollOptions, toPublicResults } from './services/options';
 import { apiError } from '../shared/http';
+import type { PollStandings } from '../shared/seo';
 import { topicLabel, type TopicLocale } from '../shared/categories';
 
 export interface Env {
@@ -175,6 +187,47 @@ function readPageParam(search: URLSearchParams, key = 'page'): number {
   return Number.isSafeInteger(page) && page > 0 ? page : 1;
 }
 
+// The validator a card is served with: a digest of the signature it was drawn from, so the
+// header carries no title text (or newline) and a redrawn card is a new validator.
+async function cardEtag(signature: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(signature));
+  return toHex(new Uint8Array(digest));
+}
+
+// The options a poll publishes with the votes each collected, for the document's
+// structured data. The tally goes through the same engine - and the same display
+// threshold - the stats endpoint uses, so the markup can never publish a count the page
+// withholds. Both lists are ordered by position, so an answer lines up with the label it
+// belongs to. A failed lookup keeps the labels and drops the numbers, and a poll with no
+// options at all has no standings to report.
+async function loadPollStandings(
+  env: Env,
+  settings: PublicSettings,
+  poll: { id: number; pollType: number; options: ReadonlyArray<{ label: string }> }
+): Promise<PollStandings | null> {
+  const labels = poll.options.map((option) => option.label);
+  if (labels.length === 0) return null;
+
+  try {
+    const tallyEnv: HandlerEnv = { ...env, ...settings };
+    const options = await getPollOptions(tallyEnv, { id: poll.id, poll_type: poll.pollType });
+    const tally = await countPollBallots(tallyEnv, { id: poll.id, poll_type: poll.pollType });
+    const results = toPublicResults({ poll_type: poll.pollType }, options, tally, settings.min_votes_to_display);
+    const hidden = results.hidden === true;
+    return {
+      hidden,
+      ballots: hidden ? null : results.ballots ?? 0,
+      answers: labels.map((label, index) => ({
+        label,
+        count: hidden ? null : results.options?.[index]?.count ?? null
+      }))
+    };
+  } catch (error) {
+    console.error('poll standings failed', error);
+    return { hidden: true, ballots: null, answers: labels.map((label) => ({ label, count: null })) };
+  }
+}
+
 async function buildPublicPage(
   pathname: string,
   search: URLSearchParams,
@@ -282,11 +335,16 @@ async function buildPublicPage(
         console.error('ssr poll failed', error);
       }
       if (poll) {
+        // The standing the page publishes, read through the same engine the stats
+        // endpoint uses, so the structured data carries the counts the page shows and a
+        // poll below the display threshold withholds them here as well.
+        const standings = await loadPollStandings(env, settings, poll);
         return {
           seo: getPollSeoContext(
             { number: poll.number, title: poll.title, description: poll.description, status: getPollStatusLabel(poll.status) },
             settings,
-            origin
+            origin,
+            standings
           ),
           body: renderPollBody(poll, settings, t),
           status: 200
@@ -497,6 +555,69 @@ ${polls.map(entry).join('\n')}
     }), true);
   }
 
+  // The Open Graph card for one poll: a PNG a card builder fetches instead of the page. The
+  // stored card is served while it still describes the poll (see worker/services/ogImage.ts);
+  // otherwise it is drawn now, so a poll published or voted on since the last hourly run
+  // still shares the standing it has.
+  const ogMatch = /^\/og\/poll\/(\d+)\.png$/.exec(url.pathname);
+  if (ogMatch) {
+    const { settings } = await loadSettings(env);
+    // The card's own lines follow the site's default locale, like every server-rendered page.
+    const cardText = translatorFor(settings.default_locale);
+    const cardEnv: HandlerEnv & { min_votes_to_display?: number } = { ...env, ...settings };
+    const facts = await loadOgCardFacts(cardEnv, Number(ogMatch[1]));
+    if (!facts) return apiError('POLL_NOT_FOUND', 404);
+
+    let card = await loadOgImage(env.DB, facts.poll.number);
+    if (!card || card.signature !== ogSignature(facts.poll)) {
+      try {
+        card = await drawOgCard(cardEnv, facts.poll, {
+          votes: cardText('ogVotes'),
+          resultsPending: cardText('ogResultsPending')
+        }, { siteName: settings.site_name, origin });
+      } catch (error) {
+        console.error('og card failed', error);
+        // A card that cannot be drawn falls back to the stored one (stale beats missing)
+        // and answers 503 when there is none.
+        if (!card) return apiError('INTERNAL_ERROR', 503);
+      }
+    }
+
+    const etag = `"${await cardEtag(card.signature)}"`;
+    if (request.headers.get('if-none-match') === etag) {
+      return withSecurityHeaders(new Response(null, { status: 304, headers: { etag } }), false);
+    }
+    // The body is the buffer the card's bytes were normalized into (see `loadOgImage`).
+    return withSecurityHeaders(new Response(card.image.buffer as ArrayBuffer, {
+      headers: {
+        'content-type': card.content_type,
+        'cache-control': `public, max-age=${OG_IMAGE_MAX_AGE_SECONDS}`,
+        etag
+      }
+    }), false);
+  }
+
+  // The poll list as a feed, in the two formats a reader may subscribe to. Both answer
+  // with the same items in the same order, and a reader may poll often, so the response
+  // is shared-cached for ten minutes rather than answered from the database every time.
+  if (url.pathname === '/feed.xml' || url.pathname === '/feed.json') {
+    const { settings } = await loadSettings(env);
+    const polls = await loadFeedPolls(env.DB);
+    const rss = url.pathname === '/feed.xml';
+
+    return withSecurityHeaders(new Response(
+      rss ? buildRssFeed(polls, settings, origin) : buildJsonFeed(polls, settings, origin),
+      {
+        headers: {
+          'content-type': rss
+            ? 'application/rss+xml; charset=utf-8'
+            : 'application/feed+json; charset=utf-8',
+          'cache-control': 'public, max-age=600'
+        }
+      }
+    ), false);
+  }
+
   // An uploaded logo or favicon is served from its own URL, so a page references
   // a short versioned URL instead of the stored base64 payload. A pasted image
   // URL needs no route here: the pages use it directly.
@@ -604,10 +725,25 @@ export default {
     }
   },
 
-  // Hourly maintenance: write signed snapshots, advance the poll lifecycle, and
-  // purge expired rows (see worker/services/maintenance.ts).
+  // Hourly maintenance: write signed snapshots, advance the poll lifecycle, purge expired
+  // rows (see worker/services/maintenance.ts), and refresh the poll cards whose standing has
+  // moved since they were drawn (see worker/services/ogImage.ts).
   async scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
-    ctx.waitUntil(runMaintenanceTasks(env));
+    ctx.waitUntil((async () => {
+      await runMaintenanceTasks(env);
+      try {
+        const { settings } = await loadSettings(env);
+        const t = translatorFor(settings.default_locale);
+        await refreshOgCards(env, {
+          votes: t('ogVotes'),
+          resultsPending: t('ogResultsPending')
+        }, { siteName: settings.site_name });
+      } catch (error) {
+        // A run that cannot read the settings or its assets leaves the stored cards alone;
+        // the next run (and any request) tries again.
+        console.error('og card refresh failed', error);
+      }
+    })());
   }
 } satisfies ExportedHandler<Env>;
 

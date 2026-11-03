@@ -126,6 +126,15 @@ Endpoints: `POST /api/vote` (`{ pollId, tokenHash, turnstileToken?, optionIds }`
 `POST /api/vote/status` (returns `optionIds`), `GET /api/stats/:id`,
 `GET /api/polls/:id`, and the poll list return `pollType`, `options`, and the
 results shape. Which options were chosen together is never published.
+
+Turnstile covers submissions, never page views. `POST /api/vote`,
+`POST /api/auth/login`, `POST /api/auth/register`, `POST /api/comments`,
+`POST /api/polls/:id/report`, `POST /api/comments/:id/report`, and the AI helper
+endpoints each verify a token when the site has both keys configured, and the front end
+draws the widget from the form's own submit path: the vote form when a ballot is sent, the
+comment box when the comment button is pressed, the sign-in and sign-up forms when they
+are submitted, and the report dialog when the report is sent. Reading a poll, its results,
+its comments, or any page therefore loads no challenge script and runs no challenge.
 `GET /api/polls/:id` additionally returns `prev` and `next`
 (`{ id, title } | null`), the public polls on either side of it in the list
 ordering (`created_at DESC, id DESC`), which the detail page renders as its
@@ -361,7 +370,7 @@ An existing installation that stored `ai_enable = true` before the provider
 setting existed keeps using Workers AI until an `ai_provider` row is written.
 
 Both endpoints require a signed-in account, pass the same account-age gate as
-proposals, enforce the Origin check, verify Turnstile when it is enabled, and are
+proposals, enforce the Origin check, and are
 rate limited per account with scope `ai` and key `user:<id>`:
 
 - `POST /api/ai/enhance-title` with `{ title, description?, locale }` returns
@@ -435,6 +444,50 @@ results, and the requested comment page into an inert
   title or translation cannot close the element, and the element is never
   executed, so the strict `script-src 'self'` policy holds without
   `'unsafe-inline'`.
+
+## Feeds
+
+The poll list is published as RSS 2.0 at `/feed.xml` and as JSON Feed 1.1 at
+`/feed.json`. Both answer the same items in the same order - the newest public polls,
+newest first, at most 30 of them (`FEED_ITEM_LIMIT` in `worker/services/feeds.ts`) - and
+both link and identify a poll by its public number, so a subscriber follows the same URL
+a visitor does. `loadFeedPolls` uses the poll list's own visibility predicate, so a
+pending poll never reaches a feed, and a poll's description is reduced to the one plain
+line `seoDescription` produces (falling back to the title), because a reader prints the
+summary as text.
+
+Both responses are shared-cached for ten minutes (`public, max-age=600`), since a reader
+may poll often, and every document's head advertises the two feeds with
+`<link rel="alternate">` (built in `buildMetaTags` from the page's canonical origin).
+
+## Poll link cards
+
+A poll page publishes its own `og:image`: `/og/poll/<number>.png`, a 1200x630 card
+carrying the poll title, the standing of its options, and how many ballots are in,
+so a shared link shows the poll itself rather than the site-wide social image.
+`worker/services/ogCard.ts` builds the card as an SVG and
+`worker/services/ogImage.ts` rasterizes it with `@resvg/resvg-wasm`, keeping the
+PNG in the `og_images` table as a BLOB (`docs/DATA_MAP.md`); a card builder that
+fetches a card twice pays for one render, and the response is
+`public, max-age=600` with an ETag that answers `304` while the poll has not
+changed.
+
+Freshness is the card's `signature`, not a clock: it holds the poll's number,
+title, whether the counts are published, and the numbers themselves, so a new vote
+moves it and a view count does not. A request for a card that is missing or out of
+date draws it, and the hourly run (`refreshOgCards`, limited to the 50 most
+recently changed open polls) redraws the cards whose polls moved without a visit.
+Below the display threshold the card prints no tally at all, exactly as the page
+withholds it.
+
+Two assets matter to the rendering. The rasterizer is a bundled WebAssembly module:
+workerd compiles WebAssembly only at deploy time, so `@resvg/resvg-wasm`'s
+`index_bg.wasm` is imported as a module and travels in the Worker bundle (about
+1 MB gzipped), not fetched at runtime. The fonts are data and are served from
+`public/og/`: a Latin subset and a CJK subset of Noto Sans SC (weight 400), which
+together cover the card's own lines and both simplified and traditional titles;
+`public/og/README.txt` records their provenance and licence. `font-weight` is not
+used, because resvg resolves a family to its first registered face.
 
 ## Caching
 
