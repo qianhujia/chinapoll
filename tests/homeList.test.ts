@@ -214,6 +214,30 @@ describe('renderTopicChips', () => {
   it('renders nothing when there are no topics', () => {
     expect(renderTopicChips([], 0, '', CHIP_LABELS)).toBe('');
   });
+
+  // A topic the site has no poll for yet is not offered as a filter, while its page
+  // stays reachable for anyone holding the link: an empty topic drops out of the row
+  // and returns as soon as a poll is filed under it.
+  it('leaves out a topic that has no poll yet', () => {
+    const topics = [...makeTopics(2), { slug: 'empty', label: 'Empty', count: 0 }];
+    const markup = renderTopicChips(topics, 3, '', CHIP_LABELS);
+
+    expect(markup).not.toContain('/topic/empty');
+    expect(markup.match(/data-route="\/topic\//g)).toHaveLength(2);
+  });
+
+  it('keeps an empty topic visible while it is the one being filtered', () => {
+    const topics = [...makeTopics(2), { slug: 'empty', label: 'Empty', count: 0 }];
+    const markup = renderTopicChips(topics, 3, 'empty', CHIP_LABELS);
+
+    // Its own page still names it in the row, so the selection is never hidden.
+    expect(markup).toContain('href="/topic/empty"');
+    expect(markup).toMatch(/border-primary bg-primary text-white[^"]*" href="\/topic\/empty"/);
+  });
+
+  it('renders nothing when every topic is empty', () => {
+    expect(renderTopicChips([{ slug: 'empty', label: 'Empty', count: 0 }], 0, '', CHIP_LABELS)).toBe('');
+  });
 });
 
 describe('renderFooter', () => {

@@ -1,14 +1,15 @@
 // Frontend poll-menu and report-dialog tests.
 //
-// `renderPollMenu`, `reportMenuEntryMarkup`, and `reportModalMarkup` are pure
-// markup, so they are checked directly: the share button and the three-dot menu at
-// the top right of the poll title host the poll's own actions, and the report itself
-// is a dialog built on demand instead of a card appended to the page. `sharePoll` is
-// the behaviour behind the share button, so it is checked with the browser APIs it
-// reaches for stubbed.
+// `renderPollMenu`, `renderShareRow`, `reportMenuEntryMarkup`, and `reportModalMarkup`
+// are pure markup, so they are checked directly: the share button and the three-dot menu
+// at the top right of the poll title host the poll's own actions, the report itself is a
+// dialog built on demand instead of a card appended to the page, and the share row under
+// the title carries the poll to the clipboard and to the three networks. `sharePoll` and
+// `copyPollLink` are the behaviour behind those controls, so they are checked with the
+// browser APIs they reach for stubbed.
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { renderPollMenu, reportMenuEntryMarkup, reportModalMarkup, sharePoll } from '../src/pages/poll';
+import { copyPollLink, renderPollMenu, renderShareRow, reportMenuEntryMarkup, reportModalMarkup, sharePoll } from '../src/pages/poll';
 import { REPORT_REASONS } from '../src/lib/poll';
 
 // Translations are not loaded in this environment, so `t()` falls back to the
@@ -116,36 +117,36 @@ describe('reportModalMarkup', () => {
     expect(markup).not.toContain('data-report-root');
   });
 });
-describe('sharePoll', () => {
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
-
-  // Stands in for the page the share runs in: the origin the canonical address is
-  // built from, the browser APIs it may reach for, and the toast it reports through.
-  function stubPage(options: {
-    share?: (data: { title?: string; url?: string }) => Promise<void>;
-    clipboard?: { writeText: (text: string) => Promise<void> };
-  } = {}) {
-    const copied: string[] = [];
-    const shared: Array<{ title?: string; url?: string }> = [];
-    const toast = { innerHTML: '', hidden: true };
-    vi.stubGlobal('window', { location: { origin: 'https://chinapoll.org' } });
-    vi.stubGlobal('navigator', {
-      ...(options.share
-        ? { share: async (data: { title?: string; url?: string }) => { shared.push(data); await options.share!(data); } }
-        : {}),
-      clipboard: {
-        writeText: async (text: string) => {
-          copied.push(text);
-          await options.clipboard?.writeText(text);
-        }
+// Stands in for the page a share runs in: the origin the canonical address is built
+// from, the browser APIs it may reach for, and the toast it reports through.
+function stubPage(options: {
+  share?: (data: { title?: string; url?: string }) => Promise<void>;
+  clipboard?: { writeText: (text: string) => Promise<void> };
+} = {}) {
+  const copied: string[] = [];
+  const shared: Array<{ title?: string; url?: string }> = [];
+  const toast = { innerHTML: '', hidden: true };
+  vi.stubGlobal('window', { location: { origin: 'https://chinapoll.org' } });
+  vi.stubGlobal('navigator', {
+    ...(options.share
+      ? { share: async (data: { title?: string; url?: string }) => { shared.push(data); await options.share!(data); } }
+      : {}),
+    clipboard: {
+      writeText: async (text: string) => {
+        copied.push(text);
+        await options.clipboard?.writeText(text);
       }
-    });
-    vi.stubGlobal('document', { querySelector: () => toast });
-    return { copied, shared, toast };
-  }
+    }
+  });
+  vi.stubGlobal('document', { querySelector: () => toast });
+  return { copied, shared, toast };
+}
 
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+describe('sharePoll', () => {
   it('hands the poll to the browser share sheet when there is one', async () => {
     const page = stubPage({ share: async () => {} });
 
@@ -195,5 +196,80 @@ describe('sharePoll', () => {
     expect(page.toast.hidden).toBe(false);
     expect(page.toast.innerHTML).toContain('shareFailed');
     expect(page.toast.innerHTML).not.toContain('shareCopied');
+  });
+});
+
+describe('copyPollLink', () => {
+  it('copies the canonical address and confirms it', async () => {
+    const page = stubPage();
+
+    await copyPollLink(42);
+
+    // The copy control copies, whatever the browser's share sheet could do.
+    expect(page.copied).toEqual(['https://chinapoll.org/poll/42']);
+    expect(page.shared).toHaveLength(0);
+    expect(page.toast.hidden).toBe(false);
+    expect(page.toast.innerHTML).toContain('shareCopied');
+  });
+
+  it('reports a refused copy instead of claiming success', async () => {
+    const page = stubPage({ clipboard: { writeText: async () => { throw new Error('denied'); } } });
+
+    await copyPollLink(42);
+
+    expect(page.toast.innerHTML).toContain('shareFailed');
+    expect(page.toast.innerHTML).not.toContain('shareCopied');
+  });
+});
+
+// The share row under a poll's title is the visible way to pass a poll on: copying the
+// link, or handing it to one of the three networks through its own share dialog. The
+// network dialogs are plain links, so the row works without a script; the copy control
+// needs the clipboard, which is why it is a button.
+describe('renderShareRow', () => {
+  const URL = 'https://chinapoll.org/poll/42';
+  const TITLE = '拆墙：完全取消对境外网站的访问限制';
+
+  it('offers the copy control and the three network entries', () => {
+    const markup = renderShareRow(URL, TITLE);
+
+    expect(markup).toContain('data-poll-share-row');
+    expect(markup).toContain('role="group"');
+    // Translations are not loaded here, so `t()` falls back to the i18n key; the group
+    // and each entry still name themselves for assistive technology.
+    expect(markup).toContain('aria-label="sharePoll"');
+    expect(markup).toContain('aria-label="shareToX"');
+    expect(markup).toContain('aria-label="shareToTelegram"');
+    expect(markup).toContain('aria-label="shareToWhatsApp"');
+    expect(markup).toContain('data-copy-link');
+    expect(markup).toContain('>shareCopyLink</button>');
+    // The networks are named as the networks name themselves.
+    expect(markup).toContain('>X</a>');
+    expect(markup).toContain('>Telegram</a>');
+    expect(markup).toContain('>WhatsApp</a>');
+  });
+
+  it('carries the address and the title, encoded, into each share dialog', () => {
+    const markup = renderShareRow(URL, TITLE);
+    const encoded = encodeURIComponent(TITLE);
+
+    // The X dialog takes the address and the text as query parameters, in an attribute
+    // that escapes the ampersands for HTML.
+    expect(markup)
+      .toContain(`href="https://twitter.com/intent/tweet?url=https%3A%2F%2Fchinapoll.org%2Fpoll%2F42&amp;text=${encoded}"`);
+    expect(markup).toContain(`href="https://t.me/share/url?url=https%3A%2F%2Fchinapoll.org%2Fpoll%2F42&amp;text=${encoded}"`);
+    // WhatsApp takes one message: the title, a space, and the address.
+    expect(markup).toContain(`href="https://wa.me/?text=${encodeURIComponent(`${TITLE} ${URL}`)}"`);
+    // Every network is opened in its own tab, with no handle on this one.
+    expect(markup.match(/target="_blank" rel="noopener noreferrer"/g)).toHaveLength(3);
+  });
+
+  it('escapes a hostile title and address instead of letting them inject markup', () => {
+    const markup = renderShareRow('https://chinapoll.org/poll/42"><script>alert(1)</script>', '<b>Title</b>');
+
+    expect(markup).not.toContain('<script>');
+    expect(markup).not.toContain('<b>Title</b>');
+    expect(markup).toContain('%3Cscript%3E');
+    expect(markup).toContain('%3Cb%3ETitle%3C%2Fb%3E');
   });
 });

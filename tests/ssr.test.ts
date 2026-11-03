@@ -124,6 +124,49 @@ describe('server-side poll list', () => {
     expect(html).toContain(serverTranslate('noPolls'));
   });
 
+  // A topic with no poll yet is not offered as a filter in the server-rendered row
+  // either, so the first paint and the client agree; its route stays reachable.
+  it('leaves a topic with no poll out of the chip row', () => {
+    const html = renderHomeBody({
+      settings,
+      topics: [
+        { slug: 'politics', name: 'Politics', count: 4 },
+        { slug: 'empty', name: 'Empty', count: 0 }
+      ],
+      topicTotal: 4,
+      polls: [poll],
+      page: 1,
+      totalPages: 1,
+      query: '',
+      activeTopic: '',
+      totalPolls: 4,
+      totalVotes: 0,
+      showHero: true
+    });
+
+    expect(html).toContain('href="/topic/politics"');
+    expect(html).not.toContain('/topic/empty');
+
+    // The empty topic's own page still names it, so its selection is never hidden.
+    const topicPage = renderHomeBody({
+      settings,
+      topics: [
+        { slug: 'politics', name: 'Politics', count: 4 },
+        { slug: 'empty', name: 'Empty', count: 0 }
+      ],
+      topicTotal: 4,
+      polls: [],
+      page: 1,
+      totalPages: 1,
+      query: '',
+      activeTopic: 'empty',
+      totalPolls: 4,
+      totalVotes: 0,
+      showHero: false
+    });
+    expect(topicPage).toContain('href="/topic/empty"');
+  });
+
   it('escapes a hostile poll title', () => {
     const html = renderHomeBody({
       settings,

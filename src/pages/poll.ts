@@ -30,7 +30,8 @@ import { bootstrapPoll } from '../bootstrap';
 import { getPublicSettings } from '../config';
 import { updateSeo } from '../seo';
 import { localizedTopicName } from '../../shared/categories';
-import { obtainTurnstileToken, renderTurnstile, resetTurnstile, revealTurnstile, turnstileSiteKey } from '../lib/turnstile';
+import { buildPollQuestionJsonLd } from '../../shared/seo';
+import { ensureTurnstile, obtainTurnstileToken, resetTurnstile, revealTurnstile, turnstileSiteKey } from '../lib/turnstile';
 import { apiErrorCode } from '../lib/apiError';
 import {
   animateLayoutChange,
@@ -230,6 +231,42 @@ export function bindDescription(app: HTMLElement): void {
   });
 }
 
+// The poll's canonical address: the public number, never the primary key, and no
+// query string or hash, so what is shared is the page the site publishes.
+function pollUrl(number: number): string {
+  return `${window.location.origin}/poll/${number}`;
+}
+
+// Copies the poll's canonical address and confirms it with a toast. The clipboard is
+// the last resort of the share button and the whole of the row's "copy link" control.
+export async function copyPollLink(number: number): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(pollUrl(number));
+    showToast(t('shareCopied'));
+  } catch (error) {
+    showToast(`${t('shareFailed')} ${getErrorMessage(error)}`, 'error');
+  }
+}
+
+// The row of share controls under a poll's title. Copying the link is a button (it
+// needs the clipboard); the three networks are plain links to their own share
+// dialogs, so they work without a script and a card builder can read them. Names the
+// networks take are left untranslated, and the accessible name says what each one
+// does in the reader's language.
+export function renderShareRow(url: string, title: string): string {
+  const link = (href: string, name: string, ariaKey: string): string =>
+    `<a class="rounded-full border border-border bg-panel px-3.5 py-2 text-sm text-ink no-underline hover:border-primary hover:text-primary" href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer" aria-label="${escapeHtml(t(ariaKey))}">${name}</a>`;
+  const encodedUrl = encodeURIComponent(url);
+  const encodedText = encodeURIComponent(title);
+  return `
+          <div class="mt-4 flex flex-wrap items-center justify-center gap-2" role="group" aria-label="${escapeHtml(t('sharePoll'))}" data-poll-share-row>
+            <button type="button" class="cursor-pointer rounded-full border border-border bg-panel px-3.5 py-2 text-sm text-ink hover:border-primary hover:text-primary" data-copy-link>${escapeHtml(t('shareCopyLink'))}</button>
+            ${link(`https://twitter.com/intent/tweet?url=${encodedUrl}&text=${encodedText}`, 'X', 'shareToX')}
+            ${link(`https://t.me/share/url?url=${encodedUrl}&text=${encodedText}`, 'Telegram', 'shareToTelegram')}
+            ${link(`https://wa.me/?text=${encodeURIComponent(`${title} ${url}`)}`, 'WhatsApp', 'shareToWhatsApp')}
+          </div>`;
+}
+
 // Shares the poll's own address. The address is the canonical `/poll/<number>`, so
 // what is shared never carries the page's query string or hash. A browser with a share
 // sheet - a phone, mostly - hands the poll to it; everywhere else the link goes to the
@@ -237,7 +274,7 @@ export function bindDescription(app: HTMLElement): void {
 // anything is not a failure, so it reports nothing and does not copy behind the
 // visitor's back.
 export async function sharePoll(number: number, title: string): Promise<void> {
-  const url = `${window.location.origin}/poll/${number}`;
+  const url = pollUrl(number);
   const shareSheet = (navigator as Navigator & {
     share?: (data: { title?: string; url?: string }) => Promise<void>;
   }).share;
@@ -251,12 +288,7 @@ export async function sharePoll(number: number, title: string): Promise<void> {
     }
   }
 
-  try {
-    await navigator.clipboard.writeText(url);
-    showToast(t('shareCopied'));
-  } catch (error) {
-    showToast(`${t('shareFailed')} ${getErrorMessage(error)}`, 'error');
-  }
+  await copyPollLink(number);
 }
 
 // The standing beside an option shows its count and holds its whole-percent share
@@ -366,12 +398,12 @@ export function reportModalMarkup(): string {
           <textarea class="w-full resize-y rounded-[14px] border border-border bg-[#f9fbff] px-3.5 py-3" data-report-note maxlength="300" rows="3" placeholder="${t('reportNotePlaceholder')}"></textarea>
           <div class="text-right text-xs text-muted"><span data-report-note-count>0</span>/300</div>
         </div>
-        ${turnstileSiteKey() ? '<div class="flex justify-center" data-turnstile-report></div>' : ''}
         <div class="flex flex-wrap items-center justify-end gap-2.5">
           <button class="cursor-pointer rounded-full border border-border bg-panel px-4 py-2.5 text-sm text-ink hover:border-primary hover:text-primary" type="button" data-report-cancel>${t('reportCancel')}</button>
           <button class="cursor-pointer rounded-full border border-primary bg-primary px-4 py-2.5 text-white disabled:cursor-not-allowed disabled:opacity-60" type="button" data-report-submit disabled>${t('reportSubmit')}</button>
         </div>
         <p class="m-0 min-h-5 text-center text-[0.9rem] text-muted" role="status" aria-live="polite" data-report-status></p>
+        ${turnstileSiteKey() ? '<div class="flex justify-center" data-turnstile-report></div>' : ''}
       </form>
     </div>
   `;
@@ -407,6 +439,7 @@ export function renderCommentForm(signedIn: boolean): string {
       <label for="comment">${t('accountComment')}</label>
       <textarea class="w-full resize-y rounded-[14px] border border-border bg-[#f9fbff] px-3.5 py-3" id="comment" minlength="5" maxlength="140" rows="4" placeholder="${t('commentPlaceholder')}"></textarea>
       <button class="mx-auto cursor-pointer rounded-full border border-primary bg-primary px-4 py-2.5 text-white" type="button" data-submit-comment>${t('submitComment')}</button>
+      ${turnstileSiteKey() ? '<div class="flex justify-center" data-turnstile-comment></div>' : ''}
       <p class="comment-submit-status m-0 min-h-5 text-[0.9rem] text-muted" role="status" aria-live="polite"></p>
       <p class="comment-id-note m-0 hidden text-[0.8rem] text-muted [overflow-wrap:anywhere]"></p>
     </section>
@@ -512,6 +545,32 @@ export async function mountVotePage(identifier: number, app: HTMLElement, bindNa
   // poll detail, and `stats.options` is the same list with the counts, which is
   // null while the results are withheld.
   const pollOptions = poll.options ?? [];
+  // The poll as a Question in the document's structured data, refreshed with the counts
+  // this page just loaded: the Worker renders the same node for the first paint, and a
+  // visitor who navigates without reloading keeps it (see `buildPollQuestionJsonLd`).
+  // Below the display threshold the answers travel without any tally, exactly as the
+  // ballot and the results show them.
+  const hidden = stats?.hidden === true;
+  updateSeo({
+    // The poll's own card is what a shared link shows, the same URL the server-rendered head
+    // published (see worker/services/ogImage.ts), so a client-side navigation keeps it.
+    shareImage: `${window.location.origin}/og/poll/${poll.number}.png`,
+    jsonLd: buildPollQuestionJsonLd(
+      { number: poll.number, title: poll.title, description: poll.description ?? null },
+      pollOptions.length > 0
+        ? {
+          hidden,
+          ballots: stats?.ballots ?? null,
+          answers: pollOptions.map((option) => ({
+            label: option.label,
+            count: hidden ? null : stats?.options?.find((entry) => entry.id === option.id)?.count ?? null
+          }))
+        }
+        : null,
+      { site_name: getPublicSettings().site_name },
+      window.location.origin
+    )
+  });
   const resultOptions = stats?.options ?? null;
   const results: PollResults | null = stats
     ? {
@@ -580,6 +639,8 @@ export async function mountVotePage(identifier: number, app: HTMLElement, bindNa
             ${renderPollMenu(poll.id, alreadyReported)}
           </div>
 
+          ${renderShareRow(pollUrl(poll.number), poll.title)}
+
           ${poll.description ? renderPollDescription(poll.description) : ''}
 
           ${choiceInputs}
@@ -644,14 +705,32 @@ export async function mountVotePage(identifier: number, app: HTMLElement, bindNa
 
     commentButton.disabled = true;
     if (commentStatus) commentStatus.textContent = '';
+    let challengeToken: string;
     try {
-      await submitComment(poll.id, comment);
+      // A comment is a submission like any other, so its challenge runs here rather than
+      // when the poll page - or the comment box - is opened.
+      if (commentStatus) commentStatus.textContent = t('verifying');
+      await ensureTurnstile('comment', document.querySelector<HTMLElement>('[data-turnstile-comment]'));
+      challengeToken = await obtainTurnstileToken('comment');
+    } catch (error) {
+      if (commentStatus) commentStatus.textContent = `${t('commentSubmitFailed')} ${getErrorMessage(error)}`;
+      commentButton.disabled = false;
+      resetTurnstile('comment');
+      return;
+    }
+    if (commentStatus) commentStatus.textContent = '';
+    try {
+      await submitComment(poll.id, comment, challengeToken);
       if (commentInput) commentInput.value = '';
       if (commentStatus) commentStatus.textContent = t('commentSubmitted');
       window.history.replaceState({}, '', `/poll/${poll.number}?commentsPage=1`);
       await updateComments(poll.id, 1, bindNavigation);
     } catch (error) {
       if (commentStatus) commentStatus.textContent = `${t('commentSubmitFailed')} ${getErrorMessage(error)}`;
+      // The widget is hidden by default, so a verification failure is the only case that
+      // must surface the box for the visitor to solve.
+      if (apiErrorCode(error) === 'TURNSTILE_FAILED') revealTurnstile('comment');
+      resetTurnstile('comment');
     } finally {
       commentButton.disabled = false;
     }
@@ -674,6 +753,9 @@ export async function mountVotePage(identifier: number, app: HTMLElement, bindNa
     setSubmitting(true);
     let challengeToken: string;
     try {
+      // The widget is drawn on the submission the challenge belongs to: reading a poll,
+      // and filling in the ballot, runs no challenge (see `ensureTurnstile`).
+      await ensureTurnstile('vote', document.querySelector<HTMLElement>('[data-turnstile-vote]'));
       challengeToken = await obtainTurnstileToken('vote');
     } catch (error) {
       setSubmitting(false);
@@ -807,16 +889,9 @@ export async function mountVotePage(identifier: number, app: HTMLElement, bindNa
     sync();
     boxes.forEach((box) => box.addEventListener('change', sync));
 
-    // The first interaction warms the token up, so it is usually already at hand
-    // when the form is submitted. The result is deliberately ignored: the submit
-    // path asks again and reports any real failure.
-    let warmedUp = false;
-    const warmUpToken = () => {
-      if (warmedUp) return;
-      warmedUp = true;
-      void obtainTurnstileToken('vote').catch(() => undefined);
-    };
-    boxes.forEach((box) => box.addEventListener('change', warmUpToken));
+    // Marking an option runs no challenge: the challenge belongs to the submission, so a
+    // visitor reading a poll - even one who changes their mind a few times - triggers
+    // nothing (see `ensureVoteTurnstile`).
 
     choiceForm.addEventListener('submit', async (event) => {
       event.preventDefault();
@@ -850,12 +925,9 @@ export async function mountVotePage(identifier: number, app: HTMLElement, bindNa
     });
   }
 
-  // Render the Turnstile widget on the vote area when a site key is configured.
-  // It stays hidden until Cloudflare needs an interaction, so the empty slot adds
-  // no visible element and the script loads in the background without blocking
-  // the page.
-  const voteWidget = document.querySelector<HTMLElement>('[data-turnstile-vote]');
-  if (voteWidget) void renderTurnstile('vote', voteWidget);
+  // The vote area's Turnstile widget is drawn the first time a vote is submitted, so
+  // reading a poll loads no challenge script and runs no challenge (see
+  // `ensureVoteTurnstile`).
 
   // The three-dot poll menu: the toggle opens the dropdown that hosts the report
   // entry, the backdrop closes it on a click anywhere outside, and Escape closes
@@ -881,6 +953,13 @@ export async function mountVotePage(identifier: number, app: HTMLElement, bindNa
   // or to the clipboard, whichever this browser offers.
   document.querySelector<HTMLButtonElement>('[data-poll-share]')
     ?.addEventListener('click', () => { void sharePoll(poll.number, poll.title); });
+
+  // The row's copy control always copies: a visitor who asks for the link wants the
+  // link, not a share sheet. Its three network entries are plain links to their own
+  // share dialogs, so they need no binding.
+  app.querySelectorAll<HTMLButtonElement>('[data-copy-link]').forEach((button) => {
+    button.addEventListener('click', () => { void copyPollLink(poll.number); });
+  });
 
   // The report dialog is built when the report entry is chosen and removed again
   // on cancel or once the report is sent, so no report card is appended to the
@@ -914,7 +993,6 @@ export async function mountVotePage(identifier: number, app: HTMLElement, bindNa
     };
     const close = () => {
       host.remove();
-      resetTurnstile('report');
     };
     const syncNote = () => {
       const isOther = selectedReason() === 'other';
@@ -945,6 +1023,8 @@ export async function mountVotePage(identifier: number, app: HTMLElement, bindNa
       if (status) status.textContent = t('verifying');
       let challengeToken: string;
       try {
+        // The challenge runs when the report is submitted, not when the dialog opens.
+        await ensureTurnstile('report', host.querySelector<HTMLElement>('[data-turnstile-report]'));
         challengeToken = await obtainTurnstileToken('report');
       } catch (error) {
         if (status) status.textContent = `${t('submitFailed')}: ${getErrorMessage(error)}`;
@@ -973,15 +1053,13 @@ export async function mountVotePage(identifier: number, app: HTMLElement, bindNa
       } catch (error) {
         if (status) status.textContent = `${t('submitFailed')}: ${getErrorMessage(error)}`;
         submit.disabled = false;
-        // The widget is hidden by default, so a verification failure is the only
-        // case that must surface the box for the visitor to solve.
+        // The widget is hidden by default, so a verification failure is the only case
+        // that must surface the box for the visitor to solve.
         if (apiErrorCode(error) === 'TURNSTILE_FAILED') revealTurnstile('report');
         resetTurnstile('report');
       }
     });
 
-    const widget = host.querySelector<HTMLElement>('[data-turnstile-report]');
-    if (widget) await renderTurnstile('report', widget);
     radios[0]?.focus();
   };
   // Rebuilds the poll menu entries so they match the state this browser is now in.

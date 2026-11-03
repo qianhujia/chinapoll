@@ -312,10 +312,10 @@ export async function getComments(pollId: number, page: number, pageSize: number
   return fetchJson(`/api/comments/${pollId}?${params}`);
 }
 
-export async function submitComment(pollId: number, comment: string): Promise<{ id: string }> {
+export async function submitComment(pollId: number, comment: string, turnstileToken = ''): Promise<{ id: string }> {
   return fetchJson<{ ok: boolean; id: string }>('/api/comments', {
     method: 'POST',
-    body: JSON.stringify({ pollId, comment })
+    body: JSON.stringify({ pollId, comment, turnstileToken })
   });
 }
 

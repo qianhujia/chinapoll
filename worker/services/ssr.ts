@@ -221,12 +221,17 @@ function renderTopicChips(
   settings: SsrSettings,
   t: Translate
 ): string {
-  if (topics.length === 0) return '';
+  // A topic with no public poll yet is left out of the row - its /topic/<slug> route
+  // and its link stay reachable, and it reappears as soon as it has a poll - except
+  // when it is the topic being filtered on, which stays visible so the row never
+  // hides the selection. This mirrors the client's `renderTopicChips`.
+  const shown = topics.filter((topic) => topic.count > 0 || topic.slug === activeTopic);
+  if (shown.length === 0) return '';
 
   const chip = (href: string, label: string, count: number, active: boolean): string => `
         <a class="rounded-full border px-3 py-1.5 text-sm no-underline hover:border-primary hover:text-primary ${active ? 'border-primary font-bold text-primary' : 'border-border bg-panel text-ink'}" href="${escapeHtml(href)}" data-route="${escapeHtml(href)}">${escapeHtml(label)} <span class="tabular-nums text-xs">${count}</span></a>`;
 
-  const items = topics.map((topic) => chip(
+  const items = shown.map((topic) => chip(
     `/topic/${topic.slug}`,
     displayName(topic, settings),
     topic.count,

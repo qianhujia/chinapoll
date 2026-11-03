@@ -279,6 +279,28 @@ describe('server-rendered pages', () => {
       .toBe('polls@example.com');
   });
 
+  // The poll page publishes the poll as a schema.org Question with its answers, so a
+  // search engine reading the document sees the title, the option labels, and - once the
+  // poll has enough votes - the standing. This poll has none and sits below the display
+  // threshold, so no tally is published at all.
+  it('publishes the poll as a Question and withholds the tally below the threshold', async () => {
+    const pollId = await seedPoll({ title: 'Question check' });
+    await seedOptions(pollId, [
+      { position: 1, label: 'Yes' },
+      { position: 2, label: 'No' }
+    ]);
+    const pollNumber = await publishWithNumber(pollId);
+
+    const html = await (await SELF.fetch(`${ORIGIN}/poll/${pollNumber}`)).text();
+
+    expect(html).toContain('"@type":"Question"');
+    expect(html).toContain('"name":"Question check"');
+    expect(html).toContain(`"url":"${ORIGIN}/poll/${pollNumber}"`);
+    expect(html).toContain('"answerCount":2');
+    expect(html).toContain('{"@type":"Answer","text":"Yes"}');
+    expect(html).not.toContain('"upvoteCount"');
+  });
+
   it('embeds the poll data for the requested comment page only', async () => {
     const pollId = await seedPoll({ title: 'Island comment page' });
 

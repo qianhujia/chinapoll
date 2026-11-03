@@ -91,23 +91,26 @@ function topicChipClass(active: boolean, extra = false): string {
 // The topic chip row. At most TOPIC_CHIP_LIMIT topics are shown; the rest stay
 // in the document but hidden until the expand text reveals them. A topic that is
 // currently filtered in is always shown, even when it sorts past the limit, so
-// the active selection is never hidden.
+// the active selection is never hidden. A topic that has no public poll yet is left
+// out of the row: the /topic/<slug> route and its link stay reachable, and the topic
+// appears as soon as a poll is filed under it.
 export function renderTopicChips(
   topics: ReadonlyArray<TopicChip>,
   total: number,
   activeTopic: string,
   labels: TopicChipLabels
 ): string {
-  if (topics.length === 0) return '';
+  const shown = topics.filter((topic) => topic.count > 0 || topic.slug === activeTopic);
+  if (shown.length === 0) return '';
 
   const chip = (href: string, label: string, count: number, active: boolean, extra = false): string =>
     `<a class="${topicChipClass(active, extra)}"${extra ? ' data-topic-extra' : ''} href="${href}" data-route="${href}">${escapeHtml(label)} <span class="tabular-nums text-xs">${count}</span></a>`;
 
   // Keep the filtered topic visible so the row never hides what is selected.
-  const activeIndex = topics.findIndex((topic) => topic.slug === activeTopic);
+  const activeIndex = shown.findIndex((topic) => topic.slug === activeTopic);
   const limit = activeIndex >= TOPIC_CHIP_LIMIT ? activeIndex + 1 : TOPIC_CHIP_LIMIT;
-  const visible = topics.slice(0, limit);
-  const extra = topics.slice(limit);
+  const visible = shown.slice(0, limit);
+  const extra = shown.slice(limit);
 
   const chips = [
     chip('/', labels.all, total, activeTopic === ''),
