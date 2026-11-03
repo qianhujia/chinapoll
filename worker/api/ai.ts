@@ -1,9 +1,9 @@
 // AI assistance endpoints.
 //
 // Every endpoint requires a signed-in account, passes the same account-age gate
-// as proposals, enforces the Origin check, verifies Turnstile when it is enabled,
-// and rate limits with scope `ai` and key `user:<id>`. When the `ai_provider`
-// setting is off they answer 404, exactly as if they did not exist.
+// as proposals, enforces the Origin check, and rate limits with scope `ai` and key
+// `user:<id>`. When the `ai_provider` setting is off they answer 404, exactly as if
+// they did not exist.
 //
 // Privacy: the draft is sent to the model and the validated suggestions go
 // straight back to the caller. Nothing is logged and nothing is written to D1.
@@ -69,7 +69,7 @@ interface AiContext {
   model: string;
 }
 
-// Shared gate: sign-in, Origin, account age, Turnstile, and the `ai` rate limit.
+// Shared gate: sign-in, Origin, account age, and the `ai` rate limit.
 async function openAiContext(request: Request, env: HandlerEnv): Promise<AiContext | Response> {
   if (request.method !== 'POST') {
     return apiError('METHOD_NOT_ALLOWED', 405);
@@ -99,7 +99,8 @@ async function openAiContext(request: Request, env: HandlerEnv): Promise<AiConte
     return apiError('INVALID_JSON', 400);
   }
 
-  // The same Turnstile gate as the other account actions.
+  // Every write flow carries the challenge; the AI helpers draw their widget when a
+  // suggestion is asked for, and nothing here runs while a page is only read.
   if (isTurnstileEnabled(env)) {
     const token = typeof body.turnstileToken === 'string' ? body.turnstileToken : '';
     if (!token || !await verifyTurnstile(turnstileSecretKey(env), token, new URL(request.url).hostname)) {

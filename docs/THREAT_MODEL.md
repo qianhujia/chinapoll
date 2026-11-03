@@ -188,8 +188,8 @@ submit the poll:
 - **Nothing is stored.** The prompt and the model response are never logged and
   never written to D1. There is no prompt table, no response table, and no cache.
 - The endpoints require a signed-in account, pass the same account-age gate as
-  proposals, enforce the same Origin check, verify Turnstile when it is enabled,
-  and are rate limited per account with scope `ai`.
+  proposals, enforce the same Origin check, and are rate limited per account with
+  scope `ai`.
 - Workers AI and any configured OpenAI-compatible endpoint are third-party
   services. Turning AI on therefore means the submitted text leaves the operator's
   own systems and is processed by the selected provider under that provider's
@@ -210,7 +210,10 @@ submit the poll:
   say which account the mark belongs to, but it can tell which rows share one
   author. See `docs/DATA_MAP.md`.
 - Turnstile is a third-party service and is the only external origin the
-  application may contact.
+  application may contact. It is loaded on the flows that submit something - casting a
+  vote, signing in or up, commenting, and reporting - and only when such a form is
+  submitted, so browsing the site, reading a poll, or reading its results never
+  contacts it.
 
 ## Configuration log
 

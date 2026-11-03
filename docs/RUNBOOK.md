@@ -44,7 +44,10 @@ are run from the repository root.
    `[env.production.vars]` in `wrangler.toml` and `admin/wrangler.toml`, then store
    the secret with `npx wrangler secret put TURNSTILE_SECRET_KEY --env production`
    (add `--config admin/wrangler.toml` for the admin Worker). Turnstile is enabled
-   on a Worker only when both keys are present there. The site key is public, so a
+   on a Worker only when both keys are present there. On the public Worker it guards
+   submissions - casting a vote, signing in or up, commenting, and reporting - and is
+   drawn when a form is submitted, so reading a poll, its results, or a comment does
+   not run a challenge. The site key is public, so a
    plain variable under `[env.production.vars]` is enough, but
    `npx wrangler secret put TURNSTILE_SITE_KEY` works as well: keep the key in
    exactly one place, because a var and a secret cannot share a name.

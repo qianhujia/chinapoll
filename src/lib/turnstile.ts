@@ -143,6 +143,30 @@ export async function renderTurnstile(
   }
 }
 
+// Draws a widget for `slot` the first time it is asked for, and reuses it afterwards.
+//
+// Every form on the public site calls this from its submit path, so a page that is only
+// read - a poll, its results, the sign-in or sign-up form before it is used - loads no
+// challenge script and runs no challenge. A slot whose widget was drawn into markup that
+// has since left the document (a client-side navigation) is drawn again where it is now.
+// A container that is not on the page, or a site key that is not configured, leaves the
+// slot undrawn: the token request that follows then resolves empty, and the server decides
+// whether a token is required.
+export async function ensureTurnstile(
+  slot: string,
+  container: HTMLElement | null | undefined
+): Promise<void> {
+  if (!container) return;
+  const existing = widgets.get(slot);
+  if (existing) {
+    if (existing.container.isConnected) return;
+    // The widget belongs to markup that is gone, so its token is worthless: forget it and
+    // draw a fresh widget into the container the page has now.
+    widgets.delete(slot);
+  }
+  await renderTurnstile(slot, container);
+}
+
 // Awaits a token for `slot`, asking the widget to run when nothing is at hand.
 //
 // A slot without a widget (no site key is configured, or the script never loaded)

@@ -15,6 +15,7 @@ import { checkRateLimit } from '../services/rateLimit';
 import { enforceSameOrigin } from '../services/csrf';
 import { requireUser } from '../services/session';
 import { checkAccountAge } from '../services/users';
+import { isTurnstileEnabled, turnstileSecretKey, verifyTurnstile } from '../services/turnstile';
 import { PollMode, PollStatus } from '../enums';
 import { apiError } from '../../shared/http';
 
@@ -116,6 +117,18 @@ async function handleCommentSubmission(request: Request, env: HandlerEnv): Promi
   }
   if (comment.length < MIN_COMMENT_LENGTH || comment.length > MAX_COMMENT_LENGTH) {
     return apiError('COMMENT_LENGTH', 400);
+  }
+
+  // A comment is a submission, so it carries a Turnstile challenge when the site has one
+  // configured; the comment form draws its widget when the button is pressed, so reading
+  // the poll and its comments runs no challenge (see `ensureTurnstile`).
+  if (isTurnstileEnabled(env)) {
+    const token = typeof (body as Record<string, unknown>).turnstileToken === 'string'
+      ? String((body as Record<string, unknown>).turnstileToken)
+      : '';
+    if (!token || !await verifyTurnstile(turnstileSecretKey(env), token, new URL(request.url).hostname)) {
+      return apiError('TURNSTILE_FAILED', 403);
+    }
   }
 
   const poll = await env.DB.prepare(

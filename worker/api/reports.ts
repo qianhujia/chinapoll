@@ -18,13 +18,13 @@ import { enforceSameOrigin } from '../services/csrf';
 import { checkRateLimit } from '../services/rateLimit';
 import { clientAddress, hashedNetworkBucket, serverHmacKey } from '../services/ip';
 import { isTurnstileEnabled, turnstileSecretKey, verifyTurnstile } from '../services/turnstile';
+import { apiError } from '../../shared/http';
 import {
   getPollReportReasonCode,
   PollReportReason,
   PollStatus,
   PRIORITY_REPORT_REASONS
 } from '../enums';
-import { apiError } from '../../shared/http';
 
 const DEFAULT_REPORT_RATE_LIMIT = '3/d';
 const DEFAULT_AUTO_HIDE_THRESHOLD = 5;
@@ -86,7 +86,9 @@ export async function handleReportRequest(request: Request, url: URL, env: Handl
     return apiError('NOTE_TOO_LONG', 400, { params: { max: MAX_NOTE_LENGTH }, extra: { ok: false } });
   }
 
-  // Turnstile is enforced only when both keys are configured.
+  // A report is a submission, so it carries a Turnstile challenge like the other write
+  // flows; the dialog draws its widget when the report is sent, not when it opens (see
+  // `ensureTurnstile` in src/lib/turnstile.ts).
   const turnstileResponse = typeof body.turnstileToken === 'string' ? body.turnstileToken : '';
   if (isTurnstileEnabled(env)) {
     if (!turnstileResponse || !await verifyTurnstile(turnstileSecretKey(env), turnstileResponse, new URL(request.url).hostname)) {

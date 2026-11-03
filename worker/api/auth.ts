@@ -242,6 +242,8 @@ async function login(request: Request, env: HandlerEnv): Promise<Response> {
     return apiError('CREDENTIALS_REQUIRED', 400);
   }
 
+  // The challenge belongs to the submission, not to the page: the sign-in form draws its
+  // widget when it is submitted (see `ensureTurnstile` in src/lib/turnstile.ts).
   const turnstileError = await turnstileGate(request, env, body);
   if (turnstileError) return turnstileError;
 

@@ -1,7 +1,7 @@
 import { loginUser, recoverPassword, registerUser } from '../lib/session';
 import { escapeHtml, getErrorMessage, renderFooter, renderHeader, renderRecoveryCode, renderToast, showToast, t, viewIconMarkup } from '../ui';
 import { getPublicSettings } from '../config';
-import { obtainTurnstileToken, renderTurnstile, resetTurnstile, revealTurnstile, turnstileSiteKey } from '../lib/turnstile';
+import { ensureTurnstile, obtainTurnstileToken, resetTurnstile, revealTurnstile, turnstileSiteKey } from '../lib/turnstile';
 import { apiErrorCode } from '../lib/apiError';
 
 // Re-renders the current route after a state change by replaying the router's
@@ -49,9 +49,9 @@ export async function mountLoginPage(app: HTMLElement, bindNavigation: () => voi
           <form class="grid gap-3" data-login-form>
             ${fieldMarkup('login-username', 'username', t('username'), 'text', 'username')}
             ${fieldMarkup('login-password', 'password', t('password'), 'password', 'current-password')}
-            ${turnstileSiteKey() ? '<div class="flex justify-center" data-turnstile-login></div>' : ''}
             <button class="mx-auto mt-2 cursor-pointer rounded-full border border-primary bg-primary px-4 py-2.5 text-white" type="submit">${t('loginSubmit')}</button>
             <p class="m-0 min-h-5 text-center text-[0.9rem] text-muted" role="status" aria-live="polite" data-auth-status></p>
+            ${turnstileSiteKey() ? '<div class="flex justify-center" data-turnstile-login></div>' : ''}
           </form>
           <p class="m-0 text-center text-sm text-muted"><a class="text-primary" href="/register" data-route="/register">${t('registerLink')}</a></p>
           <p class="m-0 text-center text-sm text-muted"><a class="text-primary" href="/reset" data-route="/reset">${t('forgotPassword')}</a></p>
@@ -71,11 +71,13 @@ export async function mountLoginPage(app: HTMLElement, bindNavigation: () => voi
     const password = String(formData.get('password') ?? '');
     const submitButton = form.querySelector<HTMLButtonElement>('button[type="submit"]')!;
     submitButton.disabled = true;
-    // Waiting for the token keeps the button disabled and says so, so a slow
-    // challenge is not mistaken for a dead button.
+    // The sign-in challenge runs on this submission, not when the page is opened: waiting
+    // for the token keeps the button disabled and says so, so a slow challenge is not
+    // mistaken for a dead button (see `ensureTurnstile`).
     let challengeToken: string;
     try {
       if (authStatus) authStatus.textContent = t('verifying');
+      await ensureTurnstile('login', document.querySelector<HTMLElement>('[data-turnstile-login]'));
       challengeToken = await obtainTurnstileToken('login');
     } catch (error) {
       if (authStatus) authStatus.textContent = `${t('loginFailed')} ${getErrorMessage(error)}`;
@@ -89,8 +91,8 @@ export async function mountLoginPage(app: HTMLElement, bindNavigation: () => voi
       showToast(`${t('loginSuccess')}: ${user.username}`);
       navigate('/account');
     } catch (error) {
-      // The widget is hidden by default, so a verification failure is the only
-      // case that must surface the box for the visitor to solve.
+      // The widget is hidden by default, so a verification failure is the only case that
+      // must surface the box for the visitor to solve.
       if (apiErrorCode(error) === 'TURNSTILE_FAILED') revealTurnstile('login');
       showToast(`${t('loginFailed')} ${getErrorMessage(error)}`, 'error');
     } finally {
@@ -98,9 +100,6 @@ export async function mountLoginPage(app: HTMLElement, bindNavigation: () => voi
       resetTurnstile('login');
     }
   });
-
-  const loginWidget = document.querySelector<HTMLElement>('[data-turnstile-login]');
-  if (loginWidget) await renderTurnstile('login', loginWidget);
 
   bindNavigation();
 
@@ -161,11 +160,13 @@ export async function mountRegisterPage(app: HTMLElement, bindNavigation: () => 
     const submitButton = form.querySelector<HTMLButtonElement>('button[type="submit"]')!;
     const authStatus = document.querySelector<HTMLElement>('[data-auth-status]');
     submitButton.disabled = true;
-    // Waiting for the token keeps the button disabled and says so, so a slow
-    // challenge is not mistaken for a dead button.
+    // The sign-up challenge runs on this submission, not when the form is opened: waiting
+    // for the token keeps the button disabled and says so, so a slow challenge is not
+    // mistaken for a dead button (see `ensureTurnstile`).
     let challengeToken: string;
     try {
       if (authStatus) authStatus.textContent = t('verifying');
+      await ensureTurnstile('register', document.querySelector<HTMLElement>('[data-turnstile-register]'));
       challengeToken = await obtainTurnstileToken('register');
     } catch (error) {
       if (authStatus) authStatus.textContent = `${t('registerFailed')} ${getErrorMessage(error)}`;
@@ -197,9 +198,6 @@ export async function mountRegisterPage(app: HTMLElement, bindNavigation: () => 
     note.textContent = `${t('registerDelayNote')} ${settings.user_poll_delay_minutes}m / ${settings.user_comment_delay_minutes}m`;
     form?.insertAdjacentElement('afterend', note);
   }
-
-  const registerWidget = document.querySelector<HTMLElement>('[data-turnstile-register]');
-  if (registerWidget) await renderTurnstile('register', registerWidget);
 
   bindNavigation();
 
