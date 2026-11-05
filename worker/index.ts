@@ -75,7 +75,7 @@ import {
 import { getPollStatusLabel, PollMode, PollStatus } from './enums';
 import { countPollBallots, getPollOptions, toPublicResults } from './services/options';
 import { apiError } from '../shared/http';
-import type { PollStandings } from '../shared/seo';
+import { shareImageUrl, type PollStandings } from '../shared/seo';
 import { topicLabel, type TopicLocale } from '../shared/categories';
 
 export interface Env {
@@ -558,7 +558,9 @@ ${polls.map(entry).join('\n')}
   // The Open Graph card for one poll: a PNG a card builder fetches instead of the page. The
   // stored card is served while it still describes the poll (see worker/services/ogImage.ts);
   // otherwise it is drawn now, so a poll published or voted on since the last hourly run
-  // still shares the standing it has.
+  // still shares the standing it has. A card that cannot be drawn falls back to the stored one
+  // and then to the site's own share image, because a card builder that records a broken
+  // picture keeps showing it for days.
   const ogMatch = /^\/og\/poll\/(\d+)\.png$/.exec(url.pathname);
   if (ogMatch) {
     const { settings } = await loadSettings(env);
@@ -577,9 +579,13 @@ ${polls.map(entry).join('\n')}
         }, { siteName: settings.site_name, origin });
       } catch (error) {
         console.error('og card failed', error);
-        // A card that cannot be drawn falls back to the stored one (stale beats missing)
-        // and answers 503 when there is none.
-        if (!card) return apiError('INTERNAL_ERROR', 503);
+        // A card that cannot be drawn falls back to the stored one (stale beats missing), and
+        // then to the site's share image, so the poll still unfurls with a picture.
+        if (!card) {
+          const fallback = shareImageUrl(settings, origin);
+          if (!fallback) return apiError('INTERNAL_ERROR', 503);
+          return withSecurityHeaders(Response.redirect(fallback, 302), false);
+        }
       }
     }
 

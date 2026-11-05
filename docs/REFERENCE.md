@@ -491,7 +491,9 @@ moves it and a view count does not. A request for a card that is missing or out 
 date draws it, and the hourly run (`refreshOgCards`, limited to the 50 most
 recently changed open polls) redraws the cards whose polls moved without a visit.
 Below the display threshold the card prints no tally at all, exactly as the page
-withholds it.
+withholds it. A card that cannot be drawn is never answered with an error a card
+builder would record as a broken picture: the stored card answers if there is one,
+and the site's own share image (`shareImageUrl`) otherwise.
 
 Two assets matter to the rendering. The rasterizer is a bundled WebAssembly module:
 workerd compiles WebAssembly only at deploy time, so `@resvg/resvg-wasm`'s
