@@ -103,7 +103,7 @@ login endpoint) or an `Authorization: Bearer <session-token>` header.
 | `POST` | `/api/admin/session` | Login with `{ username, password, turnstileToken? }` |
 | `DELETE` | `/api/admin/session` | Logout |
 | `POST` | `/api/admin/setup` | Create the first admin user when none exist |
-| `GET` | `/api/admin/overview` | Dashboard counts and recent submissions |
+| `GET` | `/api/admin/overview` | Dashboard counts, recent submissions, and `viewsDaily` (the last 30 UTC days of view totals over every poll, one entry per day, oldest first, a day with no views filled in as zero) |
 | `GET` | `/api/admin/polls` | List polls including pending (`status`, `page`, `pageSize`, `q`); each row carries `pollType`, `durationSeconds`, `ballots`, and the options with a count each |
 | `POST` | `/api/admin/polls/:id/status` | Set poll status (`{ "status": "open" }`); opening a deadline poll stamps `end_at` from `duration_seconds` |
 | `PUT` | `/api/admin/polls/:id/options` | Replace the option set of a **pending** poll; `409` when it is not pending or already has ballots; writes a `poll.options` audit entry |
@@ -141,6 +141,12 @@ markup rendered Worker-side (`dashboard/icons.ts`), so the dashboard stays one
 self-contained document with no build step and no runtime dependency. Settings is
 split into one page per category and Reports into one page per queue
 (`/reports/polls` and `/reports/comments`), each with its own URL.
+
+The Overview draws the daily view totals of every poll as a line chart. The series is
+read from the same `poll_views` daily rows the `Views (24h)` and `Views (7d)` cards
+sum (see `loadDailyViews` in `api/overview.ts`), and the chart is inline SVG built in
+`dashboard/script/pages/overview.ts`, so the dashboard still ships no chart library
+and reaches no third-party origin.
 
 ## Audit log
 

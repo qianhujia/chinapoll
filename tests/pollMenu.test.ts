@@ -1,15 +1,17 @@
-// Frontend poll-menu and report-dialog tests.
+// Frontend poll-menu, share-dialog, and report-dialog tests.
 //
-// `renderPollMenu`, `renderShareRow`, `reportMenuEntryMarkup`, and `reportModalMarkup`
-// are pure markup, so they are checked directly: the share button and the three-dot menu
-// at the top right of the poll title host the poll's own actions, the report itself is a
-// dialog built on demand instead of a card appended to the page, and the share row under
-// the title carries the poll to the clipboard and to the three networks. `sharePoll` and
-// `copyPollLink` are the behaviour behind those controls, so they are checked with the
-// browser APIs they reach for stubbed.
+// `renderPollMenu`, `shareDialogMarkup`, `reportMenuEntryMarkup`, and `reportModalMarkup` are
+// pure markup, so they are checked directly: the share button and the three-dot menu at the
+// top right of the poll title host the poll's own actions, and both the report and the share
+// dialog are built on demand instead of being appended to the page - so the page content
+// carries no share row. `copyPollLink` is the behaviour behind the dialog's copy control, so
+// it is checked with the browser APIs it reaches for stubbed. The share flow is checked at
+// the source level too: the poll page must never reach for the browser's share sheet.
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { copyPollLink, renderPollMenu, renderShareRow, reportMenuEntryMarkup, reportModalMarkup, sharePoll } from '../src/pages/poll';
+import { readFileSync } from 'node:fs';
+import { copyPollLink, renderPollMenu, reportMenuEntryMarkup, reportModalMarkup, shareDialogMarkup } from '../src/pages/poll';
+import { socialIconMarkup } from '../src/ui';
 import { REPORT_REASONS } from '../src/lib/poll';
 
 // Translations are not loaded in this environment, so `t()` falls back to the
@@ -146,62 +148,35 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe('sharePoll', () => {
-  it('hands the poll to the browser share sheet when there is one', async () => {
-    const page = stubPage({ share: async () => {} });
+// The share button opens the page's own dialog instead of the browser's share sheet, so the
+// visitor always picks a network here (or copies the link), and the dialog is built on demand
+// rather than living in the page content.
+describe('the share flow', () => {
+  const source = (): string => readFileSync('src/pages/poll.ts', 'utf8');
 
-    await sharePoll(42, 'Bike lanes on Main Street');
-
-    // The canonical address, with the poll's number and title, and nothing copied
-    // behind the sheet's back.
-    expect(page.shared).toEqual([
-      { title: '#42 Bike lanes on Main Street', url: 'https://chinapoll.org/poll/42' }
-    ]);
-    expect(page.copied).toHaveLength(0);
-    expect(page.toast.hidden).toBe(true);
+  it('never hands the poll to the browser share sheet', () => {
+    // A share sheet would put an unstyled, untranslated sheet in front of the visitor - and
+    // on some platforms hands the link out before a target is chosen.
+    expect(source()).not.toContain('navigator.share');
+    expect(source()).not.toContain('shareSheet');
   });
 
-  it('copies the canonical address and confirms it when the browser cannot share', async () => {
-    const page = stubPage();
-
-    await sharePoll(42, 'Bike lanes on Main Street');
-
-    expect(page.copied).toEqual(['https://chinapoll.org/poll/42']);
-    expect(page.toast.hidden).toBe(false);
-    expect(page.toast.innerHTML).toContain('shareCopied');
-  });
-
-  it('stays quiet when the share sheet is dismissed', async () => {
-    const page = stubPage({
-      share: async () => { throw Object.assign(new Error('dismissed'), { name: 'AbortError' }); }
-    });
-
-    await sharePoll(42, 'Bike lanes on Main Street');
-
-    // Dismissing the sheet is not a failure, and the link is not copied instead.
-    expect(page.copied).toHaveLength(0);
-    expect(page.toast.hidden).toBe(true);
-  });
-
-  it('falls back to the clipboard and reports a failed copy as an error', async () => {
-    const page = stubPage({
-      share: async () => { throw new Error('unavailable'); },
-      clipboard: { writeText: async () => { throw new Error('denied'); } }
-    });
-
-    await sharePoll(42, 'Bike lanes on Main Street');
-
-    // A share sheet that fails for another reason leaves the copy as the last resort,
-    // and a refused copy is reported instead of claiming success.
-    expect(page.toast.hidden).toBe(false);
-    expect(page.toast.innerHTML).toContain('shareFailed');
-    expect(page.toast.innerHTML).not.toContain('shareCopied');
+  it('opens the dialog from the share button and keeps the controls out of the page', () => {
+    // The dialog is built when the button is pressed, and the poll's own markup renders no
+    // share row: `shareDialogMarkup` is the only home of the share controls.
+    expect(source()).toContain("querySelector<HTMLButtonElement>('[data-poll-share]')");
+    expect(source()).toContain('openShareDialog');
+    expect(source()).toContain('shareDialogMarkup(pollUrl(poll.number), poll.title)');
+    expect(source()).not.toContain('renderShareRow');
+    expect(source()).not.toContain('data-poll-share-row');
   });
 });
 
 describe('copyPollLink', () => {
   it('copies the canonical address and confirms it', async () => {
-    const page = stubPage();
+    // The dialog's copy control copies even where the browser offers a share sheet of its
+    // own: someone who asks for the link wants the link.
+    const page = stubPage({ share: async () => {} });
 
     await copyPollLink(42);
 
@@ -222,54 +197,106 @@ describe('copyPollLink', () => {
   });
 });
 
-// The share row under a poll's title is the visible way to pass a poll on: copying the
-// link, or handing it to one of the three networks through its own share dialog. The
-// network dialogs are plain links, so the row works without a script; the copy control
-// needs the clipboard, which is why it is a button.
-describe('renderShareRow', () => {
+// The share dialog is the only home of the share controls: the poll's canonical address, a
+// copy control, and one entry per network. The networks are plain links to their own share
+// dialogs, so they work without a script; the copy control needs the clipboard, which is why
+// it is a button.
+describe('shareDialogMarkup', () => {
   const URL = 'https://chinapoll.org/poll/42';
   const TITLE = '拆墙：完全取消对境外网站的访问限制';
 
-  it('offers the copy control and the three network entries', () => {
-    const markup = renderShareRow(URL, TITLE);
+  it('offers the address, the copy control, the networks, and a close button', () => {
+    const markup = shareDialogMarkup(URL, TITLE);
 
-    expect(markup).toContain('data-poll-share-row');
-    expect(markup).toContain('role="group"');
-    // Translations are not loaded here, so `t()` falls back to the i18n key; the group
-    // and each entry still name themselves for assistive technology.
-    expect(markup).toContain('aria-label="sharePoll"');
-    expect(markup).toContain('aria-label="shareToX"');
-    expect(markup).toContain('aria-label="shareToTelegram"');
-    expect(markup).toContain('aria-label="shareToWhatsApp"');
+    // The dialog is a modal card that names itself, and it shows the address as it will be
+    // shared. Translations are not loaded here, so `t()` falls back to the i18n key.
+    expect(markup).toContain('data-share-dialog');
+    expect(markup).toContain('role="dialog"');
+    expect(markup).toContain('aria-modal="true"');
+    expect(markup).toContain('aria-labelledby="share-dialog-title"');
+    expect(markup).toContain('>sharePoll</h2>');
+    expect(markup).toContain(`data-share-url>${URL}</span>`);
     expect(markup).toContain('data-copy-link');
     expect(markup).toContain('>shareCopyLink</button>');
-    // The networks are named as the networks name themselves.
+    expect(markup).toContain('data-share-close');
+    expect(markup).toContain('>shareClose</button>');
+    // Each entry names itself for assistive technology, and the networks are named as the
+    // networks name themselves.
+    expect(markup).toContain('aria-label="shareToX"');
+    expect(markup).toContain('aria-label="shareToFacebook"');
+    expect(markup).toContain('aria-label="shareToWhatsApp"');
+    expect(markup).toContain('aria-label="shareToTelegram"');
+    expect(markup).toContain('aria-label="shareToWeibo"');
+    expect(markup).toContain('aria-label="shareToReddit"');
     expect(markup).toContain('>X</a>');
-    expect(markup).toContain('>Telegram</a>');
+    expect(markup).toContain('>Facebook</a>');
     expect(markup).toContain('>WhatsApp</a>');
+    expect(markup).toContain('>Telegram</a>');
+    expect(markup).toContain('>Weibo</a>');
+    expect(markup).toContain('>Reddit</a>');
+    // Every entry carries its network's own mark, inlined beside the name and drawn in the
+    // network's brand colour.
+    expect(markup.match(/<svg class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="#[0-9a-f]{6}" aria-hidden="true">/g))
+      .toHaveLength(6);
+    for (const colour of ['#000000', '#0866ff', '#25d366', '#26a5e4', '#df2029', '#ff4500']) {
+      expect(markup).toContain(`fill="${colour}"`);
+    }
   });
 
   it('carries the address and the title, encoded, into each share dialog', () => {
-    const markup = renderShareRow(URL, TITLE);
-    const encoded = encodeURIComponent(TITLE);
+    const markup = shareDialogMarkup(URL, TITLE);
+    const encodedText = encodeURIComponent(TITLE);
+    const encodedUrl = 'https%3A%2F%2Fchinapoll.org%2Fpoll%2F42';
 
-    // The X dialog takes the address and the text as query parameters, in an attribute
-    // that escapes the ampersands for HTML.
+    // Each network takes the address and the text as query parameters, in an attribute that
+    // escapes the ampersands for HTML.
     expect(markup)
-      .toContain(`href="https://twitter.com/intent/tweet?url=https%3A%2F%2Fchinapoll.org%2Fpoll%2F42&amp;text=${encoded}"`);
-    expect(markup).toContain(`href="https://t.me/share/url?url=https%3A%2F%2Fchinapoll.org%2Fpoll%2F42&amp;text=${encoded}"`);
+      .toContain(`href="https://twitter.com/intent/tweet?url=${encodedUrl}&amp;text=${encodedText}"`);
+    expect(markup).toContain(`href="https://www.facebook.com/sharer/sharer.php?u=${encodedUrl}"`);
+    expect(markup).toContain(`href="https://t.me/share/url?url=${encodedUrl}&amp;text=${encodedText}"`);
+    expect(markup)
+      .toContain(`href="https://service.weibo.com/share/share.php?url=${encodedUrl}&amp;title=${encodedText}"`);
+    expect(markup)
+      .toContain(`href="https://www.reddit.com/submit?url=${encodedUrl}&amp;title=${encodedText}"`);
     // WhatsApp takes one message: the title, a space, and the address.
     expect(markup).toContain(`href="https://wa.me/?text=${encodeURIComponent(`${TITLE} ${URL}`)}"`);
     // Every network is opened in its own tab, with no handle on this one.
-    expect(markup.match(/target="_blank" rel="noopener noreferrer"/g)).toHaveLength(3);
+    expect(markup.match(/target="_blank" rel="noopener noreferrer"/g)).toHaveLength(6);
   });
 
   it('escapes a hostile title and address instead of letting them inject markup', () => {
-    const markup = renderShareRow('https://chinapoll.org/poll/42"><script>alert(1)</script>', '<b>Title</b>');
+    const markup = shareDialogMarkup('https://chinapoll.org/poll/42"><script>alert(1)</script>', '<b>Title</b>');
 
     expect(markup).not.toContain('<script>');
     expect(markup).not.toContain('<b>Title</b>');
     expect(markup).toContain('%3Cscript%3E');
     expect(markup).toContain('%3Cb%3ETitle%3C%2Fb%3E');
+  });
+});
+
+// The marks are brand paths inlined on the same 24x24 grid the interface icons use, drawn in
+// each network's own brand colour, so the dialog fetches nothing from a network and the mark
+// travels with the bundle.
+describe('socialIconMarkup', () => {
+  it('draws every network the dialog offers in its brand colour, and nothing for an unknown slug', () => {
+    const marks: ReadonlyArray<readonly [string, string, string]> = [
+      ['x', 'M14.234 10.162', '#000000'],
+      ['facebook', 'M9.101 23.691', '#0866ff'],
+      ['whatsapp', 'M17.472 14.382', '#25d366'],
+      ['telegram', 'M11.944 0A12', '#26a5e4'],
+      ['weibo', 'M10.098 20.323', '#df2029'],
+      ['reddit', 'M12 0C5.373', '#ff4500']
+    ];
+
+    for (const [network, startsWith, colour] of marks) {
+      const markup = socialIconMarkup(network, 'h-4 w-4');
+
+      expect(markup).toContain(`<svg class="h-4 w-4" viewBox="0 0 24 24" fill="${colour}" aria-hidden="true">`);
+      expect(markup).toContain(`<path d="${startsWith}`);
+      expect(markup.endsWith('</svg>')).toBe(true);
+    }
+
+    // A slug with no mark renders nothing, so an entry reads as its name alone.
+    expect(socialIconMarkup('nope', 'h-4 w-4')).toBe('');
   });
 });

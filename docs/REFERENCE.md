@@ -335,6 +335,19 @@ total (zero for a poll with no views yet), while the list answers `null` below
 `min_views_to_display` (default 20). Cumulative views are included in the signed
 hourly snapshot chain.
 
+The admin Overview charts these daily rows: `GET /api/admin/overview` returns
+`viewsDaily`, the last 30 UTC days of view totals over every poll, one entry per day,
+oldest first, with a day that saw no view filled in as zero, and the dashboard draws
+it as an inline SVG line chart (`loadDailyViews` in `admin/api/overview.ts`). Rollup
+rows are outside the window, so the chart always has daily resolution.
+
+The public poll list draws each poll's standing as a bar diagram instead of a bare
+total: one bar per option in the option's own colour, with the share it holds of the
+ballots, and the ballot total under the bars. A poll's own page uses the same colours
+in its ballot rows and in its results bars. The palette lives in `src/ui.ts`
+(`OPTION_COLORS`/`optionColor`), and every count stays behind `min_votes_to_display`,
+so a poll below the threshold shows its notice and no diagram at all.
+
 Retention: resolved reports are deleted 90 days after `resolved_at`, and view
 rows older than 90 days are rolled up into a single per-poll row so long-term
 totals survive while daily resolution is dropped. Both are removed with the poll

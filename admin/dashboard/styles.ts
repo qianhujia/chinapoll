@@ -62,6 +62,15 @@ tr:hover td{background:rgba(255,255,255,.02);}
 .pager{display:flex;gap:10px;align-items:center;justify-content:flex-end;margin-top:14px;}
 .pager span{color:var(--muted);font-size:13px;}
 .empty{color:var(--muted);padding:20px 0;text-align:center;}
+.chart{margin-top:2px;}
+.chart svg{display:block;width:100%;height:auto;}
+.chart p{margin:8px 0 0;}
+.chart-line{fill:none;stroke:var(--accent);stroke-width:2;stroke-linejoin:round;stroke-linecap:round;}
+.chart-area{fill:rgba(59,130,246,.16);stroke:none;}
+.chart-dot{fill:var(--accent);}
+.chart-grid{stroke:var(--border);stroke-width:1;}
+.chart-label{fill:var(--muted);font-size:11px;}
+.chart-label-end{text-anchor:end;}
 .desc{max-width:520px;color:var(--muted);font-size:13px;}
 .turnstile{margin-top:12px;min-height:65px;}
 .pre{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;white-space:pre-wrap;word-break:break-word;color:var(--muted);}

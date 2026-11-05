@@ -200,3 +200,91 @@ describe('admin dashboard document', () => {
     expect(html).not.toContain('rel="icon" href="//');
   });
 });
+
+// The overview draws the daily view totals of every poll as an inline SVG line chart:
+// the dashboard ships no chart library and reaches no third-party origin, so the chart
+// is built from the series the overview endpoint returns.
+describe('admin overview view chart', () => {
+  // Renders the overview page from one payload, so the chart markup can be checked
+  // without a browser.
+  function overviewHtml(overview: Record<string, unknown>): string {
+    const html = renderDashboard('test-nonce');
+    const start = html.indexOf('(function () {');
+    const end = html.lastIndexOf('})();');
+    const inner = html.slice(start + '(function () {'.length, end);
+    const bootIndex = inner.lastIndexOf('boot();');
+    const source = inner.slice(0, bootIndex) + '/* boot disabled */' + inner.slice(bootIndex + 'boot();'.length);
+
+    const elements = new Map<string, any>();
+    const element = (): any => ({
+      innerHTML: '',
+      addEventListener() {},
+      querySelector: () => null,
+      querySelectorAll: () => [] as any[]
+    });
+    const stubbedDocument = {
+      getElementById: (id: string) => {
+        if (!elements.has(id)) elements.set(id, element());
+        return elements.get(id);
+      }
+    };
+    const stubbedWindow = {
+      location: { pathname: '/' },
+      history: { pushState() {}, replaceState() {} },
+      addEventListener() {}
+    };
+
+    const run = new Function('document', 'window', `${source}
+      return function (payload) {
+        state.view = 'overview';
+        state.overview = payload;
+        renderOverview();
+      };`)(stubbedDocument, stubbedWindow) as (payload: Record<string, unknown>) => void;
+    run(overview);
+    return elements.get('view').innerHTML as string;
+  }
+
+  // The payload shape the overview endpoint answers with, with every count zeroed.
+  function emptyOverview(viewsDaily: Array<{ day: string; views: number }>): Record<string, unknown> {
+    return {
+      pending: 0, open: 0, closed: 0, archived: 0, votes: 0, comments: 0, users: 0,
+      settings: 0, adminUsers: 1, auditEntries: 0, views24h: 0, views7d: 0,
+      openReports: 0, openCommentReports: 0,
+      viewsDaily,
+      recentPending: [],
+      lastPublishAt: null,
+      publishError: false,
+      publishRuns: []
+    };
+  }
+
+  it('draws one point per day with the peak labelled', () => {
+    const markup = overviewHtml(emptyOverview([
+      { day: '2026-11-01', views: 0 },
+      { day: '2026-11-02', views: 6 },
+      { day: '2026-11-03', views: 3 }
+    ]));
+
+    expect(markup).toContain('Views (last 3 days)');
+    expect(markup).toContain('<polyline class="chart-line"');
+    expect(markup).toContain('<path class="chart-area"');
+    // One dot per day, with the window named by its first and last day.
+    expect(markup.match(/<circle class="chart-dot"/g)).toHaveLength(3);
+    expect(markup).toContain('2026-11-01');
+    expect(markup).toContain('2026-11-03');
+    expect(markup).toContain('Peak 6 views in one day over the last 3 days.');
+    // The chart is drawn in this document: no third-party origin is reached for it.
+    expect(markup).not.toContain('http://');
+    expect(markup).not.toContain('https://');
+  });
+
+  it('says so instead of drawing a line when no day has a view', () => {
+    const markup = overviewHtml(emptyOverview([
+      { day: '2026-11-01', views: 0 },
+      { day: '2026-11-02', views: 0 }
+    ]));
+
+    expect(markup).toContain('No views recorded in the last 2 days.');
+    expect(markup).not.toContain('chart-line');
+  });
+});

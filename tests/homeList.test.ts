@@ -9,7 +9,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { renderPollRow, renderTopicChips, TOPIC_CHIP_LIMIT } from '../src/pages/home';
+import { BAR_CHART_HEIGHT, renderPollRow, renderTopicChips, TOPIC_CHIP_LIMIT } from '../src/pages/home';
 import { renderFooter } from '../src/ui';
 import type { PollWithStats } from '../src/lib/poll';
 
@@ -25,6 +25,8 @@ function makeEntry(overrides: {
   hidden?: boolean;
   ballots?: number;
   options?: PollWithStats['poll']['options'];
+  /** The counted options the stats payload carries; absent while they are withheld. */
+  counts?: PollWithStats['stats']['options'];
 } = {}): PollWithStats {
   const pollType = overrides.pollType ?? 'single_choice';
   const hidden = overrides.hidden ?? false;
@@ -48,7 +50,7 @@ function makeEntry(overrides: {
       ballots: overrides.ballots ?? 12,
       hidden,
       threshold: hidden ? 20 : 0,
-      options: hidden ? null : [],
+      options: overrides.counts ?? (hidden ? null : []),
       voted: false
     },
     views: null
@@ -71,8 +73,9 @@ describe('renderPollRow', () => {
     expect(markup.match(/href="\/poll\/42"/g)).toHaveLength(1);
     expect(markup).not.toContain('/poll/7');
     // The count sits against the right edge of the row, and stays on the right when
-    // the row stacks on a narrow screen, so the numbers of every poll line up.
-    expect(markup).toContain('flex items-center justify-end gap-5 max-[700px]:col-start-1 max-[700px]:row-auto');
+    // the row stacks on a narrow screen, so the numbers of every poll line up. The
+    // column is a stack: the bar diagram above, the ballot total under it.
+    expect(markup).toContain('flex flex-col items-end gap-1.5 max-[700px]:col-start-1 max-[700px]:row-auto');
     expect(markup).not.toContain('justify-center');
     expect(markup).not.toContain('max-[700px]:justify-start');
     // The count is the ballot icon and the number, not "12 ballots".
@@ -139,6 +142,70 @@ describe('renderPollRow', () => {
     expect(markup.match(/href="\/poll\/42"/g)).toHaveLength(1);
   });
 
+  // The standing of every option is drawn as one thin vertical bar with no text on it, and
+  // the ballot total follows the group as the number alone. The colours come from the shared
+  // palette (see `optionColor`), so an option reads the same way here and on its page.
+  it('draws a vertical bar per option with the vote number after the chart', () => {
+    const markup = renderPollRow(makeEntry({
+      ballots: 10,
+      counts: [
+        { id: 11, label: 'Yes', position: 1, count: 6 },
+        { id: 12, label: 'No', position: 2, count: 4 }
+      ]
+    }));
+
+    expect(markup).toContain('data-poll-bars');
+    expect(markup.match(/data-bar-option=/g)).toHaveLength(2);
+    // The bars are thin, clearly separated, and the tallest option fills the chart. Each one
+    // carries its option's colour from the shared palette (see `optionColor`), the same colour
+    // the poll page's bars and dots use, and the palette opens warm rather than blue.
+    expect(markup).toContain('class="flex items-end gap-1"');
+    expect(markup).toContain('class="w-1 rounded-t-[2px]"');
+    expect(markup).toContain(`style="height:${BAR_CHART_HEIGHT}px;background:#0f766e"`);
+    expect(markup).toContain('style="height:10px;background:#c2410c"');
+    // Nothing is printed on the bars, neither the option's name nor its share: the option,
+    // the count, and the percent travel in the tooltip, and the distribution is repeated for
+    // assistive technology.
+    expect(markup).toContain('title="Yes: 6 (60%)"');
+    expect(markup).toContain('title="No: 4 (40%)"');
+    expect(markup).not.toContain('>Yes<');
+    expect(markup).not.toContain('>60%<');
+    expect(markup).not.toContain('>40%<');
+    expect(markup).toContain('<span class="sr-only">Yes 6, No 4</span>');
+    // The vote number closes the chart, after every bar, and carries no ballot icon.
+    expect(markup).toContain('data-vote-count>10</span>');
+    expect(markup.indexOf('data-vote-count')).toBeGreaterThan(markup.indexOf('data-bar-option="12"'));
+    expect(markup).not.toContain('<svg');
+    // The chart and its number are a second way into the poll, beside the title: the whole
+    // group is one link to the poll's own page.
+    expect(markup).toContain('href="/poll/42" data-route="/poll/42" data-poll-bars>');
+    expect(markup.match(/href="\/poll\/42"/g)).toHaveLength(2);
+    // The row still offers no controls.
+    expect(markup).not.toContain('<button');
+  });
+
+  // A bar is never drawn shorter than a couple of pixels while it holds a vote, so a
+  // single ballot stays visible; an option nobody picked gets no bar at all.
+  it('keeps a single vote visible and gives an empty option no bar', () => {
+    const markup = renderPollRow(makeEntry({
+      ballots: 100,
+      counts: [
+        { id: 11, label: 'Yes', position: 1, count: 99 },
+        { id: 12, label: 'No', position: 2, count: 1 },
+        { id: 13, label: 'Unsure', position: 3, count: 0 }
+      ]
+    }));
+
+    expect(markup).toContain(`style="height:${BAR_CHART_HEIGHT}px;background:#0f766e"`);
+    expect(markup).toContain('style="height:3px;background:#c2410c"');
+    expect(markup).toContain('style="height:0px;background:#7c3aed"');
+    // The shares are still reported, in the tooltips.
+    expect(markup).toContain('title="Yes: 99 (99%)"');
+    expect(markup).toContain('title="No: 1 (1%)"');
+    expect(markup).toContain('title="Unsure: 0 (0%)"');
+    expect(markup).toContain('data-vote-count>100</span>');
+  });
+
   it('shows the threshold notice instead of the vote count', () => {
     const markup = renderPollRow(makeEntry({ hidden: true, ballots: 3 }));
 
@@ -146,6 +213,10 @@ describe('renderPollRow', () => {
     // The notice replaces the count, so no ballot icon and number are shown.
     expect(markup).not.toContain('data-vote-count');
     expect(markup).not.toContain('3 ballots');
+    // No bar diagram either: the server withholds every option count below the
+    // threshold, so a small sample cannot reveal how an individual voted.
+    expect(markup).not.toContain('data-poll-bars');
+    expect(markup).not.toContain('data-bar-option');
   });
 
   it('escapes the poll title', () => {

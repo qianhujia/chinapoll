@@ -1,8 +1,8 @@
 // Frontend vote-control tests.
 //
 // Every poll is a choice poll now, so the vote controls are the radio (single
-// choice) or checkbox (multiple choice) list. Every row carries its option's count,
-// keeps its whole-percent share back until the row is hovered or tapped, and fills a
+// choice) or checkbox (multiple choice) list. Every row shows its share of the ballots,
+// keeps the ballot count itself back until the row is hovered or tapped, and fills a
 // background in proportion to that share; the results bars are only rendered where no
 // ballot carries that standing. `renderChoiceInputs`, `renderResults`,
 // `optionSharePercent`, and `bindShareReveal` are pure, so they are checked directly.
@@ -95,18 +95,24 @@ describe('renderChoiceInputs', () => {
       ]
     });
 
-    // The count follows the label, pushed to the right of the row by `ml-auto`, so the
-    // numbers sit beside the choices they belong to. The whole-percent share waits in
-    // its own slot, which the stylesheet reveals on hover or tap.
-    expect(markup).toContain('<span class="relative ml-auto shrink-0 pl-3 text-sm tabular-nums text-muted" data-choice-share>3<span data-share-percent> · 75%</span></span>');
-    expect(markup).toContain('data-choice-share>1<span data-share-percent> · 25%</span></span>');
+    // The share follows the label, pushed to the right of the row by `ml-auto`, so the
+    // figures sit beside the choices they belong to. It reads as a whole percent: `75%`,
+    // not `75.0%`. The ballot count waits in its own slot, which the stylesheet reveals on
+    // hover or tap.
+    expect(markup).toContain('<span class="relative ml-auto shrink-0 pl-3 text-sm tabular-nums text-muted" data-choice-share>75%<span data-share-count> · 3</span></span>');
+    expect(markup).toContain('data-choice-share>25%<span data-share-count> · 1</span></span>');
     // Every option row is a share row, so the tap handler can find it.
     expect(markup.match(/data-share-row/g)).toHaveLength(2);
     // The row is filled in proportion to that share as well, so its background shows
-    // the standing too. The row clips the fill, so it follows the rounded corners.
+    // the standing too. The row clips the fill, so it follows the rounded corners, and
+    // the fill carries the option's own colour (at a low alpha, so the label on top of
+    // it stays readable) - the same colour its results bar uses.
     expect(markup).toContain('overflow-hidden rounded-[14px]');
-    expect(markup).toContain('class="absolute inset-y-0 left-0 bg-primary-soft" data-choice-fill style="width:75.0%"');
-    expect(markup).toContain('data-choice-fill style="width:25.0%"');
+    expect(markup).toContain('class="absolute inset-y-0 left-0 bg-primary-soft" data-choice-fill style="width:75.0%;background:#0f766e29"');
+    expect(markup).toContain('data-choice-fill style="width:25.0%;background:#c2410c29"');
+    // The label row names that colour with a dot, so the choice and its colour are read
+    // together.
+    expect(markup).toContain('<span class="h-2.5 w-2.5 shrink-0 rounded-full" style="background:#0f766e"></span>Bus');
   });
 
   it('holds the standing back while the server withholds the counts', () => {
@@ -115,9 +121,10 @@ describe('renderChoiceInputs', () => {
     // Both slots are there for the post-ballot refresh, but they are empty, nothing
     // wide, and hidden: a poll below the threshold never shows a standing.
     expect(markup.match(/data-choice-share hidden><\/span>/g)).toHaveLength(2);
-    expect(markup.match(/data-choice-fill style="width:0.0%" hidden>/g)).toHaveLength(2);
-    expect(markup).not.toContain('data-share-percent');
-    expect(markup).not.toMatch(/\d+ · \d+%/);
+    expect(markup).toContain('data-choice-fill style="width:0.0%;background:#0f766e29" hidden>');
+    expect(markup).toContain('data-choice-fill style="width:0.0%;background:#c2410c29" hidden>');
+    expect(markup).not.toContain('data-share-count');
+    expect(markup).not.toMatch(/\d+% · \d+/);
   });
 
   // The submit button is the one place the ballot's state is shown: its label is swapped
@@ -224,18 +231,22 @@ describe('renderResults', () => {
     // box ellipsizes inside it rather than stretching the page on a narrow screen.
     expect(markup).toContain('<div class="grid min-w-0 gap-1" data-result-option="11"');
     expect(markup.match(/<div class="grid min-w-0 gap-1" data-result-option=/g)).toHaveLength(2);
-    // The count is visible and the whole-percent share is held in its own slot, which
-    // the row reveals on hover or tap. The share is of the ballots cast, not of the
-    // option counts, and it reads as a whole percent: `75%`, not `75.0%`.
-    expect(markup).toContain('data-result-count>3<span data-share-percent> · 75%</span>');
-    expect(markup).toContain('data-result-count>1<span data-share-percent> · 25%</span>');
+    // The share is visible and the ballot count is held in its own slot, which the row
+    // reveals on hover or tap. The share is of the ballots cast, not of the option counts,
+    // and it reads as a whole percent: `75%`, not `75.0%`.
+    expect(markup).toContain('data-result-count>75%<span data-share-count> · 3</span>');
+    expect(markup).toContain('data-result-count>25%<span data-share-count> · 1</span>');
     // Both rows carry the share row hook the tap handler looks for.
     expect(markup.match(/data-share-row/g)).toHaveLength(2);
     // No label keeps a decimal.
     expect(markup).not.toContain('75.0%</span>');
     // The bar itself keeps the unrounded share, so its width stays smooth from one
-    // ballot to the next while only the label is rounded.
-    expect(markup).toContain('style="width:75.0%"');
+    // ballot to the next while only the label is rounded. Every bar carries its
+    // option's own colour, so a poll's diagram is readable at a glance and the same
+    // option keeps that colour in the ballot rows and in the home list.
+    expect(markup).toContain('style="width:75.0%;background:#0f766e"');
+    expect(markup).toContain('style="width:25.0%;background:#c2410c"');
+    expect(markup).toContain('data-result-bar');
     expect(markup).toContain('>Bus<');
     // The bars follow the positions, and nothing groups the selections.
     expect(markup.indexOf('data-result-option="11"')).toBeLessThan(markup.indexOf('data-result-option="12"'));

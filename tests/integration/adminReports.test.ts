@@ -151,6 +151,16 @@ describe('admin report moderation', () => {
     expect(body.overview.views24h).toBe(40);
     expect(body.overview.views7d).toBe(40);
     expect(body.overview.openReports).toBeGreaterThanOrEqual(1);
+    // The chart series covers the last 30 UTC days, one entry per day, oldest first,
+    // with the days that saw no view filled in as zero so the line has a point per day.
+    const daily = body.overview.viewsDaily as Array<{ day: string; views: number }>;
+    expect(daily).toHaveLength(30);
+    expect(daily[29]).toEqual({ day: new Date(today * 1000).toISOString().slice(0, 10), views: 40 });
+    expect(daily[28].views).toBe(0);
+    expect(daily[0].day < daily[29].day).toBe(true);
+    // The rollup row (`ts_day = 0`) is outside the window, exactly like the two
+    // stat-card windows above, so its 100 views never reach the chart.
+    expect(daily.reduce((total, entry) => total + entry.views, 0)).toBe(40);
   });
 
   it('lists and resolves comment reports and counts them on the overview', async () => {

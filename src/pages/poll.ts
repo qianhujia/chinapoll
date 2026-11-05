@@ -43,6 +43,9 @@ import {
   getErrorMessage,
   getQueryPage,
   moreIconMarkup,
+  optionColor,
+  optionSharePercent,
+  optionShareWidth,
   renderCommentsContent,
   renderFooter,
   renderHeader,
@@ -51,6 +54,7 @@ import {
   renderToast,
   shareIconMarkup,
   showToast,
+  socialIconMarkup,
   t,
   updateComments,
   viewIconMarkup
@@ -68,22 +72,25 @@ const REPORT_REASON_LABELS: Record<ReportReason, string> = {
   other: 'reportReasonOther'
 };
 
-// The share of the ballots cast that one option holds, as a whole percent: `95%`
-// rather than `94.69%`, so the number stays clear at a glance. It is the share of
-// the ballots, never of the other options' counts.
-export function optionSharePercent(count: number, ballots: number): number {
-  const share = ballots > 0 ? count / ballots * 100 : 0;
-  return Math.round(share);
-}
+// The share helpers come from ../ui, because the home list's bar diagram draws the
+// same percentages; they are re-exported here for the callers that import them from
+// this module.
+export { optionSharePercent };
 
-// The standing of one option as it is rendered beside it: the count stays visible,
-// while the whole-percent share sits in its own `data-share-percent` slot and is
-// revealed only while the row is hovered or tapped (see the stylesheet and
-// `bindShareReveal`). `count` is undefined while the server withholds the counts,
-// and the standing then renders nothing at all.
+// The standing of one option as it is rendered beside it: the share of the ballots it holds
+// stays visible, while the ballot count itself sits in its own `data-share-count` slot and is
+// revealed only while the row is hovered or tapped (see the stylesheet and `bindShareReveal`).
+// `count` is undefined while the server withholds the counts, and the standing then renders
+// nothing at all.
 function optionShareMarkup(count: number | undefined, ballots: number): string {
   if (count === undefined) return '';
-  return `${count}<span data-share-percent> · ${optionSharePercent(count, ballots)}%</span>`;
+  return `${optionSharePercent(count, ballots)}%<span data-share-count> · ${count}</span>`;
+}
+
+// The ballot total as one line. The count is a template, because a language puts its own words
+// around it: Chinese reads "共 12 张选票" where English reads "12 ballots".
+function ballotTotalLabel(ballots: number): string {
+  return t('ballotsTotal').replace('{n}', String(ballots));
 }
 
 // Radio (verdict and single choice) or checkbox (multiple choice) list. A verdict
@@ -92,9 +99,11 @@ function optionShareMarkup(count: number | undefined, ballots: number): string {
 // returning voter sees their stored options pre-checked and the form disabled. Each
 // option carries its standing twice over: the count on the right, whose whole-percent
 // share the row reveals while it is hovered or tapped, and a background filled in
-// proportion to that share, so the colour of the row and the numbers both belong to
-// the choice they sit in. `results` is null while the server withholds the counts,
-// and the standing then stays hidden until a ballot makes it public.
+// proportion to that share, so the width of the row and the numbers both belong to the
+// choice they sit in. That fill carries the option's own colour (see `optionColor`),
+// the same colour its bar takes in the results diagram and in the home list. `results`
+// is null while the server withholds the counts, and the standing then stays hidden
+// until a ballot makes it public.
 export function renderChoiceInputs(
   pollType: PollType,
   options: PollOption[],
@@ -109,14 +118,19 @@ export function renderChoiceInputs(
     <form class="choice-stack mx-auto mt-6 grid w-full max-w-[420px] gap-2.5" data-choice-form data-poll-type="${pollType}" title="${hasVoted ? t('alreadyVoted') : ''}">
       <fieldset class="m-0 grid gap-2 border-0 p-0">
         <legend class="sr-only">${t('vote')}</legend>
-        ${options.map((option) => {
+        ${options.map((option, index) => {
     const count = counts.get(option.id);
-    const share = count === undefined || ballots === 0 ? 0 : count / ballots * 100;
+    const color = optionColor(index);
+    // The width keeps the unrounded share, so a row grows smoothly from one ballot to
+    // the next. The fill is the option's own colour at a low alpha, so the text on top
+    // of it stays readable while each choice keeps its colour (see OPTION_COLORS); the
+    // class underneath is only a fallback tint.
+    const width = optionShareWidth(count ?? 0, ballots);
     return `
           <label class="relative flex cursor-pointer items-center gap-2.5 overflow-hidden rounded-[14px] border border-border bg-[#f9fbff] px-3.5 py-2.5" data-share-row>
-            <span class="absolute inset-y-0 left-0 bg-primary-soft" data-choice-fill style="width:${share.toFixed(1)}%"${count === undefined ? ' hidden' : ''}></span>
+            <span class="absolute inset-y-0 left-0 bg-primary-soft" data-choice-fill style="width:${width.toFixed(1)}%;background:${color}29"${count === undefined ? ' hidden' : ''}></span>
             <input class="relative accent-primary" type="${inputType}" name="option" value="${option.id}" data-choice-option${selectedIds.includes(option.id) ? ' checked' : ''} ${hasVoted ? 'disabled' : ''}>
-            <span class="relative">${escapeHtml(option.label)}</span>
+            <span class="relative flex min-w-0 items-center gap-2"><span class="h-2.5 w-2.5 shrink-0 rounded-full" style="background:${color}"></span>${escapeHtml(option.label)}</span>
             <span class="relative ml-auto shrink-0 pl-3 text-sm tabular-nums text-muted" data-choice-share${count === undefined ? ' hidden' : ''}>${optionShareMarkup(count, ballots)}</span>
           </label>
         `;
@@ -158,26 +172,29 @@ export function renderPollNav(prev: PollNeighbor | null, next: PollNeighbor | nu
 
 // One horizontal bar per option, sorted by position, showing the count and the
 // share of ballots. This is the single results renderer for every poll; it never
-// shows which options were picked together on one ballot. Like the ballot rows, the
+// shows which options were picked together on one ballot. Every bar carries the
+// option's own colour (see OPTION_COLORS), so the same option reads the same way here
+// as in the home list's diagram and in the ballot rows. Like the ballot rows, the
 // count is visible and the whole-percent share waits for a hover or a tap.
 export function renderResults(results: PollResults): string {
   const options = [...(results.options ?? [])].sort((left, right) => left.position - right.position);
   if (options.length === 0) return '';
   return `
     <div class="mx-auto mt-4 grid w-full max-w-[420px] gap-2.5" data-results>
-      ${options.map((option) => {
+      ${options.map((option, index) => {
     const count = Number(option.count ?? 0);
+    const color = optionColor(index);
     // The bar keeps the unrounded share, so its width stays smooth from one ballot
     // to the next while the label beside it reads as a whole percent.
-    const width = results.ballots > 0 ? count / results.ballots * 100 : 0;
+    const width = optionShareWidth(count, results.ballots);
     return `
         <div class="grid min-w-0 gap-1" data-result-option="${option.id}" data-share-row>
           <div class="flex items-baseline justify-between gap-3 text-sm">
-            <span class="min-w-0 truncate">${escapeHtml(option.label)}</span>
+            <span class="flex min-w-0 items-center gap-2"><span class="h-2.5 w-2.5 shrink-0 rounded-full" style="background:${color}"></span><span class="min-w-0 truncate">${escapeHtml(option.label)}</span></span>
             <span class="shrink-0 tabular-nums text-muted" data-result-count>${optionShareMarkup(count, results.ballots)}</span>
           </div>
           <div class="h-2 w-full overflow-hidden rounded-full bg-[#edf0f4]">
-            <div class="h-full rounded-full bg-primary" data-result-bar style="width:${width.toFixed(1)}%"></div>
+            <div class="h-full rounded-full" data-result-bar style="width:${width.toFixed(1)}%;background:${color}"></div>
           </div>
         </div>
       `;
@@ -237,8 +254,8 @@ function pollUrl(number: number): string {
   return `${window.location.origin}/poll/${number}`;
 }
 
-// Copies the poll's canonical address and confirms it with a toast. The clipboard is
-// the last resort of the share button and the whole of the row's "copy link" control.
+// Copies the poll's canonical address and confirms it with a toast. This is what the
+// share dialog's copy control does.
 export async function copyPollLink(number: number): Promise<void> {
   try {
     await navigator.clipboard.writeText(pollUrl(number));
@@ -248,47 +265,49 @@ export async function copyPollLink(number: number): Promise<void> {
   }
 }
 
-// The row of share controls under a poll's title. Copying the link is a button (it
-// needs the clipboard); the three networks are plain links to their own share
-// dialogs, so they work without a script and a card builder can read them. Names the
-// networks take are left untranslated, and the accessible name says what each one
-// does in the reader's language.
-export function renderShareRow(url: string, title: string): string {
-  const link = (href: string, name: string, ariaKey: string): string =>
-    `<a class="rounded-full border border-border bg-panel px-3.5 py-2 text-sm text-ink no-underline hover:border-primary hover:text-primary" href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer" aria-label="${escapeHtml(t(ariaKey))}">${name}</a>`;
+// The share dialog: the poll's canonical address, a copy control, and one link per network.
+// It is built when the share button is pressed and removed again when it is dismissed, so the
+// poll page never carries a standing row of share buttons, and the address is never handed to
+// the browser's own share sheet - the visitor picks the target here. Copying the link is a
+// button (it needs the clipboard); the networks are plain links to their own share dialogs, so
+// they work without a script. The names the networks take are left untranslated, and the
+// accessible name says what each one does in the reader's language.
+export function shareDialogMarkup(url: string, title: string): string {
   const encodedUrl = encodeURIComponent(url);
   const encodedText = encodeURIComponent(title);
+  // One network entry: the network's own mark beside the name it goes by, opening that
+  // network's share dialog in its own tab. The mark is decorative - the name and the
+  // accessible label say which network it is - so it carries no text of its own.
+  const target = (href: string, network: string, name: string, ariaKey: string): string =>
+    `<a class="inline-flex items-center gap-2 rounded-full border border-border bg-[#f9fbff] px-3.5 py-2 text-sm text-ink no-underline hover:border-primary hover:text-primary" href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer" aria-label="${escapeHtml(t(ariaKey))}">${socialIconMarkup(network, 'h-4 w-4 shrink-0')}${name}</a>`;
   return `
-          <div class="mt-4 flex flex-wrap items-center justify-center gap-2" role="group" aria-label="${escapeHtml(t('sharePoll'))}" data-poll-share-row>
-            <button type="button" class="cursor-pointer rounded-full border border-border bg-panel px-3.5 py-2 text-sm text-ink hover:border-primary hover:text-primary" data-copy-link>${escapeHtml(t('shareCopyLink'))}</button>
-            ${link(`https://twitter.com/intent/tweet?url=${encodedUrl}&text=${encodedText}`, 'X', 'shareToX')}
-            ${link(`https://t.me/share/url?url=${encodedUrl}&text=${encodedText}`, 'Telegram', 'shareToTelegram')}
-            ${link(`https://wa.me/?text=${encodeURIComponent(`${title} ${url}`)}`, 'WhatsApp', 'shareToWhatsApp')}
-          </div>`;
-}
-
-// Shares the poll's own address. The address is the canonical `/poll/<number>`, so
-// what is shared never carries the page's query string or hash. A browser with a share
-// sheet - a phone, mostly - hands the poll to it; everywhere else the link goes to the
-// clipboard and a toast confirms it. Dismissing the share sheet without choosing
-// anything is not a failure, so it reports nothing and does not copy behind the
-// visitor's back.
-export async function sharePoll(number: number, title: string): Promise<void> {
-  const url = pollUrl(number);
-  const shareSheet = (navigator as Navigator & {
-    share?: (data: { title?: string; url?: string }) => Promise<void>;
-  }).share;
-
-  if (typeof shareSheet === 'function') {
-    try {
-      await shareSheet.call(navigator, { title: `#${number} ${title}`, url });
-      return;
-    } catch (error) {
-      if ((error as DOMException | undefined)?.name === 'AbortError') return;
-    }
-  }
-
-  await copyPollLink(number);
+    <div class="grid max-h-full w-full max-w-[520px] gap-4 overflow-auto rounded-[22px] border border-border bg-panel p-6 shadow-card" role="dialog" aria-modal="true" aria-labelledby="share-dialog-title" data-share-dialog>
+      <h2 class="m-0 text-lg font-bold" id="share-dialog-title">${escapeHtml(t('sharePoll'))}</h2>
+      <div class="flex min-w-0 items-center gap-2">
+        <span class="min-w-0 flex-1 truncate rounded-[14px] border border-border bg-[#f9fbff] px-3.5 py-2 text-sm text-muted" title="${escapeHtml(url)}" data-share-url>${escapeHtml(url)}</span>
+        <button
+          type="button"
+          class="shrink-0 cursor-pointer rounded-full border border-primary bg-primary px-4 py-2 text-sm text-white"
+          data-copy-link
+        >${escapeHtml(t('shareCopyLink'))}</button>
+      </div>
+      <div class="flex flex-wrap items-center gap-2" role="group" aria-label="${escapeHtml(t('sharePoll'))}">
+        ${target(`https://twitter.com/intent/tweet?url=${encodedUrl}&text=${encodedText}`, 'x', 'X', 'shareToX')}
+        ${target(`https://www.facebook.com/sharer/sharer.php?u=${encodedUrl}`, 'facebook', 'Facebook', 'shareToFacebook')}
+        ${target(`https://wa.me/?text=${encodeURIComponent(`${title} ${url}`)}`, 'whatsapp', 'WhatsApp', 'shareToWhatsApp')}
+        ${target(`https://t.me/share/url?url=${encodedUrl}&text=${encodedText}`, 'telegram', 'Telegram', 'shareToTelegram')}
+        ${target(`https://service.weibo.com/share/share.php?url=${encodedUrl}&title=${encodedText}`, 'weibo', 'Weibo', 'shareToWeibo')}
+        ${target(`https://www.reddit.com/submit?url=${encodedUrl}&title=${encodedText}`, 'reddit', 'Reddit', 'shareToReddit')}
+      </div>
+      <div class="flex justify-end">
+        <button
+          type="button"
+          class="cursor-pointer rounded-full border border-border bg-panel px-4 py-2.5 text-sm text-ink hover:border-primary hover:text-primary"
+          data-share-close
+        >${escapeHtml(t('shareClose'))}</button>
+      </div>
+    </div>
+  `;
 }
 
 // The standing beside an option shows its count and holds its whole-percent share
@@ -309,10 +328,10 @@ export function bindShareReveal(app: HTMLElement): void {
 }
 
 // The poll's actions at the top right of the title: a share button, and the three-dot
-// "more actions" menu that hosts the report entry. The share button sits to the left
-// of the dots and copies the poll's own address, or hands it to the browser's share
-// sheet where there is one. A browser that already reported the poll sees the
-// confirmation note in place of the report entry.
+// "more actions" menu that hosts the report entry. The share button sits to the left of
+// the dots and opens the page's own share dialog (see `shareDialogMarkup`), which offers
+// the networks and the clipboard; the browser's own share sheet is never used. A browser
+// that already reported the poll sees the confirmation note in place of the report entry.
 export function renderPollMenu(pollId: number, alreadyReported: boolean): string {
   const label = escapeHtml(t('moreActions'));
   const shareLabel = escapeHtml(t('sharePoll'));
@@ -639,8 +658,6 @@ export async function mountVotePage(identifier: number, app: HTMLElement, bindNa
             ${renderPollMenu(poll.id, alreadyReported)}
           </div>
 
-          ${renderShareRow(pollUrl(poll.number), poll.title)}
-
           ${poll.description ? renderPollDescription(poll.description) : ''}
 
           ${choiceInputs}
@@ -651,7 +668,7 @@ export async function mountVotePage(identifier: number, app: HTMLElement, bindNa
 
           ${showsBallotTotal ? `
             <p class="m-0 mt-3 flex items-center justify-center gap-3 text-center text-xs text-muted">
-              <span data-ballot-total>${ballotTotal} ${t('ballots')}</span>
+              <span data-ballot-total>${ballotTotalLabel(ballotTotal)}</span>
             </p>
           ` : ''}
 
@@ -852,11 +869,11 @@ export async function mountVotePage(identifier: number, app: HTMLElement, bindNa
     syncChoiceStandings(result);
     const total = document.querySelector<HTMLElement>('[data-ballot-total]');
     if (total) {
-      total.textContent = `${result.ballots} ${t('ballots')}`;
+      total.textContent = ballotTotalLabel(result.ballots);
     } else {
       // The total was not rendered while the results were hidden, so it is created
       // now that the ballot pushed the poll over the threshold.
-      document.querySelector('[data-choice-form]')?.insertAdjacentHTML('afterend', `<p class="m-0 mt-3 flex items-center justify-center gap-3 text-center text-xs text-muted"><span data-ballot-total>${result.ballots} ${t('ballots')}</span></p>`);
+      document.querySelector('[data-choice-form]')?.insertAdjacentHTML('afterend', `<p class="m-0 mt-3 flex items-center justify-center gap-3 text-center text-xs text-muted"><span data-ballot-total>${ballotTotalLabel(result.ballots)}</span></p>`);
     }
   };
 
@@ -949,17 +966,39 @@ export async function mountVotePage(identifier: number, app: HTMLElement, bindNa
     });
   }
 
-  // The share button hands the poll's canonical address to the browser's share sheet
-  // or to the clipboard, whichever this browser offers.
-  document.querySelector<HTMLButtonElement>('[data-poll-share]')
-    ?.addEventListener('click', () => { void sharePoll(poll.number, poll.title); });
+  // The share button opens the page's own share dialog: the poll's address, a copy control,
+  // and one link per network. Nothing is handed to the browser's share sheet, so the visitor
+  // always picks a target on this page, and the dialog is removed again when it is dismissed
+  // rather than staying in the page. The copy control always copies: someone who asks for the
+  // link wants the link. The network entries are plain links to their own share dialogs, so
+  // they need no binding.
+  const openShareDialog = () => {
+    if (app.querySelector('[data-share-dialog]')) return;
 
-  // The row's copy control always copies: a visitor who asks for the link wants the
-  // link, not a share sheet. Its three network entries are plain links to their own
-  // share dialogs, so they need no binding.
-  app.querySelectorAll<HTMLButtonElement>('[data-copy-link]').forEach((button) => {
-    button.addEventListener('click', () => { void copyPollLink(poll.number); });
-  });
+    const host = document.createElement('div');
+    host.className = 'fixed inset-0 z-30 flex items-center justify-center bg-black/40 p-4';
+    host.dataset.shareModal = '1';
+    host.innerHTML = shareDialogMarkup(pollUrl(poll.number), poll.title);
+    app.appendChild(host);
+
+    const close = () => {
+      host.remove();
+    };
+    host.querySelector<HTMLButtonElement>('[data-share-close]')?.addEventListener('click', close);
+    host.querySelector<HTMLButtonElement>('[data-copy-link]')
+      ?.addEventListener('click', () => { void copyPollLink(poll.number); });
+    // A click on the overlay closes the dialog; a click inside the card must not.
+    host.addEventListener('click', (event) => {
+      if (event.target === host) close();
+    });
+    host.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') close();
+    });
+    host.querySelector<HTMLButtonElement>('[data-share-close]')?.focus();
+  };
+
+  document.querySelector<HTMLButtonElement>('[data-poll-share]')
+    ?.addEventListener('click', openShareDialog);
 
   // The report dialog is built when the report entry is chosen and removed again
   // on cancel or once the report is sent, so no report card is appended to the

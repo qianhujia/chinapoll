@@ -1,4 +1,4 @@
-import { getTopics, getPolls } from '../lib/poll';
+import { getTopics, getPolls, type PollOption } from '../lib/poll';
 import { bootstrapPolls, bootstrapTopics } from '../bootstrap';
 import { getPublicSettings } from '../config';
 import { localizedTopicName, topicLabel } from '../../shared/categories';
@@ -9,6 +9,8 @@ import {
   getErrorMessage,
   getPollsPerPage,
   getQueryValue,
+  optionColor,
+  optionSharePercent,
   renderFooter,
   renderHeader,
   renderModeBadge,
@@ -20,16 +22,60 @@ import {
   voteIconMarkup
 } from '../ui';
 
-// One row of the poll list. Every poll is rendered the same way: identity,
-// badges, and the vote count as a ballot icon and a number (or the threshold
-// notice while the total is withheld). The title is the only link: the list page
-// never votes in place, so no vote button or vote controls are built here, and a
-// poll's view count is not shown in the list. On a narrow screen the row stacks
-// instead of using the second column: the identity line comes first and the vote
-// count sits below it. On that narrow layout the number and the title share the
-// first line: the title takes the remaining width and wraps inside it instead of
-// being pushed to a line of its own, and the badges sit behind a full-width break so
-// they move below the title rather than squeezing it.
+// The height of the tallest bar in a list row's chart, in pixels. The chart is deliberately
+// small - it sits in the row's second column, beside the poll title, and only has to show the
+// shape of the distribution.
+export const BAR_CHART_HEIGHT = 15;
+
+// The standing of a poll as a small column chart, and a second way into the poll: one thin
+// vertical bar per option, drawn in the option's own colour (see `optionColor`) and sized
+// against the poll's largest option, with the ballot total after the group, the whole thing
+// wrapped in a link to `/poll/<number>`. The bars carry no text at all - a list row has no
+// room for the option names, and the numbers would crowd the bars - so each bar's option,
+// count, and share of the ballots travel in its tooltip, and the distribution is repeated
+// once for assistive technology (and so names the link). `options` are the counted options
+// the server publishes; the caller leaves the chart out entirely while the counts are
+// withheld.
+export function renderOptionBars(
+  number: number,
+  options: ReadonlyArray<PollOption>,
+  ballots: number
+): string {
+  const ordered = [...options].sort((left, right) => left.position - right.position);
+  const peak = ordered.reduce((highest, option) => Math.max(highest, Number(option.count ?? 0)), 0);
+  const bars = ordered.map((option, index) => {
+    const count = Number(option.count ?? 0);
+    // The largest option fills the chart, and a bar that holds any vote is never drawn
+    // shorter than a couple of pixels, so a single ballot stays visible.
+    const height = count > 0 && peak > 0 ? Math.max(3, Math.round(count / peak * BAR_CHART_HEIGHT)) : 0;
+    const percent = `${optionSharePercent(count, ballots)}%`;
+    return `
+            <span class="w-1 rounded-t-[2px]" data-bar-option="${option.id}" data-bar-fill style="height:${height}px;background:${optionColor(index)}" title="${escapeHtml(`${option.label}: ${count} (${percent})`)}"></span>`;
+  }).join('');
+  const spoken = ordered
+    .map((option) => `${option.label} ${Number(option.count ?? 0)}`)
+    .join(', ');
+  // The ballot total closes the group as the number alone: the ballot icon belongs to the
+  // bare total a poll with no counted option falls back to.
+  return `
+        <a class="flex w-full items-end justify-end gap-1.5 text-muted no-underline transition-opacity hover:opacity-80 focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-[3px] focus-visible:outline-primary" href="/poll/${number}" data-route="/poll/${number}" data-poll-bars>
+          <span class="flex items-end gap-1">${bars}</span>
+          <span class="shrink-0 pb-px text-xs leading-none tabular-nums" title="${t('ballots')}" data-vote-count>${ballots}</span>
+          <span class="sr-only">${escapeHtml(spoken)}</span>
+        </a>`;
+}
+
+// One row of the poll list. Every poll is rendered the same way: identity, badges,
+// and a small column chart of its standing on the right - one thin vertical bar per option,
+// each drawn in the option's own colour (see `renderOptionBars`), with the vote number after
+// the group (or the threshold notice while the counts are withheld). The title and the chart
+// are the links into the poll: the list page never votes in place, so no vote button or vote
+// controls are built here, and a poll's view count is not shown in the list. On a narrow
+// screen the row stacks instead of using the second column: the identity line comes first and
+// the chart sits below it. On that narrow layout the number and the title share the first
+// line: the title takes the remaining width and wraps inside it instead of being pushed to a
+// line of its own, and the badges sit behind a full-width break so they move below the title
+// rather than squeezing it.
 export function renderPollRow({ poll, stats }: Awaited<ReturnType<typeof getPolls>>['polls'][number]): string {
   const pollType = poll.pollType ?? stats.pollType ?? 'single_choice';
   const locale = (getPublicSettings().default_locale ?? 'en') as 'en' | 'zh-CN' | 'zh-TW';
@@ -37,11 +83,16 @@ export function renderPollRow({ poll, stats }: Awaited<ReturnType<typeof getPoll
   const topicBadge = poll.topic
     ? `<span class="shrink-0 rounded-full bg-[#eef3fb] px-2 py-0.5 text-xs text-muted" data-poll-topic>${escapeHtml(localizedTopicName(poll.topic.slug, poll.topic.name, locale))}</span>`
     : '';
-  // The threshold notice replaces the ballot total while it is withheld, so a
-  // small sample cannot reveal how an individual voted.
-  const voteCount = stats.hidden === true
+  // The standing of the poll as a column chart, with the ballot total leading it. The
+  // server sends `options: null` while the counts are withheld (see `toPublicResults`),
+  // and the threshold notice then replaces the whole chart: a small sample must not
+  // reveal how an individual voted. A poll with no counted option (which a published poll
+  // never has) falls back to the bare total.
+  const standing = stats.hidden === true
     ? `<span class="shrink-0 whitespace-nowrap text-xs leading-[1.2] text-muted">${t('resultsHidden').replace('{n}', String(stats.threshold))}</span>`
-    : `<span class="inline-flex shrink-0 items-center gap-1 text-xs leading-[1.2] text-muted" title="${t('ballots')}" data-vote-count>${voteIconMarkup('h-3.5 w-3.5')}${stats.ballots}</span>`;
+    : stats.options && stats.options.length > 0
+      ? renderOptionBars(poll.number, stats.options, stats.ballots)
+      : `<span class="inline-flex shrink-0 items-center gap-1 text-xs leading-[1.2] text-muted" title="${t('ballots')}" data-vote-count>${voteIconMarkup('h-3.5 w-3.5')}${stats.ballots}</span>`;
 
   return `
     <article class="grid grid-cols-[minmax(0,1fr)_minmax(190px,240px)] items-center gap-x-8 border-b border-border py-[22px] max-[700px]:grid-cols-1 max-[700px]:gap-y-3" data-poll-row="${poll.id}">
@@ -57,8 +108,8 @@ export function renderPollRow({ poll, stats }: Awaited<ReturnType<typeof getPoll
         </div>
       </div>
 
-      <div class="col-start-2 row-start-1 flex items-center justify-end gap-5 max-[700px]:col-start-1 max-[700px]:row-auto">
-        ${voteCount}
+      <div class="col-start-2 row-start-1 flex flex-col items-end gap-1.5 max-[700px]:col-start-1 max-[700px]:row-auto">
+        ${standing}
       </div>
     </article>
   `;
