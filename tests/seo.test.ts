@@ -14,7 +14,7 @@ import {
 } from '../worker/services/seo';
 import { translatorFor } from '../worker/services/ssr';
 import { getSeoForRoute, topicSeoData, updateSeo } from '../src/seo';
-import { DEFAULT_HOME_DESCRIPTION_TEMPLATE, DEFAULT_TOPIC_DESCRIPTION_TEMPLATE } from '../shared/seo';
+import { DEFAULT_HOME_DESCRIPTION_TEMPLATE, DEFAULT_TOPIC_DESCRIPTION_TEMPLATE, OG_CARD_VERSION } from '../shared/seo';
 import zhDictionary from '../public/i18n/zh.json';
 
 const settings: PublicSettingsSeo = {
@@ -182,6 +182,8 @@ describe('route contexts', () => {
     // The poll number prefixes the document title as "#42".
     expect(seo.title).toBe(`#42 Bike lanes - ${settings.site_name}`);
     expect(seo.ogType).toBe('article');
+    // The card's URL is versioned so a card builder re-fetches a redrawn card.
+    expect(seo.shareImage).toBe(`${ORIGIN}/og/poll/42.png?v=${OG_CARD_VERSION}`);
     expect(Array.isArray(seo.jsonLd)).toBe(true);
     // The poll as a Dataset, the poll as a Question, and the breadcrumb.
     expect(seo.jsonLd).toHaveLength(3);

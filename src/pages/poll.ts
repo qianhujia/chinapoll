@@ -30,7 +30,7 @@ import { bootstrapPoll } from '../bootstrap';
 import { getPublicSettings } from '../config';
 import { updateSeo } from '../seo';
 import { localizedTopicName } from '../../shared/categories';
-import { buildPollQuestionJsonLd } from '../../shared/seo';
+import { buildPollQuestionJsonLd, pollCardUrl } from '../../shared/seo';
 import { ensureTurnstile, obtainTurnstileToken, resetTurnstile, revealTurnstile, turnstileSiteKey } from '../lib/turnstile';
 import { apiErrorCode } from '../lib/apiError';
 import {
@@ -573,7 +573,7 @@ export async function mountVotePage(identifier: number, app: HTMLElement, bindNa
   updateSeo({
     // The poll's own card is what a shared link shows, the same URL the server-rendered head
     // published (see worker/services/ogImage.ts), so a client-side navigation keeps it.
-    shareImage: `${window.location.origin}/og/poll/${poll.number}.png`,
+    shareImage: pollCardUrl(window.location.origin, poll.number),
     jsonLd: buildPollQuestionJsonLd(
       { number: poll.number, title: poll.title, description: poll.description ?? null },
       pollOptions.length > 0

@@ -9,6 +9,7 @@ import { escapeHtml, serializeJsonLd } from './html';
 import {
   DEFAULT_TOPIC_DESCRIPTION_TEMPLATE,
   buildPollQuestionJsonLd,
+  pollCardUrl,
   resolveSeoDescription,
   seoDescription,
   shareImageUrl,
@@ -293,8 +294,9 @@ export function getPollSeoContext(
     canonical: pollUrl,
     ogType: 'article',
     // A shared poll shows its own card: the picture the Worker draws from the poll itself
-    // (see worker/services/ogImage.ts), rather than the site-wide social image.
-    shareImage: `${origin}/og/poll/${poll.number}.png`,
+    // (see worker/services/ogImage.ts), rather than the site-wide social image. The URL
+    // carries a version so a card builder re-fetches a card drawn from a new layout.
+    shareImage: pollCardUrl(origin, poll.number),
     jsonLd: [
       {
         '@context': 'https://schema.org',

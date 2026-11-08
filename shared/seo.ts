@@ -71,6 +71,16 @@ export function shareImageUrl(
   return '';
 }
 
+// The poll's own link card (drawn in worker/services/ogImage.ts). Its URL carries a version
+// so a card builder treats a card drawn from a new layout as a new picture and fetches it
+// again instead of reusing the one it cached; bump this whenever the card's pixels change.
+// The route matches on the path alone, so the query does not move the card's address.
+export const OG_CARD_VERSION = 2;
+
+export function pollCardUrl(origin: string, pollNumber: number): string {
+  return `${origin}/og/poll/${pollNumber}.png?v=${OG_CARD_VERSION}`;
+}
+
 // One option of a poll as structured data carries it: its label, and the votes it
 // collected (null while the count is withheld).
 export interface PollAnswer {
