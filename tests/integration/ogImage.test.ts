@@ -12,9 +12,6 @@ import { ORIGIN, applySchema, insertBallot, lastId, seedOptions, seedPoll } from
 
 beforeAll(async () => {
   await applySchema();
-  // Every poll here is above the display threshold, so its counts are published - which is
-  // what makes the redraw rule observable.
-  await env.DB.prepare("INSERT INTO settings (key, value) VALUES ('min_votes_to_display', '0')").run();
 });
 
 // A published poll: the number the card is addressed by, with its options seeded.
@@ -61,15 +58,13 @@ describe('poll link cards', () => {
     expect(bytes.length).toBeGreaterThan(5000);
 
     const row = await env.DB.prepare(
-      `SELECT signature, content_type, site_url, length(image) AS bytes
+      `SELECT signature, content_type, length(image) AS bytes
        FROM og_images WHERE poll_id = ?`
-    ).bind(poll.id).first<{ signature: string; content_type: string; site_url: string; bytes: number }>();
+    ).bind(poll.id).first<{ signature: string; content_type: string; bytes: number }>();
     expect(row?.content_type).toBe('image/png');
     // The PNG is stored as a BLOB rather than as hex text.
     expect(row?.bytes).toBe(bytes.length);
     expect(row?.signature).toContain('拆墙：完全取消对境外网站的访问限制');
-    // The address the card prints is kept with it, so the hourly run can redraw it later.
-    expect(row?.site_url).toBe(`${ORIGIN.replace(/^https?:\/\//, '')}/poll/${poll.number}`);
   });
 
   it('renders the title itself rather than one shared placeholder box', async () => {
@@ -105,23 +100,27 @@ describe('poll link cards', () => {
     expect(notModified.status).toBe(304);
   });
 
-  it('redraws the card once a vote changes the standing', async () => {
-    const poll = await seedPublishedPoll('A card that follows the votes');
+  it('keeps the stored card when only the votes change', async () => {
+    const poll = await seedPublishedPoll('A card that ignores the votes');
     const options = await seedOptions(poll.id, [
       { position: 1, label: 'Yes' },
       { position: 2, label: 'No' }
     ]);
 
-    const before = new Uint8Array(await (await SELF.fetch(`${ORIGIN}/og/poll/${poll.number}.png`)).arrayBuffer());
+    const before = await SELF.fetch(`${ORIGIN}/og/poll/${poll.number}.png`);
+    const beforeBytes = new Uint8Array(await before.arrayBuffer());
     const beforeSignature = await cardSignature(poll.id);
 
     await insertBallot(poll.id, 'c'.repeat(64), [options.get(1)!]);
 
-    const after = new Uint8Array(await (await SELF.fetch(`${ORIGIN}/og/poll/${poll.number}.png`)).arrayBuffer());
+    const after = await SELF.fetch(`${ORIGIN}/og/poll/${poll.number}.png`);
+    const afterBytes = new Uint8Array(await after.arrayBuffer());
 
-    // The tally moved, so the signature and the picture did too.
-    expect(await cardSignature(poll.id)).not.toBe(beforeSignature);
-    expect(after.length).not.toBe(before.length);
+    // The picture carries only the site name and the title, so a ballot changes neither the
+    // signature nor the drawn card, and the stored PNG is served again as it is.
+    expect(await cardSignature(poll.id)).toBe(beforeSignature);
+    expect(afterBytes).toEqual(beforeBytes);
+    expect(after.headers.get('etag')).toBe(before.headers.get('etag'));
   });
 
   it('answers 404 for a poll the public cannot see, and for one that does not exist', async () => {

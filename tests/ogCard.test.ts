@@ -2,8 +2,8 @@
 //
 // The card is built as an SVG and rasterized by the Worker (see worker/services/ogImage.ts).
 // What the builder decides on its own is what this file checks: where a long title breaks,
-// that a withheld tally prints no number, that the footer names the poll, and that a hostile
-// title cannot leave the text element it belongs in.
+// that the site's name and the title are centered, that the title is drawn in red and bold,
+// and that a hostile title cannot leave the text element it belongs in.
 
 import { describe, expect, it } from 'vitest';
 import {
@@ -16,19 +16,16 @@ import {
   type OgCardPoll
 } from '../worker/services/ogCard';
 
-const STRINGS = { votes: '{n} votes', resultsPending: 'Results not shown yet' };
-const SITE = { siteName: 'ChinaPoll', siteUrl: 'chinapoll.org/poll/1' };
+const SITE = { siteName: 'ChinaPoll' };
+// The palette values the builder draws with; the title's red and its bold weight are what a
+// reader sees first, so they are pinned here.
+const TITLE_COLOR = '#dc2626';
+const SITE_COLOR = '#143d7d';
 
 function poll(overrides: Partial<OgCardPoll> = {}): OgCardPoll {
   return {
     number: 1,
     title: 'Should the city build more bike lanes?',
-    hidden: false,
-    ballots: 14,
-    answers: [
-      { label: 'Yes', count: 12 },
-      { label: 'No', count: 2 }
-    ],
     ...overrides
   };
 }
@@ -81,23 +78,44 @@ describe('wrapText', () => {
 });
 
 describe('buildOgCardSvg', () => {
-  it('draws the site, the title, the tallies, and the footer at card size', () => {
-    const svg = buildOgCardSvg(poll({ title: 'Bike lanes?' }), SITE, STRINGS);
+  it('draws the site and the title at card size', () => {
+    const svg = buildOgCardSvg(poll({ title: 'Bike lanes?' }), SITE);
 
     expect(svg.startsWith('<svg xmlns="http://www.w3.org/2000/svg"')).toBe(true);
     expect(svg).toContain(`width="${OG_CARD_WIDTH}" height="${OG_CARD_HEIGHT}"`);
     expect(svg).toContain('ChinaPoll');
     expect(svg).toContain('Bike lanes?');
-    // One line of tallies, in the order the options are published.
-    expect(svg).toContain('Yes 12 · No 2');
-    // The footer shows how many ballots are in and the address the poll lives at.
-    expect(svg).toContain('14 votes · chinapoll.org/poll/1');
     expect(svg.endsWith('</svg>')).toBe(true);
+  });
+
+  it('centers the site name and the title on the card', () => {
+    const svg = buildOgCardSvg(poll({ title: 'Bike lanes?' }), SITE);
+
+    // Both lines are anchored on the middle of the card, not on the left margin.
+    expect(svg.match(/text-anchor="middle"/g)).toHaveLength(2);
+    expect(svg).toContain(`x="${OG_CARD_WIDTH / 2}"`);
+    // The site name reads above the title.
+    expect(svg.indexOf('ChinaPoll')).toBeLessThan(svg.indexOf('Bike lanes?'));
+  });
+
+  it('draws the title in red and bold, and the site name in the site color', () => {
+    const svg = buildOgCardSvg(poll({ title: 'Bike lanes?' }), SITE);
+
+    const title = svg.match(/<text[^>]*fill="#dc2626"[^>]*>Bike lanes\?<\/text>/);
+    expect(title).not.toBeNull();
+    expect(title![0]).toContain('font-weight="700"');
+    expect(title![0]).toContain(`fill="${TITLE_COLOR}"`);
+
+    // The site's own line keeps the site color and stays plain.
+    const site = svg.match(/<text[^>]*>ChinaPoll<\/text>/);
+    expect(site).not.toBeNull();
+    expect(site![0]).toContain(`fill="${SITE_COLOR}"`);
+    expect(site![0]).not.toContain('font-weight');
   });
 
   it('wraps a long title into its own text lines', () => {
     const title = 'Should the city build more bike lanes on the main road this year?';
-    const svg = buildOgCardSvg(poll({ title }), SITE, STRINGS);
+    const svg = buildOgCardSvg(poll({ title }), SITE);
 
     // Every line the wrapper produced is drawn, and the whole title is on the card.
     const lines = wrapText(title, 54, OG_CARD_WIDTH - 2 * 96, 3);
@@ -106,37 +124,14 @@ describe('buildOgCardSvg', () => {
     expect(lines.join('').replace(/…$/, '')).toContain('Should the city build');
   });
 
-  it('prints no tally while the results are withheld', () => {
-    const svg = buildOgCardSvg(
-      poll({ hidden: true, ballots: null, answers: [{ label: 'Yes', count: null }, { label: 'No', count: null }] }),
-      SITE,
-      STRINGS
-    );
-
-    expect(svg).toContain('Results not shown yet');
-    // Neither the option counts nor the ballot total reach the card.
-    expect(svg).not.toContain('Yes 12');
-    expect(svg).not.toContain('14 votes');
-    expect(svg).toContain('chinapoll.org');
-  });
-
-  it('numbers the tallies when the counts are published', () => {
-    const svg = buildOgCardSvg(
-      poll({ answers: [{ label: '赞同', count: 12 }, { label: '中立', count: 1 }, { label: '反对', count: 1 }] }),
-      SITE,
-      { votes: '已有 {n} 人投票', resultsPending: '结果暂不显示' }
-    );
-
-    expect(svg).toContain('赞同 12 · 中立 1 · 反对 1');
-    expect(svg).toContain('已有 14 人投票 · chinapoll.org/poll/1');
-  });
-
   it('escapes a hostile title instead of letting it close the text element', () => {
-    const svg = buildOgCardSvg(poll({ title: '</text><script>alert(1)</script>' }), SITE, STRINGS);
+    const hostile = '</text><script>alert(1)</script>';
+    const svg = buildOgCardSvg(poll({ title: hostile }), SITE);
 
     expect(svg).not.toContain('<script>');
     expect(svg).toContain('&lt;/text&gt;&lt;script&gt;');
-    // The card's own elements: the site name, the title, the tallies, and the footer.
-    expect(svg.match(/<text /g)).toHaveLength(4);
+    // The card's own elements: the site name plus the lines of the title.
+    const lineCount = wrapText(hostile, 54, OG_CARD_WIDTH - 2 * 96, 3).length;
+    expect(svg.match(/<text /g)).toHaveLength(1 + lineCount);
   });
 });

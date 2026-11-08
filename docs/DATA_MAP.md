@@ -269,17 +269,14 @@ a shared link.
 | Column | Contents | Readers | Retention |
 | --- | --- | --- | --- |
 | poll_id | poll the card describes; deleted with the poll | Public (through the image route) | until the poll is deleted |
-| signature | the poll text and counts the picture was drawn from | none | as above |
+| signature | the poll text the picture was drawn from (its number and title) | none | as above |
 | content_type, image | the PNG bytes, stored as a BLOB | Public | as above |
 | width, height | card size in pixels | none | as above |
-| site_url | the address the card prints (`chinapoll.org/poll/1`) | none | as above |
 | generated_at | when the picture was last drawn | none | as above |
 
-Note: the card carries only what the poll page publishes. Below the display
-threshold the row's signature records `hidden` and the picture prints no tally, so
-a small poll's numbers cannot be read out of its card either. `signature` is the
-only thing compared to decide a redraw; a row whose signature still matches is
-served as it is, which is why views and unrelated edits never cause a render.
+Note: the card is the site's name over the poll's title. `signature` is the only
+thing compared to decide a redraw; a row whose signature still matches is served as
+it is, which is why a vote, a view, or an unrelated edit never causes a render.
 
 ## publish_state, publish_runs
 

@@ -1,11 +1,7 @@
 // The Open Graph card a poll is shared with: one flat SVG the rasterizer turns into a PNG
-// (see ogImage.ts). The card carries the poll itself - its title, the standing of its
-// options, and how many ballots are in - so a shared link shows the poll's content without
-// the sharer writing a word of their own.
-//
-// The builder is pure: it takes the numbers the page publishes and returns markup. Below
-// the display threshold the site withholds its counts, and so does the card: it prints no
-// tally at all rather than a number the page refuses to show.
+// (see ogImage.ts). The card is deliberately plain - the site's name above the poll's title -
+// so a shared link shows what the link is about without the sharer writing a word of their
+// own.
 //
 // Line breaking is estimated rather than measured: the rasterizer lays the text out but
 // does not report the width it used, so `estimateTextWidth` prices each character from its
@@ -17,42 +13,25 @@ export const OG_CARD_WIDTH = 1200;
 export const OG_CARD_HEIGHT = 630;
 
 // The palette the card is drawn in, matching the site's own tokens (src/styles.css).
-const INK = '#1d2430';
-const MUTED = '#5d6470';
 const PRIMARY = '#143d7d';
+const TITLE_COLOR = '#dc2626';
 const PAGE = '#f4f7fb';
 const PANEL = '#ffffff';
 const BORDER = '#dfe5ee';
 
+const SITE_FONT_SIZE = 42;
+const SITE_NAME_Y = 180;
 const TITLE_FONT_SIZE = 54;
 const TITLE_LINE_HEIGHT = 72;
 const TITLE_MAX_LINES = 3;
 const TITLE_MAX_WIDTH = OG_CARD_WIDTH - 2 * 96;
-const TALLY_FONT_SIZE = 34;
-const FOOTER_FONT_SIZE = 28;
-
-export interface OgCardAnswer {
-  label: string;
-  /** The votes this option collected, or null while the site withholds the counts. */
-  count: number | null;
-}
+// The title block is centered on this line, whatever number of rows it needs.
+const TITLE_CENTER_Y = 390;
 
 export interface OgCardPoll {
-  /** The public number: the card shows the URL a visitor follows. */
+  /** The public number: the card is addressed by it. */
   number: number;
   title: string;
-  /** True while the poll is below the display threshold, so no tally is printed. */
-  hidden: boolean;
-  /** Total ballots, or null while they are withheld. */
-  ballots: number | null;
-  answers: ReadonlyArray<OgCardAnswer>;
-}
-
-export interface OgCardStrings {
-  /** Wording for the ballot total, with `{n}` where the number goes. */
-  votes: string;
-  /** Wording shown instead of the tally while the results are withheld. */
-  resultsPending: string;
 }
 
 export function escapeXml(value: string): string {
@@ -137,48 +116,25 @@ export function wrapText(
   return lines;
 }
 
-// "赞同 12 · 中立 1 · 反对 1": the options in display order with their votes.
-function tallyLine(poll: OgCardPoll): string {
-  return poll.answers
-    .filter((answer) => cardText(answer.label) !== '')
-    .map((answer) => (answer.count === null
-      ? cardText(answer.label)
-      : `${cardText(answer.label)} ${answer.count}`))
-    .join(' · ');
-}
-
 export function buildOgCardSvg(
   poll: OgCardPoll,
-  options: { siteName: string; siteUrl: string },
-  strings: OgCardStrings
+  options: { siteName: string }
 ): string {
+  const centerX = OG_CARD_WIDTH / 2;
   const titleLines = wrapText(poll.title, TITLE_FONT_SIZE, TITLE_MAX_WIDTH, TITLE_MAX_LINES);
-  const titleTop = 250;
+  // The title block is centered on the card: the first baseline sits half the block's height
+  // above the middle, so a one-line and a three-line title share the same optical center.
+  const firstBaseline = TITLE_CENTER_Y - ((titleLines.length - 1) * TITLE_LINE_HEIGHT) / 2;
   const title = titleLines.map((line, index) => (
-    `<text x="96" y="${titleTop + index * TITLE_LINE_HEIGHT}" font-family="Noto Sans SC"`
-    + ` font-size="${TITLE_FONT_SIZE}" fill="${INK}">${escapeXml(line)}</text>`
+    `<text x="${centerX}" y="${firstBaseline + index * TITLE_LINE_HEIGHT}" text-anchor="middle"`
+    + ` font-family="Noto Sans SC" font-size="${TITLE_FONT_SIZE}" font-weight="700"`
+    + ` fill="${TITLE_COLOR}">${escapeXml(line)}</text>`
   )).join('');
-
-  // A poll whose results are withheld prints a note instead of a tally, so the card never
-  // shows a number the page keeps back.
-  const tallyText = poll.hidden ? cardText(strings.resultsPending) : tallyLine(poll);
-  const tally = tallyText
-    ? `<text x="96" y="500" font-family="Noto Sans SC" font-size="${TALLY_FONT_SIZE}" fill="${MUTED}">${escapeXml(tallyText)}</text>`
-    : '';
-
-  // The footer names the poll: how many ballots it holds, and the address it lives at
-  // without its scheme, so it reads as one line of text rather than a link.
-  const votes = poll.ballots === null ? '' : strings.votes.replace('{n}', String(poll.ballots));
-  const footer = [votes, options.siteUrl].filter(Boolean).join(' · ');
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${OG_CARD_WIDTH}" height="${OG_CARD_HEIGHT}" viewBox="0 0 ${OG_CARD_WIDTH} ${OG_CARD_HEIGHT}">`
     + `<rect width="${OG_CARD_WIDTH}" height="${OG_CARD_HEIGHT}" fill="${PAGE}"/>`
     + `<rect x="48" y="48" width="${OG_CARD_WIDTH - 96}" height="${OG_CARD_HEIGHT - 96}" rx="28" fill="${PANEL}" stroke="${BORDER}"/>`
-    + `<text x="96" y="140" font-family="Noto Sans SC" font-size="30" fill="${PRIMARY}">${escapeXml(cardText(options.siteName))}</text>`
+    + `<text x="${centerX}" y="${SITE_NAME_Y}" text-anchor="middle" font-family="Noto Sans SC" font-size="${SITE_FONT_SIZE}" fill="${PRIMARY}">${escapeXml(cardText(options.siteName))}</text>`
     + title
-    + tally
-    + (footer
-      ? `<text x="96" y="566" font-family="Noto Sans SC" font-size="${FOOTER_FONT_SIZE}" fill="${MUTED}">${escapeXml(footer)}</text>`
-      : '')
     + '</svg>';
 }

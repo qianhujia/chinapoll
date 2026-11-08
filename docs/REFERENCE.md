@@ -476,8 +476,8 @@ may poll often, and every document's head advertises the two feeds with
 ## Poll link cards
 
 A poll page publishes its own `og:image`: `/og/poll/<number>.png`, a 1200x630 card
-carrying the poll title, the standing of its options, and how many ballots are in,
-so a shared link shows the poll itself rather than the site-wide social image.
+carrying the site's name over the poll's title, so a shared link shows what the poll
+is about rather than the site-wide social image.
 `worker/services/ogCard.ts` builds the card as an SVG and
 `worker/services/ogImage.ts` rasterizes it with `@resvg/resvg-wasm`, keeping the
 PNG in the `og_images` table as a BLOB (`docs/DATA_MAP.md`); a card builder that
@@ -485,15 +485,14 @@ fetches a card twice pays for one render, and the response is
 `public, max-age=600` with an ETag that answers `304` while the poll has not
 changed.
 
-Freshness is the card's `signature`, not a clock: it holds the poll's number,
-title, whether the counts are published, and the numbers themselves, so a new vote
-moves it and a view count does not. A request for a card that is missing or out of
-date draws it, and the hourly run (`refreshOgCards`, limited to the 50 most
-recently changed open polls) redraws the cards whose polls moved without a visit.
-Below the display threshold the card prints no tally at all, exactly as the page
-withholds it. A card that cannot be drawn is never answered with an error a card
-builder would record as a broken picture: the stored card answers if there is one,
-and the site's own share image (`shareImageUrl`) otherwise.
+Freshness is the card's `signature`, not a clock: it holds the poll's number and
+title, so a title edit moves it and a vote, a view count, or a timestamp does not. A
+request for a card that is missing or out of date draws it, and the hourly run
+(`refreshOgCards`, limited to the 50 most recently changed open polls) redraws the
+cards whose polls moved without a visit. A card that cannot be drawn is never
+answered with an error a card builder would record as a broken picture: the stored
+card answers if there is one, and the site's own share image (`shareImageUrl`)
+otherwise.
 
 Two assets matter to the rendering. The rasterizer is a bundled WebAssembly module:
 workerd compiles WebAssembly only at deploy time, so `@resvg/resvg-wasm`'s

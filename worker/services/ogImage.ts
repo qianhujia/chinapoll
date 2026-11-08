@@ -6,10 +6,10 @@
 // the first one is a single row read.
 //
 // Freshness is a signature, not a clock: `ogSignature` reduces the facts the picture was
-// drawn from (title, number, whether the counts are published, and the numbers themselves)
-// to one string. A stored card whose signature still matches is served as it is; one that
-// does not is drawn again. A request that finds no card (a poll published since the last
-// hourly run) draws it then, so a link shared right after a vote is never stale.
+// drawn from (the poll's number and title) to one string. A stored card whose signature
+// still matches is served as it is; one that does not is drawn again. A request that finds
+// no card (a poll published since the last hourly run) draws it then, so a link shared right
+// after a poll is published is never stale.
 //
 // The rasterizer is imported as a module, because workerd compiles WebAssembly only at
 // deploy time: instantiating bytes fetched at runtime is refused ("Wasm code generation
@@ -23,12 +23,9 @@ import {
   OG_CARD_HEIGHT,
   OG_CARD_WIDTH,
   buildOgCardSvg,
-  type OgCardAnswer,
-  type OgCardPoll,
-  type OgCardStrings
+  type OgCardPoll
 } from './ogCard';
-import { PollMode, PollStatus, PollType } from '../enums';
-import { countPollBallots, getPollOptions, toPublicResults } from './options';
+import { PollMode, PollStatus } from '../enums';
 
 export const OG_IMAGE_CONTENT_TYPE = 'image/png';
 /** How long a card builder (and a shared cache) may reuse a card, in seconds. */
@@ -50,8 +47,6 @@ export interface StoredOgImage {
   width: number;
   height: number;
   generated_at: number;
-  /** The card's own address (`chinapoll.org/poll/1`), kept so a redraw can reuse it. */
-  site_url: string;
 }
 
 export { OG_CARD_HEIGHT, OG_CARD_WIDTH };
@@ -118,13 +113,10 @@ export async function renderOgCard(
 }
 
 // What the picture was drawn from, as one string. Anything that changes the pixels has to
-// change this, and anything that does not must leave it alone: a new vote moves it, a view
-// count or a timestamp does not.
+// change this, and anything that does not must leave it alone: the poll's title moves it, a
+// vote, a view count, or a timestamp does not.
 export function ogSignature(poll: OgCardPoll): string {
-  const answers = poll.answers
-    .map((answer: OgCardAnswer) => `${answer.label}=${answer.count === null ? 'hidden' : answer.count}`)
-    .join('|');
-  return [poll.number, poll.title, poll.hidden ? 'hidden' : 'counted', poll.ballots ?? 'hidden', answers].join('\n');
+  return [poll.number, poll.title].join('\n');
 }
 
 function toBytes(bytes: Uint8Array): Uint8Array {
@@ -138,12 +130,10 @@ function toBytes(bytes: Uint8Array): Uint8Array {
 export async function drawOgCard(
   env: OgImageEnv,
   poll: OgCardPoll,
-  text: OgCardStrings,
-  site: { siteName: string; origin: string }
+  site: { siteName: string }
 ): Promise<StoredOgImage> {
   if (!env.ASSETS) throw new Error('no assets binding');
-  const siteUrl = `${site.origin.replace(/^https?:\/\//, '')}/poll/${poll.number}`;
-  const svg = buildOgCardSvg(poll, { siteName: site.siteName, siteUrl }, text);
+  const svg = buildOgCardSvg(poll, { siteName: site.siteName });
   const rendered = await renderOgCard(env.ASSETS, svg);
   const stored: StoredOgImage = {
     signature: ogSignature(poll),
@@ -151,8 +141,7 @@ export async function drawOgCard(
     image: toBytes(rendered.bytes),
     width: rendered.width,
     height: rendered.height,
-    generated_at: Math.floor(Date.now() / 1000),
-    site_url: siteUrl
+    generated_at: Math.floor(Date.now() / 1000)
   };
   await storeOgImage(env.DB, poll.number, stored);
   return stored;
@@ -160,7 +149,7 @@ export async function drawOgCard(
 
 export async function loadOgImage(db: D1Database, pollNumber: number): Promise<StoredOgImage | null> {
   const row = await db.prepare(
-    `SELECT o.signature, o.content_type, o.image, o.width, o.height, o.site_url, o.generated_at
+    `SELECT o.signature, o.content_type, o.image, o.width, o.height, o.generated_at
      FROM og_images o JOIN polls p ON p.id = o.poll_id WHERE p.number = ?`
   ).bind(pollNumber).first<Omit<StoredOgImage, 'image'> & { image: unknown }>();
   if (!row) return null;
@@ -173,73 +162,45 @@ export async function storeOgImage(
   image: StoredOgImage
 ): Promise<void> {
   await db.prepare(
-    `INSERT INTO og_images (poll_id, signature, content_type, image, width, height, site_url, generated_at)
-     SELECT id, ?, ?, ?, ?, ?, ?, ? FROM polls WHERE number = ?
+    `INSERT INTO og_images (poll_id, signature, content_type, image, width, height, generated_at)
+     SELECT id, ?, ?, ?, ?, ?, ? FROM polls WHERE number = ?
      ON CONFLICT(poll_id) DO UPDATE SET
        signature = excluded.signature,
        content_type = excluded.content_type,
        image = excluded.image,
        width = excluded.width,
        height = excluded.height,
-       site_url = excluded.site_url,
        generated_at = excluded.generated_at`
   ).bind(
     image.signature, image.content_type, image.image,
-    image.width, image.height, image.site_url, image.generated_at, pollNumber
+    image.width, image.height, image.generated_at, pollNumber
   ).run();
 }
 
 // The poll facts a card is drawn from, read the way the page publishes them: the poll list's
-// own visibility predicate, and the shared engine - with the display threshold - that the
-// stats endpoint uses, so a card can never print a count the page withholds.
+// own visibility predicate, so a card exists only for a poll the public can see.
 export interface OgCardFacts {
   poll: OgCardPoll;
-  pollType: number;
 }
 
 export async function loadOgCardFacts(
-  env: OgImageEnv & { min_votes_to_display?: number },
+  env: OgImageEnv,
   pollNumber: number
 ): Promise<OgCardFacts | null> {
   const row = await env.DB.prepare(
-    `SELECT id, number, title, poll_type FROM polls
+    `SELECT number, title FROM polls
      WHERE number = ? AND mode IN (?, ?) AND status IN (?, ?, ?)`
   ).bind(
     pollNumber,
     PollMode.Deadline, PollMode.Evergreen,
     PollStatus.Open, PollStatus.Closed, PollStatus.Archived
-  ).first<{ id: number; number: number; title: string; poll_type: number }>();
+  ).first<{ number: number; title: string }>();
   if (!row) return null;
 
-  const poll = { id: Number(row.id), poll_type: Number(row.poll_type) };
-  const options = await getPollOptions(env, poll);
-  const tally = await countPollBallots(env, poll);
-  const results = toPublicResults(poll, options, tally, Number(env.min_votes_to_display ?? 0));
-  const hidden = results.hidden === true;
-  const answers = options.map((option, index) => ({
-    label: option.label,
-    count: hidden ? null : results.options?.[index]?.count ?? null
-  }));
-
-  // A verdict poll always shows its three standings in order. A choice poll can offer more
-  // options than a single line of the card holds, so only the three that collected the most
-  // votes are drawn; the rest stay on the page. A tie keeps the options' display order.
-  const shownAnswers = poll.poll_type === PollType.Verdict
-    ? answers
-    : answers
-      .map((answer, index) => ({ ...answer, index }))
-      .sort((left, right) => (right.count ?? -1) - (left.count ?? -1) || left.index - right.index)
-      .slice(0, 3)
-      .map((answer) => ({ label: answer.label, count: answer.count }));
-
   return {
-    pollType: poll.poll_type,
     poll: {
       number: Number(row.number),
-      title: String(row.title ?? ''),
-      hidden,
-      ballots: hidden ? null : results.ballots ?? 0,
-      answers: shownAnswers
+      title: String(row.title ?? '')
     }
   };
 }
@@ -251,11 +212,9 @@ export const OG_REFRESH_LIMIT = 50;
 
 // Redraws the cards whose poll has changed since they were drawn, and leaves the rest alone.
 // A poll that has no card yet is skipped here: a card is first drawn by the request that
-// needs it, which is also the only side that knows which origin the site is served from. A
-// redraw reuses the address the stored card printed, so the hourly run needs no request.
+// needs it.
 export async function refreshOgCards(
   env: OgImageEnv,
-  text: OgCardStrings,
   site: { siteName: string },
   limit = OG_REFRESH_LIMIT
 ): Promise<number> {
@@ -276,8 +235,7 @@ export async function refreshOgCards(
     if (!stored || stored.signature === ogSignature(facts.poll)) continue;
 
     try {
-      const siteUrl = stored.site_url;
-      const svg = buildOgCardSvg(facts.poll, { siteName: site.siteName, siteUrl }, text);
+      const svg = buildOgCardSvg(facts.poll, { siteName: site.siteName });
       const rendered = await renderOgCard(env.ASSETS!, svg);
       await storeOgImage(env.DB, number, {
         signature: ogSignature(facts.poll),
@@ -285,8 +243,7 @@ export async function refreshOgCards(
         image: rendered.bytes,
         width: rendered.width,
         height: rendered.height,
-        generated_at: Math.floor(Date.now() / 1000),
-        site_url: siteUrl
+        generated_at: Math.floor(Date.now() / 1000)
       });
       redrawn += 1;
     } catch (error) {

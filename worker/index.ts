@@ -557,26 +557,19 @@ ${polls.map(entry).join('\n')}
 
   // The Open Graph card for one poll: a PNG a card builder fetches instead of the page. The
   // stored card is served while it still describes the poll (see worker/services/ogImage.ts);
-  // otherwise it is drawn now, so a poll published or voted on since the last hourly run
-  // still shares the standing it has. A card that cannot be drawn falls back to the stored one
-  // and then to the site's own share image, because a card builder that records a broken
-  // picture keeps showing it for days.
+  // otherwise it is drawn now. A card that cannot be drawn falls back to the stored one and
+  // then to the site's own share image, because a card builder that records a broken picture
+  // keeps showing it for days.
   const ogMatch = /^\/og\/poll\/(\d+)\.png$/.exec(url.pathname);
   if (ogMatch) {
     const { settings } = await loadSettings(env);
-    // The card's own lines follow the site's default locale, like every server-rendered page.
-    const cardText = translatorFor(settings.default_locale);
-    const cardEnv: HandlerEnv & { min_votes_to_display?: number } = { ...env, ...settings };
-    const facts = await loadOgCardFacts(cardEnv, Number(ogMatch[1]));
+    const facts = await loadOgCardFacts(env, Number(ogMatch[1]));
     if (!facts) return apiError('POLL_NOT_FOUND', 404);
 
     let card = await loadOgImage(env.DB, facts.poll.number);
     if (!card || card.signature !== ogSignature(facts.poll)) {
       try {
-        card = await drawOgCard(cardEnv, facts.poll, {
-          votes: cardText('ogVotes'),
-          resultsPending: cardText('ogResultsPending')
-        }, { siteName: settings.site_name, origin });
+        card = await drawOgCard(env, facts.poll, { siteName: settings.site_name });
       } catch (error) {
         console.error('og card failed', error);
         // A card that cannot be drawn falls back to the stored one (stale beats missing), and
@@ -732,18 +725,14 @@ export default {
   },
 
   // Hourly maintenance: write signed snapshots, advance the poll lifecycle, purge expired
-  // rows (see worker/services/maintenance.ts), and refresh the poll cards whose standing has
-  // moved since they were drawn (see worker/services/ogImage.ts).
+  // rows (see worker/services/maintenance.ts), and refresh the poll cards whose poll has
+  // changed since they were drawn (see worker/services/ogImage.ts).
   async scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     ctx.waitUntil((async () => {
       await runMaintenanceTasks(env);
       try {
         const { settings } = await loadSettings(env);
-        const t = translatorFor(settings.default_locale);
-        await refreshOgCards(env, {
-          votes: t('ogVotes'),
-          resultsPending: t('ogResultsPending')
-        }, { siteName: settings.site_name });
+        await refreshOgCards(env, { siteName: settings.site_name });
       } catch (error) {
         // A run that cannot read the settings or its assets leaves the stored cards alone;
         // the next run (and any request) tries again.
